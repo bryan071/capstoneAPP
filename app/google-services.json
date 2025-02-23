@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "822952482588",
+    "project_id": "farmaid-21053",
+    "storage_bucket": "farmaid-21053.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:822952482588:android:b87b4b89a37f92bd5dccd9",
+        "android_client_info": {
+          "package_name": "com.project.webapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "822952482588-u7o5mpbpk6ddbb5dndc1kntdr0db99jc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.project.webapp",
+            "certificate_hash": "ffbe596fc4c683bae441dd4500458992526ac63f"
+          }
+        },
+        {
+          "client_id": "822952482588-1k72rbgjut6dhi13iatcfalou4hcust5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyYTvPIkfQ4vkIFjXL63Q0HUNECwNunI0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "822952482588-1k72rbgjut6dhi13iatcfalou4hcust5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
