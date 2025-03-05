@@ -1,5 +1,8 @@
 package com.project.webapp.pages
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +17,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.material.FloatingActionButton
 import androidx.compose.material.Icon
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,7 +35,14 @@ import com.google.firebase.storage.FirebaseStorage
 import com.project.webapp.AuthViewModel
 import com.project.webapp.productdata.Product
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -45,6 +56,9 @@ fun MarketScreen(modifier: Modifier = Modifier, navController: NavController, au
     val categories = listOf("All", "vegetable", "fruits", "rootcrops", "grains", "spices")
     val coroutineScope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(navController.context) }
+    val permissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         coroutineScope.launch {
@@ -118,33 +132,84 @@ fun MarketScreen(modifier: Modifier = Modifier, navController: NavController, au
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
-            onAddProduct = { category, imageUrl, name, price ->
-                uploadProduct(category, imageUrl, name, price, firestore, storage, authViewModel)
+            onAddProduct = { category, name, price, imageUri ->
+                if (permissionState.status.isGranted) {
+                    uploadProduct(
+                        name = name,
+                        category = category,
+                        price = price,
+                        imageUri = imageUri,
+                        firestore = firestore,
+                        storage = storage,
+                        authViewModel = authViewModel,
+                        fusedLocationClient = fusedLocationClient,
+                        context = context
+                    )
+                } else {
+                    permissionState.launchPermissionRequest() // Request permission
+                }
                 showDialog = false
             }
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Double, Uri?) -> Unit) {
     var name by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         imageUri = it
     }
 
+    val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
+    var expanded by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add Product") },
         text = {
             Column {
-                TextField(value = category, onValueChange = { category = it }, label = { Text("Category") })
-                TextField(value = name, onValueChange = { name = it }, label = { Text("Name") })
-                TextField(value = price, onValueChange = { price = it }, label = { Text("Price") })
-                Button(onClick = { imagePickerLauncher.launch("image/*") }) {
+                Text("Category")
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedCategory,
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),  // Required for proper dropdown behavior
+                        trailingIcon = {
+                            IconButton(onClick = { expanded = !expanded }) {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        categories.forEach { category ->
+                            DropdownMenuItem(
+                                text = { Text(category) },
+                                onClick = {
+                                    selectedCategory = category
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                TextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+                TextField(value = price, onValueChange = { price = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { imagePickerLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
                     Text("Select Image")
                 }
             }
@@ -152,7 +217,7 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
         confirmButton = {
             Button(onClick = {
                 val priceDouble = price.toDoubleOrNull() ?: 0.0
-                onAddProduct(category, name, priceDouble, imageUri)
+                onAddProduct(selectedCategory, name, priceDouble, imageUri)
             }) {
                 Text("Add")
             }
@@ -165,6 +230,7 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
     )
 }
 
+
 fun uploadProduct(
     name: String,
     category: String,
@@ -172,44 +238,72 @@ fun uploadProduct(
     imageUri: Uri?,
     firestore: FirebaseFirestore,
     storage: FirebaseStorage,
-    authViewModel: AuthViewModel
+    authViewModel: AuthViewModel,
+    fusedLocationClient: FusedLocationProviderClient,
+    context: Context
 ) {
     val productRef = firestore.collection("products").document()
     val userId = authViewModel.currentUser?.uid ?: "Unknown"
 
-    val uploadImageAndSaveProduct: (String) -> Unit = { imageUrl ->
-        val product = Product(category, imageUrl, name, price)
-        productRef.set(product).addOnSuccessListener {
-            addNotification(firestore, product, userId) // Pass the full product object
-        }
-    }
+    // ✅ Check if location permissions are granted before fetching location
+    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                val addressList = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                val cityName = if (!addressList.isNullOrEmpty()) {
+                    addressList[0].locality ?: "Unknown City"
+                } else {
+                    "Unknown City"
+                }
 
-    if (imageUri != null) {
-        val imageRef = storage.reference.child("product_images/${productRef.id}.jpg")
-        imageRef.putFile(imageUri).addOnSuccessListener {
-            imageRef.downloadUrl.addOnSuccessListener { uri ->
-                uploadImageAndSaveProduct(uri.toString())
+                val uploadImageAndSaveProduct: (String) -> Unit = { imageUrl ->
+                    val product = Product(category, imageUrl, name, price)
+                    productRef.set(product).addOnSuccessListener {
+                        addNotification(firestore, product, userId, cityName)
+                    }
+                }
+
+                if (imageUri != null) {
+                    val imageRef = storage.reference.child("product_images/${productRef.id}.jpg")
+                    imageRef.putFile(imageUri).addOnSuccessListener {
+                        imageRef.downloadUrl.addOnSuccessListener { uri ->
+                            uploadImageAndSaveProduct(uri.toString())
+                        }
+                    }.addOnFailureListener {
+                        Log.e("Firebase", "Image upload failed", it)
+                    }
+                } else {
+                    uploadImageAndSaveProduct("")
+                }
+            } else {
+                Log.e("Location", "Failed to get location")
             }
         }.addOnFailureListener {
-            Log.e("Firebase", "Image upload failed", it)
+            Log.e("Location", "Failed to get location", it)
         }
     } else {
-        uploadImageAndSaveProduct("") // No image case
+        Log.e("Location", "Permission not granted")
     }
 }
 
 
-fun addNotification(firestore: FirebaseFirestore, product: Product, userId: String) {
+
+
+fun addNotification(firestore: FirebaseFirestore, product: Product, userId: String, location: String) {
     val notificationRef = firestore.collection("notifications").document()
+    val notificationId = notificationRef.id // Generate unique ID
+
     val notification = mapOf(
+        "id" to notificationId, // ✅ Store ID for deletion
         "message" to "New product added: ${product.name}",
         "timestamp" to System.currentTimeMillis(),
         "userId" to userId,
         "name" to product.name,
         "category" to product.category,
         "price" to product.price,
-        "imageUrl" to product.imageUrl, // Store image URL for display
-        // "location" to "Bulacan",  Add location (modify based on actual data)
+        "imageUrl" to product.imageUrl,
+        "location" to location,
         "isRead" to false
     )
 
@@ -219,5 +313,7 @@ fun addNotification(firestore: FirebaseFirestore, product: Product, userId: Stri
         Log.e("Firestore", "Error adding notification", e)
     }
 }
+
+
 
 
