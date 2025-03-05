@@ -58,16 +58,42 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    implementation(platform("com.google.firebase:firebase-bom:33.9.0"))
-    implementation("com.google.firebase:firebase-analytics")
-    implementation ("androidx.compose:compose-bom:2024.02.00")
-    implementation ("androidx.lifecycle:lifecycle-runtime-compose:2.6.2")
-    implementation ("androidx.compose.runtime:runtime-livedata")
-    implementation ("com.google.firebase:firebase-auth-ktx")
-    implementation ("com.google.firebase:firebase-firestore-ktx")
-    implementation ("com.google.android.gms:play-services-auth:20.7.0")
-    implementation ("com.google.firebase:firebase-auth:22.1.1")
 
+    implementation(platform("com.google.firebase:firebase-bom:33.9.0"))
+
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx:24.9.0")
+    implementation ("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx:23.3.1")
+
+
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+    implementation("com.google.android.gms:play-services-location:21.0.1")
+
+    // Jetpack Compose
+    implementation("androidx.compose:compose-bom:2024.02.00")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.2")
+    implementation("androidx.compose.runtime:runtime-livedata")
+    implementation("androidx.compose.material:material:1.5.4")
+    implementation ("androidx.activity:activity-compose:1.8.2")
+
+    // ViewModel Support
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
+
+    // Coil for Image Loading
+    implementation("io.coil-kt:coil-compose:2.5.0")
+
+    // Accompanist Permissions
+    implementation("com.google.accompanist:accompanist-permissions:0.31.3-beta")
+
+    // Weather API
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation ("com.google.android.gms:play-services-tasks:18.0.2")
+    implementation("com.google.android.gms:play-services-location:21.0.1") // For GPS
+    implementation("com.google.android.gms:play-services-maps:18.2.0") // Google Maps API
+    implementation ("com.google.accompanist:accompanist-permissions:0.33.1-alpha")
 
 
 

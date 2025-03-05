@@ -6,4 +6,7 @@ object Route {
     var register = "register"
     var forgot = "forgot"
     var dashboard = "dashboard"
+    var profiie = "profile"
+    var market = "market"
+    var notification = "notification"
 }
