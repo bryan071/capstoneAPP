@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.toSize
 import androidx.navigation.NavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.firebase.firestore.FirebaseFirestore
@@ -35,7 +37,10 @@ import com.google.firebase.storage.FirebaseStorage
 import com.project.webapp.AuthViewModel
 import com.project.webapp.productdata.Product
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.core.content.ContextCompat
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -167,6 +172,8 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
 
     val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
     var expanded by remember { mutableStateOf(false) }
+    var textFieldSize by remember { mutableStateOf(Size.Zero) }
+    var pressedCategory by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -184,26 +191,38 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
                         readOnly = true,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .menuAnchor(),  // Required for proper dropdown behavior
+                            .menuAnchor()
+                            .onGloballyPositioned { coordinates ->
+                                textFieldSize = coordinates.size.toSize()
+                            },
                         trailingIcon = {
                             IconButton(onClick = { expanded = !expanded }) {
                                 Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
                             }
                         }
                     )
+
                     DropdownMenu(
                         expanded = expanded,
                         onDismissRequest = { expanded = false },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .width(with(LocalDensity.current) { textFieldSize.width.toDp() })
                     ) {
                         categories.forEach { category ->
                             DropdownMenuItem(
-                                text = { Text(category) },
+                                text = {
+                                    Text(
+                                        category,
+                                        textDecoration = if (pressedCategory == category) TextDecoration.Underline else TextDecoration.None
+                                    )
+                                },
                                 onClick = {
+                                    pressedCategory = category
                                     selectedCategory = category
                                     expanded = false
                                 }
                             )
+
                         }
                     }
                 }
@@ -229,6 +248,7 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
         }
     )
 }
+
 
 
 fun uploadProduct(

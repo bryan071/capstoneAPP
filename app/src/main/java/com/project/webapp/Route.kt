@@ -2,6 +2,7 @@ package com.project.webapp
 
 object Route {
 
+    var splash = "splash"
     var login = "login"
     var register = "register"
     var forgot = "forgot"

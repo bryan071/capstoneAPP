@@ -1,6 +1,7 @@
 package com.project.webapp
 
 import NotificationScreen
+import SplashScreen
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -27,15 +28,18 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
     Scaffold(
         bottomBar = {
             if (authViewModel.authState.observeAsState().value == AuthState.Authenticated) {
-                BottomNavigationBar(navController) // Show bottom bar only when logged in
+                BottomNavigationBar(navController)
             }
         }
     ) { paddingValues ->
         NavHost(
             navController = navController,
             startDestination = Route.login,
-            modifier = Modifier.padding(paddingValues) // This ensures content does not overlap bottom bar
+            modifier = Modifier.padding(paddingValues)
         ) {
+            composable(Route.splash) {
+                SplashScreen(navController)
+            }
             composable(Route.login) {
                 Login(modifier, navController, authViewModel)
             }
