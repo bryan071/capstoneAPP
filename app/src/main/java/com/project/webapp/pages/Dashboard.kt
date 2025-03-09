@@ -2,7 +2,6 @@ package com.project.webapp.pages
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.location.Location
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -13,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,20 +34,33 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import com.project.webapp.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.productdata.Product
-import fetchWeather
-import getNearestCity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import org.json.JSONException
+import org.json.JSONObject
+import java.io.IOException
 import java.text.NumberFormat
 import java.util.Locale
+import java.util.logging.Handler
 
 
 @Composable
@@ -61,7 +75,7 @@ fun Dashboard(modifier: Modifier = Modifier, navController: NavController, authV
     ) {
         TopBar()
         SearchBar()
-        FeaturedProductsSection()
+        FeaturedProductsSection(authViewModel)
         DiscountsBanner()
         WeatherSection(context)
         CommunityFeed()
@@ -132,11 +146,9 @@ fun SearchBar() {
     )
 }
 
-
-
-// 🔹 Featured Products Section
 @Composable
-fun FeaturedProductsSection() {
+fun FeaturedProductsSection(authViewModel: AuthViewModel) {
+    val storage = FirebaseStorage.getInstance()
     val firestore = FirebaseFirestore.getInstance()
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
     val coroutineScope = rememberCoroutineScope()
@@ -144,24 +156,33 @@ fun FeaturedProductsSection() {
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             val fetchedProducts = fetchProducts(firestore)
-            Log.d("FirestoreDebug", "Setting state with ${fetchedProducts.size} products")
-            products = fetchedProducts
+            if (fetchedProducts.isNotEmpty()) {
+                Log.d("FirestoreDebug", "Updating UI with ${fetchedProducts.size} products")
+                products = fetchedProducts
+            } else {
+                Log.w("FirestoreDebug", "No products available")
+            }
         }
     }
 
-    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        Text("Featured Products", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        LazyRow(
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .height(240.dp)
-        ) {
-            items(products) { product ->
-                ProductCard(product)
+    if (products.isEmpty()) {
+        Text("No featured products available", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(16.dp))
+    } else {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            Text("Featured Products", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            LazyRow(
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .height(240.dp)
+            ) {
+                items(products) { product ->
+                    ProductCard(product = product, currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: "", firestore = firestore, storage = storage)
+                }
             }
         }
     }
 }
+
 
 @Composable
 fun DiscountsBanner() {
@@ -185,23 +206,47 @@ fun WeatherSection(context: Context) {
     val fusedLocationProviderClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     val scope = rememberCoroutineScope()
     val apiKey = "865c1bf771394c12ad1122044250303"
-
     var cityName by remember { mutableStateOf("Fetching location...") }
     var temperature by remember { mutableStateOf("Fetching...") }
     var weatherCondition by remember { mutableStateOf("Please wait...") }
     var weatherIcon by remember { mutableStateOf(R.drawable.sun) }
+    var showDialog by remember { mutableStateOf(false) }
+    var nearbyCities by remember { mutableStateOf(listOf<String>()) }
+    var nearbyCityWeather by remember { mutableStateOf<Map<String, Pair<String, Int>>>(emptyMap()) }
 
     val locationPermissionState = rememberPermissionState(permission = android.Manifest.permission.ACCESS_FINE_LOCATION)
 
     LaunchedEffect(locationPermissionState.status) {
         if (locationPermissionState.status.isGranted) {
-            getUserLocation(fusedLocationProviderClient) { city, lat, lon ->
-                cityName = city // ✅ Update city name in UI
+            getUserLocation(fusedLocationProviderClient) { city, lat, lon, cities ->
+                if (city.isNotBlank()) {
+                    cityName = city
+                } else {
+                    cityName = "$lat, $lon"  // Use lat/lon if city detection fails
+                }
+
+                nearbyCities = cities.filter { it != cityName }
+
                 scope.launch {
-                    fetchWeather(city, apiKey) { temp, condition, icon ->
-                        temperature = "$temp°C"
-                        weatherCondition = condition
-                        weatherIcon = icon
+                    // ✅ Fetch weather only if cityName is valid
+                    if (cityName.isNotBlank() && cityName != "Unknown Location") {
+                        fetchWeather(cityName, apiKey) { temp, condition, icon ->
+                            temperature = "$temp°C"
+                            weatherCondition = condition
+                            weatherIcon = icon
+                        }
+                    }
+
+                    // ✅ Fetch weather for nearby cities correctly
+                    val weatherData = mutableMapOf<String, Pair<String, Int>>()
+                    nearbyCities.forEach { city ->
+                        fetchWeather(city, apiKey) { temp, condition, icon ->
+                            weatherData[city] = "$temp°C - $condition" to icon
+                            // ✅ Update state inside the main thread
+                            scope.launch {
+                                nearbyCityWeather = weatherData.toMap()
+                            }
+                        }
                     }
                 }
             }
@@ -210,33 +255,101 @@ fun WeatherSection(context: Context) {
         }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(8.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(Color(0xFF4CAF50))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(id = weatherIcon),
-                    contentDescription = "Weather Icon",
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("Weather Update", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text(cityName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White) // ✅ Show city name
-                    Text("Temperature: $temperature | $weatherCondition", fontSize = 14.sp, color = Color.White)
+
+
+    Column {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .clickable { showDialog = true },
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(Color(0xFF4CAF50))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painter = painterResource(id = weatherIcon),
+                        contentDescription = "Weather Icon",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Weather Update", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(cityName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Text("Temperature: $temperature | $weatherCondition", fontSize = 14.sp, color = Color.White)
+                    }
                 }
             }
+        }
+
+        if (showDialog) {
+            AlertDialog(
+                onDismissRequest = { showDialog = false },
+                title = { Text("Nearby Cities & Weather") },
+                text = {
+                    Column {
+                        Text("Detected City: $cityName", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Nearby Cities & Weather:")
+                        if (nearbyCities.isNotEmpty()) {
+                            nearbyCities.forEach { cityName ->
+                                val (temp, icon) = nearbyCityWeather[cityName] ?: ("Fetching..." to R.drawable.sun)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        painter = painterResource(id = icon),
+                                        contentDescription = "Weather Icon",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("$cityName - $temp", fontSize = 14.sp)
+                                }
+                            }
+                        } else {
+                            Text("Fetching nearby cities...", fontSize = 14.sp, fontStyle = FontStyle.Italic)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDialog = false }) {
+                        Text("OK")
+                    }
+                }
+            )
         }
     }
 }
 
+// 🌍 Function to Get User Location & Nearby Cities
+@SuppressLint("MissingPermission")
+private fun getUserLocation(
+    fusedLocationProviderClient: FusedLocationProviderClient,
+    onLocationRetrieved: (String, Double, Double, List<String>) -> Unit
+) {
+    try {
+        fusedLocationProviderClient.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                val lat = location.latitude
+                val lon = location.longitude
+                val detectedCity = getCityFromCoordinates(lat, lon).orEmpty()
+                val nearbyCities = getNearbyCities(lat, lon)
 
-// Function to determine the nearest city based on coordinates
-fun getNearestCity(lat: Double, lon: Double): String {
+                onLocationRetrieved(detectedCity, lat, lon, nearbyCities)
+            } else {
+                Log.e("LocationError", "Location is null")
+            }
+        }.addOnFailureListener {
+            Log.e("LocationError", "Failed to get location", it)
+        }
+    } catch (e: SecurityException) {
+        Log.e("LocationError", "Permission denied", e)
+    }
+}
+
+
+// ✅ Function to get multiple nearby cities based on user’s coordinates
+fun getCityFromCoordinates(lat: Double, lon: Double): String? {
     return when {
         // Metro Manila
         lat in 14.50..14.70 && lon in 120.90..121.00 -> "Manila"
@@ -273,39 +386,94 @@ fun getNearestCity(lat: Double, lon: Double): String {
         lat in 14.68..14.73 && lon in 120.80..120.90 -> "Calumpit"
         lat in 14.80..14.85 && lon in 120.78..120.88 -> "Doña Remedios Trinidad"
 
-        // Pampanga (keeping your original)
-        lat in 15.00..15.30 && lon in 120.60..120.80 -> "San Fernando"
+        // Other Cities
+        lat in 14.50..14.70 && lon in 120.90..121.00 -> "Manila"
+        lat in 14.55..14.60 && lon in 121.00..121.10 -> "Makati"
+        lat in 37.40..37.45 && lon in -122.09..-122.07 -> "Mountain View"
 
-        // Baguio (keeping your original)
-        lat in 16.40..16.50 && lon in 120.30..120.40 -> "Baguio"
-
-        else -> "Unknown Location"
+        else -> null
     }
 }
 
+fun getNearbyCities(lat: Double, lon: Double): List<String> {
+    val nearbyList = mutableListOf<String>()
+    val currentCity = getCityFromCoordinates(lat, lon)
 
-// 🌍 Function to Get User Location
-@SuppressLint("MissingPermission")
-private fun getUserLocation(
-    fusedLocationProviderClient: FusedLocationProviderClient,
-    callback: (String, Double, Double) -> Unit
-) {
-    fusedLocationProviderClient.lastLocation
-        .addOnSuccessListener { location: Location? ->
-            location?.let {
-                val nearestCity = getNearestCity(it.latitude, it.longitude) // Get the nearest city
-                Log.d("LocationDebug", "Detected City: $nearestCity") // ✅ Log the city
-                Log.d("LocationDebug", "Latitude: ${it.latitude}, Longitude: ${it.longitude}") // ✅ Log the coordinates
-                callback(nearestCity, it.latitude, it.longitude)
-            } ?: run {
-                Log.d("LocationDebug", "Failed to fetch location, using default Manila") // ✅ Log default location
-                callback("Manila", 14.5995, 120.9842)
+    val predefinedCities = listOf(
+        "Manila", "Makati", "Quezon City", "Pasig", "Mandaluyong", "Parañaque", "Taguig",
+        "Caloocan", "Valenzuela", "Marikina", "Las Piñas", "Muntinlupa", "Malolos", "Meycauayan",
+        "San Jose del Monte", "Marilao", "Santa Maria", "Norzagaray", "Bocaue", "Balagtas",
+        "Pandi", "Plaridel", "Baliuag", "San Rafael", "San Ildefonso", "Hagonoy", "Angat",
+        "Guiguinto", "Pulilan", "Calumpit", "Doña Remedios Trinidad"
+    )
+
+    // Find the 3 closest cities based on predefined list
+    predefinedCities.shuffled().take(10).forEach { city ->
+        if (city != currentCity) nearbyList.add(city)
+    }
+
+    return nearbyList
+}
+
+fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, String, Int) -> Unit) {
+    if (cityName.isBlank()) {
+        Log.e("WeatherError", "City parameter is missing!")
+        return
+    }
+    Log.d("WeatherDebug", "Fetching weather for city: $cityName")
+    val client = OkHttpClient()
+    val request = Request.Builder()
+        .url("https://api.weatherapi.com/v1/current.json?key=$apiKey&q=$cityName")
+        .build()
+
+    client.newCall(request).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            Log.e("WeatherError", "Failed to fetch weather", e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            response.body?.string()?.let { responseBody ->
+                try {
+                    val jsonObject = JSONObject(responseBody)
+                    if (jsonObject.has("error")) {
+                        val errorMessage = jsonObject.getJSONObject("error").getString("message")
+                        Log.e("WeatherError", "API Error: $errorMessage")
+                        return
+                    }
+
+                    val current = jsonObject.getJSONObject("current")
+                    val tempC = current.getDouble("temp_c").toString()
+                    val conditionObj = current.getJSONObject("condition")
+                    val condition = conditionObj.getString("text")
+                    val iconResId = getWeatherIconResource(condition)
+
+                    // Run on Main Thread
+                    CoroutineScope(Dispatchers.Main).launch {
+                        onWeatherFetched(tempC, condition, iconResId)
+                    }
+
+                } catch (e: JSONException) {
+                    Log.e("WeatherError", "Error parsing weather data: ${e.message}")
+                }
             }
         }
-        .addOnFailureListener { exception ->
-            Log.e("LocationError", "Error fetching location: ${exception.message}") // ✅ Log errors
-        }
+    })
 }
+
+
+fun getWeatherIconResource(condition: String): Int {
+
+    return when {
+        condition.contains("rain", ignoreCase = true) -> R.drawable.rainy
+        condition.contains("cloud", ignoreCase = true) -> R.drawable.cloudy
+        condition.contains("sun", ignoreCase = true) -> R.drawable.sun
+        condition.contains("cloudy", ignoreCase = true) -> R.drawable.cloudy
+        condition.contains("thunder", ignoreCase = true) -> R.drawable.thunder
+        condition.contains("clear", ignoreCase = true) -> R.drawable.cloudy
+        else -> R.drawable.sun
+    }
+}
+
 
 @Composable
 fun CommunityFeed() {
@@ -375,12 +543,23 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(post, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { deletePost(postsCollection, postId) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete Post", tint = Color.Red)
+                            Text(
+                                text = post,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { deletePost(postsCollection, postId) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Post",
+                                    tint = Color.Red
+                                )
                             }
                         }
                     }
@@ -436,7 +615,7 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
 
 // 🔹 Product Card Component
 @Composable
-fun ProductCard(product: Product) {
+fun ProductCard(product: Product, currentUserId: String, firestore: FirebaseFirestore, storage: FirebaseStorage) {
     val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH")) // Change to desired locale
     val formattedPrice = currencyFormatter.format(product.price)
 
@@ -444,9 +623,10 @@ fun ProductCard(product: Product) {
         modifier = Modifier
             .padding(end = 8.dp)
             .width(150.dp)
+            .clickable{}
             .height(220.dp),
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(Color.LightGray)
+        colors = CardDefaults.cardColors(Color.LightGray),
     ) {
         Column(
             modifier = Modifier.padding(12.dp).fillMaxSize(),
@@ -487,10 +667,50 @@ fun ProductCard(product: Product) {
             ) {
                 Text("Add to Cart")
             }
+            if (currentUserId == product.prodId) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    IconButton(onClick = { editProduct(product, firestore) }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                    }
+                    IconButton(onClick = { deleteProduct(product, firestore, storage) }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                    }
+                }
+            }
         }
     }
 }
 
+fun deleteProduct(product: Product, firestore: FirebaseFirestore, storage: FirebaseStorage) {
+    // 🔹 Delete image from Firebase Storage
+    val imageRef = storage.getReferenceFromUrl(product.imageUrl)
+    imageRef.delete()
+        .addOnSuccessListener {
+            Log.d("FirestoreDebug", "Image deleted successfully")
+
+            // 🔹 Delete product document from Firestore
+            firestore.collection("products").document(product.prodId)
+                .delete()
+                .addOnSuccessListener {
+                    Log.d("FirestoreDebug", "Product deleted successfully")
+                }
+                .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error deleting product", e) }
+        }
+        .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error deleting image", e) }
+}
+
+
+fun editProduct(product: Product, firestore: FirebaseFirestore) {
+    val newPrice = 200.0 // Example new price (you should get input from user)
+
+    firestore.collection("products").document(product.prodId)
+        .update("price", newPrice)
+        .addOnSuccessListener { Log.d("FirestoreDebug", "Product updated successfully") }
+        .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error updating product", e) }
+}
 
 // 🔹 Fetch Products from Firestore
 suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
@@ -498,33 +718,38 @@ suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
         val snapshot = firestore.collection("products").get().await()
         Log.d("FirestoreDebug", "Fetched ${snapshot.documents.size} products")
 
-        snapshot.documents.mapNotNull { doc ->
-            val imageUrl = doc.getString("imageUrl") ?: run {
-                Log.e("FirestoreDebug", "Missing 'imageUrl' in ${doc.id}")
-                return@mapNotNull null
-            }
-            val category = doc.getString("category") ?: run {
-                Log.e("FirestoreDebug", "Missing 'category' in ${doc.id}")
-                return@mapNotNull null
-            }
-            val name = doc.getString("name") ?: run {
-                Log.e("FirestoreDebug", "Missing 'name' in ${doc.id}")
-                return@mapNotNull null
-            }
-            val price = doc.getDouble("price") ?: run {
-                Log.e("FirestoreDebug", "Missing 'price' in ${doc.id}")
-                return@mapNotNull null
-            }
+        val productList = snapshot.documents.mapNotNull { doc ->
+            val id = doc.id
+            val imageUrl = doc.getString("imageUrl") ?: return@mapNotNull null
+            val category = doc.getString("category") ?: return@mapNotNull null
+            val name = doc.getString("name") ?: return@mapNotNull null
+            val price = doc.getDouble("price") ?: return@mapNotNull null
+            val cityName = doc.getString("cityName") ?: "Unknown" // Ensure default if missing
 
-            Log.d("FirestoreDebug", "Product Loaded: $name, $category, $$price")
+            Log.d("FirestoreDebug", "Product Loaded: ID=$id, Name=$name, Category=$category, Price=$price,  CityName=$cityName")
 
-            Product(category, imageUrl, name, price)
+            // Assign values correctly
+            Product(
+                prodId = id,
+                category = category,
+                imageUrl = imageUrl,
+                name = name,
+                price = price,
+                cityName = cityName
+
+
+            )
         }
+
+        Log.d("FirestoreDebug", "Returning ${productList.size} products")
+        productList
     } catch (e: Exception) {
         Log.e("FirestoreDebug", "Error fetching products", e)
         emptyList()
     }
 }
+
+
 
 
 // 🔹 Bottom Navigation Bar

@@ -46,6 +46,7 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -114,7 +115,7 @@ fun MarketScreen(modifier: Modifier = Modifier, navController: NavController, au
             ) {
                 items(filteredProducts.size) { index ->
                     val product = filteredProducts[index]
-                    ProductCard(product)
+                    ProductCard(product, authViewModel.currentUser?.uid ?: "", firestore, storage)
                 }
             }
         }
@@ -169,7 +170,6 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         imageUri = it
     }
-
     val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
     var expanded by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
@@ -249,8 +249,6 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
     )
 }
 
-
-
 fun uploadProduct(
     name: String,
     category: String,
@@ -265,7 +263,6 @@ fun uploadProduct(
     val productRef = firestore.collection("products").document()
     val userId = authViewModel.currentUser?.uid ?: "Unknown"
 
-    // ✅ Check if location permissions are granted before fetching location
     if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
         fusedLocationClient.lastLocation.addOnSuccessListener { location ->
             if (location != null) {
@@ -278,11 +275,22 @@ fun uploadProduct(
                 }
 
                 val uploadImageAndSaveProduct: (String) -> Unit = { imageUrl ->
-                    val product = Product(category, imageUrl, name, price)
-                    productRef.set(product).addOnSuccessListener {
-                        addNotification(firestore, product, userId, cityName)
-                    }
+                    val prodId = productRef.id // Generate a Firestore document ID
+                    val product =  Product(
+                        prodId = prodId,
+                        category = category,
+                        imageUrl = imageUrl,
+                        name = name,
+                        price = price,
+                        cityName = cityName
+                    )
+
+                    productRef.set(product, SetOptions.merge()) // ✅ Prevents overwriting other fields
+                        .addOnSuccessListener {
+                            addNotification(firestore, product, userId, cityName)
+                        }
                 }
+
 
                 if (imageUri != null) {
                     val imageRef = storage.reference.child("product_images/${productRef.id}.jpg")
@@ -306,9 +314,6 @@ fun uploadProduct(
         Log.e("Location", "Permission not granted")
     }
 }
-
-
-
 
 fun addNotification(firestore: FirebaseFirestore, product: Product, userId: String, location: String) {
     val notificationRef = firestore.collection("notifications").document()
