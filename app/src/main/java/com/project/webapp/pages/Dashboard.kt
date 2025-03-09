@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -213,38 +215,48 @@ fun WeatherSection(context: Context) {
     var showDialog by remember { mutableStateOf(false) }
     var nearbyCities by remember { mutableStateOf(listOf<String>()) }
     var nearbyCityWeather by remember { mutableStateOf<Map<String, Pair<String, Int>>>(emptyMap()) }
+    var nearbyCityForecast by remember { mutableStateOf<Map<String, List<Triple<String, Int, String>>>>(emptyMap()) }
 
     val locationPermissionState = rememberPermissionState(permission = android.Manifest.permission.ACCESS_FINE_LOCATION)
 
     LaunchedEffect(locationPermissionState.status) {
         if (locationPermissionState.status.isGranted) {
             getUserLocation(fusedLocationProviderClient) { city, lat, lon, cities ->
-                if (city.isNotBlank()) {
-                    cityName = city
-                } else {
-                    cityName = "$lat, $lon"  // Use lat/lon if city detection fails
-                }
-
+                cityName = if (city.isNotBlank()) city else "$lat, $lon"
                 nearbyCities = cities.filter { it != cityName }
 
-                scope.launch {
-                    // ✅ Fetch weather only if cityName is valid
-                    if (cityName.isNotBlank() && cityName != "Unknown Location") {
-                        fetchWeather(cityName, apiKey) { temp, condition, icon ->
-                            temperature = "$temp°C"
-                            weatherCondition = condition
-                            weatherIcon = icon
-                        }
-                    }
+                // Fetch weather data for the detected city first
+                fetchWeather(cityName, apiKey) { temp, condition, icon, _ ->
+                    temperature = "$temp°C"
+                    weatherCondition = condition
+                    weatherIcon = icon
+                }
 
-                    // ✅ Fetch weather for nearby cities correctly
+                // Fetch weather data for nearby cities
+                scope.launch {
                     val weatherData = mutableMapOf<String, Pair<String, Int>>()
+                    val forecastData = mutableMapOf<String, List<Triple<String, Int, String>>>()
+
                     nearbyCities.forEach { city ->
-                        fetchWeather(city, apiKey) { temp, condition, icon ->
+                        fetchWeather(city, apiKey) { temp, condition, icon, forecast ->
+                            if (city == cityName) {
+                                temperature = "$temp°C"
+                                weatherCondition = condition
+                                weatherIcon = icon
+                            }
+
                             weatherData[city] = "$temp°C - $condition" to icon
-                            // ✅ Update state inside the main thread
+                            forecastData[city] = forecast.map { forecastItem ->
+                                Triple(
+                                    forecastItem.first, // Temperature
+                                    forecastItem.second, // Icon
+                                    forecastItem.third  // Weather Condition Text
+                                )
+                            }
+
                             scope.launch {
                                 nearbyCityWeather = weatherData.toMap()
+                                nearbyCityForecast = forecastData.toMap()
                             }
                         }
                     }
@@ -254,8 +266,6 @@ fun WeatherSection(context: Context) {
             locationPermissionState.launchPermissionRequest()
         }
     }
-
-
 
     Column {
         Card(
@@ -271,7 +281,7 @@ fun WeatherSection(context: Context) {
                     Icon(
                         painter = painterResource(id = weatherIcon),
                         contentDescription = "Weather Icon",
-                        tint = Color.White,
+                        tint = Color.Unspecified,
                         modifier = Modifier.size(32.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -287,27 +297,50 @@ fun WeatherSection(context: Context) {
         if (showDialog) {
             AlertDialog(
                 onDismissRequest = { showDialog = false },
-                title = { Text("Nearby Cities & Weather") },
+                title = { Text("Weather Update", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column {
-                        Text("Detected City: $cityName", fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Nearby Cities & Weather:")
-                        if (nearbyCities.isNotEmpty()) {
-                            nearbyCities.forEach { cityName ->
-                                val (temp, icon) = nearbyCityWeather[cityName] ?: ("Fetching..." to R.drawable.sun)
+                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                        item {
+                            Text("Detected City: $cityName", fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Nearby Cities & Weather:")
+                        }
+
+                        items(nearbyCities) { city ->
+                            val (temp, icon) = nearbyCityWeather[city] ?: ("Fetching..." to R.drawable.sun)
+                            val forecastList = nearbyCityForecast[city] ?: emptyList()
+
+                            Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         painter = painterResource(id = icon),
                                         contentDescription = "Weather Icon",
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(24.dp),
+                                        tint = Color.Unspecified
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("$cityName - $temp", fontSize = 14.sp)
+                                    Text("$city - $temp", fontSize = 14.sp)
                                 }
+
+                                // Define labels for the next three days
+                                val dayLabels = listOf("Tomorrow", "In 2 Days", "In 3 Days")
+
+                                // Display Forecast
+                                forecastList.forEachIndexed { index, (forecastTemp, forecastIcon, forecastCondition) ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            painter = painterResource(id = forecastIcon),
+                                            contentDescription = "Forecast Icon",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = Color.Unspecified
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("${dayLabels.getOrNull(index) ?: "In $index Days"}: $forecastTemp - $forecastCondition", fontSize = 12.sp)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
-                        } else {
-                            Text("Fetching nearby cities...", fontSize = 14.sp, fontStyle = FontStyle.Italic)
                         }
                     }
                 },
@@ -320,6 +353,7 @@ fun WeatherSection(context: Context) {
         }
     }
 }
+
 
 // 🌍 Function to Get User Location & Nearby Cities
 @SuppressLint("MissingPermission")
@@ -415,20 +449,21 @@ fun getNearbyCities(lat: Double, lon: Double): List<String> {
     return nearbyList
 }
 
-fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, String, Int) -> Unit) {
+fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, String, Int, List<Triple<String, Int, String>>) -> Unit) {
     if (cityName.isBlank()) {
         Log.e("WeatherError", "City parameter is missing!")
         return
     }
-    Log.d("WeatherDebug", "Fetching weather for city: $cityName")
+    Log.d("WeatherDebug", "Fetching forecast for city: $cityName")
+
     val client = OkHttpClient()
     val request = Request.Builder()
-        .url("https://api.weatherapi.com/v1/current.json?key=$apiKey&q=$cityName")
+        .url("https://api.weatherapi.com/v1/forecast.json?key=$apiKey&q=$cityName&days=3")
         .build()
 
     client.newCall(request).enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
-            Log.e("WeatherError", "Failed to fetch weather", e)
+            Log.e("WeatherError", "Failed to fetch forecast", e)
         }
 
         override fun onResponse(call: Call, response: Response) {
@@ -445,11 +480,34 @@ fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, St
                     val tempC = current.getDouble("temp_c").toString()
                     val conditionObj = current.getJSONObject("condition")
                     val condition = conditionObj.getString("text")
+
+                    Log.d("WeatherDebug", "Current weather condition: $condition")
+
                     val iconResId = getWeatherIconResource(condition)
+
+                    // Fetch 3-day forecast
+                    val forecastDays = jsonObject.getJSONObject("forecast").getJSONArray("forecastday")
+                    val forecastList = mutableListOf<Triple<String, Int, String>>()  // Now includes weather condition
+
+                    for (i in 0 until forecastDays.length()) {
+                        val dayObj = forecastDays.getJSONObject(i).getJSONObject("day")
+                        val avgTemp = dayObj.getDouble("avgtemp_c").toString() + "°C"
+                        val forecastCondition = dayObj.getJSONObject("condition").getString("text")
+
+                        Log.d("WeatherDebug", "Forecast Condition: $forecastCondition")
+
+                        val forecastIcon = getWeatherIconResource(forecastCondition)
+
+                        Log.d("WeatherDebug", "Forecast Icon ID: $forecastIcon")
+
+                        // Store forecast as Triple (Temp, Icon, Condition)
+                        forecastList.add(Triple(avgTemp, forecastIcon, forecastCondition))
+                    }
 
                     // Run on Main Thread
                     CoroutineScope(Dispatchers.Main).launch {
-                        onWeatherFetched(tempC, condition, iconResId)
+                        onWeatherFetched(tempC, condition, iconResId, forecastList)
+                        Log.d("WeatherDebug", "Received condition for $cityName: $condition")
                     }
 
                 } catch (e: JSONException) {
@@ -462,18 +520,19 @@ fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, St
 
 
 fun getWeatherIconResource(condition: String): Int {
+    val formattedCondition = condition.lowercase().trim()  // Normalize the string
+
+    Log.d("WeatherCondition", "Condition received: $formattedCondition")  // ✅ Check formatted condition
 
     return when {
-        condition.contains("rain", ignoreCase = true) -> R.drawable.rainy
-        condition.contains("cloud", ignoreCase = true) -> R.drawable.cloudy
-        condition.contains("sun", ignoreCase = true) -> R.drawable.sun
-        condition.contains("cloudy", ignoreCase = true) -> R.drawable.cloudy
-        condition.contains("thunder", ignoreCase = true) -> R.drawable.thunder
-        condition.contains("clear", ignoreCase = true) -> R.drawable.cloudy
-        else -> R.drawable.sun
+        formattedCondition.contains("thunder") || formattedCondition.contains("storm") -> R.drawable.thunder  // Thunderstorm
+        formattedCondition.contains("drizzle") -> R.drawable.drizzle  // Drizzle
+        formattedCondition.contains("rain") || formattedCondition.contains("shower") -> R.drawable.rainy  // Rainy
+        formattedCondition.contains("cloud") || formattedCondition.contains("overcast") -> R.drawable.cloudy  // Cloudy
+        formattedCondition.contains("clear") || formattedCondition.contains("sunny") || formattedCondition.contains("sun") -> R.drawable.sun  // Sunny
+        else -> R.drawable.sun  // Default fallback
     }
 }
-
 
 @Composable
 fun CommunityFeed() {
