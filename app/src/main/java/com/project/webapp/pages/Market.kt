@@ -86,6 +86,8 @@ fun MarketScreen(modifier: Modifier = Modifier, navController: NavController, au
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         TopBar()
+        SearchBar()
+
         Text("Market", fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
         LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {

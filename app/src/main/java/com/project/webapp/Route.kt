@@ -10,4 +10,5 @@ object Route {
     var profiie = "profile"
     var market = "market"
     var notification = "notification"
+    var editprofile = "editprofile"
 }

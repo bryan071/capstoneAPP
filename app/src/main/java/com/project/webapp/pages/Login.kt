@@ -204,6 +204,7 @@ fun Login(modifier: Modifier = Modifier,navController: NavController, authViewMo
         }
     }
 }
+
 @Composable
 fun GoogleSignInButton(onClick: () -> Unit) {
     Image(

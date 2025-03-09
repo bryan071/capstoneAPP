@@ -28,30 +28,39 @@ import com.project.webapp.R
 fun NotificationScreen(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel, firestore: FirebaseFirestore) {
     var notifications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
+    var isLoading by remember { mutableStateOf(true) }  // Loading state
 
     LaunchedEffect(Unit) {
         firestore.collection("notifications")
             .orderBy("timestamp")
             .addSnapshotListener { snapshot, _ ->
+                isLoading = false  // Stop loading when data is fetched
                 if (snapshot != null) {
                     notifications = snapshot.documents.mapNotNull { doc ->
                         val data = doc.data
-                        data?.plus("id" to doc.id) // ✅ Add the document ID to the notification
+                        data?.plus("id" to doc.id)
                     }
                     Log.d("Firestore", "Fetched notifications: $notifications")
                 }
             }
     }
 
-
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Notifications", fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
-            items(notifications.size) { index ->
-                val notification = notifications[index]
-                NotificationItem(notification, firestore) { selectedNotification = notification }
-                Log.d("Notification Clicked", "Selected: $selectedNotification")
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFF0DA54B))
+            }
+        } else if (notifications.isEmpty()) {
+            Text("No notifications available", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(16.dp))
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
+                items(notifications.size) { index ->
+                    val notification = notifications[index]
+                    NotificationItem(notification, firestore) { selectedNotification = notification }
+                    Log.d("Notification Clicked", "Selected: $selectedNotification")
+                }
             }
         }
     }

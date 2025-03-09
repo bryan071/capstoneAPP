@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -24,7 +22,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,8 +46,6 @@ import com.project.webapp.Route
 import com.project.webapp.productdata.Product
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.Callback
@@ -62,7 +57,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.text.NumberFormat
 import java.util.Locale
-import java.util.logging.Handler
 
 
 @Composable
@@ -74,7 +68,9 @@ fun Dashboard(modifier: Modifier = Modifier, navController: NavController, authV
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
+
     ) {
+
         TopBar()
         SearchBar()
         FeaturedProductsSection(authViewModel)
@@ -108,13 +104,7 @@ fun TopBar() {
             modifier = Modifier.weight(1f), // Ensures icons don't move too much
             horizontalArrangement = Arrangement.End
         ) {
-            IconButton(onClick = { /* Cart Action */ }) {
-                Icon(
-                    painter = painterResource(id = R.drawable.cart),
-                    contentDescription = "Cart",
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+
         }
     }
 }
@@ -126,7 +116,7 @@ fun SearchBar() {
     OutlinedTextField(
         value = query,
         onValueChange = { query = it },
-        placeholder = { Text("What you want to buy?") },
+        placeholder = { Text("What you want to see?") },
         leadingIcon = {
             Icon(
                 painter = painterResource(id = android.R.drawable.ic_menu_search),
@@ -153,6 +143,7 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel) {
     val storage = FirebaseStorage.getInstance()
     val firestore = FirebaseFirestore.getInstance()
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }  // Loading state
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -164,27 +155,47 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel) {
             } else {
                 Log.w("FirestoreDebug", "No products available")
             }
+            isLoading = false  // Stop loading when data is fetched
         }
     }
 
-    if (products.isEmpty()) {
-        Text("No featured products available", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(16.dp))
-    } else {
-        Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            Text("Featured Products", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Text("Featured Products", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF0DA54B))
+            }
+        } else if (products.isEmpty()) {
+            Text(
+                "No featured products available",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(16.dp)
+            )
+        } else {
             LazyRow(
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .height(240.dp)
             ) {
                 items(products) { product ->
-                    ProductCard(product = product, currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: "", firestore = firestore, storage = storage)
+                    ProductCard(
+                        product = product,
+                        currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: "",
+                        firestore = firestore,
+                        storage = storage
+                    )
                 }
             }
         }
     }
 }
-
 
 @Composable
 fun DiscountsBanner() {
@@ -299,47 +310,54 @@ fun WeatherSection(context: Context) {
                 onDismissRequest = { showDialog = false },
                 title = { Text("Weather Update", fontWeight = FontWeight.Bold) },
                 text = {
-                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                        item {
-                            Text("Detected City: $cityName", fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Nearby Cities & Weather:")
-                        }
+                    Box(
+                        modifier = Modifier
+                            .size(width = 350.dp, height = 400.dp) // Fixed size for the dialog
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize() // Ensures it uses the fixed Box size
+                        ) {
+                            item {
+                                Text("Detected City: $cityName", fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Nearby Cities & Weather:", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            }
 
-                        items(nearbyCities) { city ->
-                            val (temp, icon) = nearbyCityWeather[city] ?: ("Fetching..." to R.drawable.sun)
-                            val forecastList = nearbyCityForecast[city] ?: emptyList()
+                            items(nearbyCities) { city ->
+                                val (temp, icon) = nearbyCityWeather[city] ?: ("Fetching..." to R.drawable.sun)
+                                val forecastList = nearbyCityForecast[city] ?: emptyList()
 
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        painter = painterResource(id = icon),
-                                        contentDescription = "Weather Icon",
-                                        modifier = Modifier.size(24.dp),
-                                        tint = Color.Unspecified
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("$city - $temp", fontSize = 14.sp)
-                                }
-
-                                // Define labels for the next three days
-                                val dayLabels = listOf("Tomorrow", "In 2 Days", "In 3 Days")
-
-                                // Display Forecast
-                                forecastList.forEachIndexed { index, (forecastTemp, forecastIcon, forecastCondition) ->
+                                Column {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            painter = painterResource(id = forecastIcon),
-                                            contentDescription = "Forecast Icon",
-                                            modifier = Modifier.size(18.dp),
+                                            painter = painterResource(id = icon),
+                                            contentDescription = "Weather Icon",
+                                            modifier = Modifier.size(24.dp),
                                             tint = Color.Unspecified
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("${dayLabels.getOrNull(index) ?: "In $index Days"}: $forecastTemp - $forecastCondition", fontSize = 12.sp)
+                                        Text("$city - $temp", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                     }
-                                }
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                    // Define labels for the next three days
+                                    val dayLabels = listOf("Tomorrow", "In 2 Days", "In 3 Days")
+
+                                    // Display Forecast
+                                    forecastList.forEachIndexed { index, (forecastTemp, forecastIcon, forecastCondition) ->
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                painter = painterResource(id = forecastIcon),
+                                                contentDescription = "Forecast Icon",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = Color.Unspecified
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("${dayLabels.getOrNull(index) ?: "In $index Days"}: $forecastTemp - $forecastCondition", fontSize = 12.sp)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
                             }
                         }
                     }
@@ -354,13 +372,9 @@ fun WeatherSection(context: Context) {
     }
 }
 
-
 // 🌍 Function to Get User Location & Nearby Cities
 @SuppressLint("MissingPermission")
-private fun getUserLocation(
-    fusedLocationProviderClient: FusedLocationProviderClient,
-    onLocationRetrieved: (String, Double, Double, List<String>) -> Unit
-) {
+private fun getUserLocation(fusedLocationProviderClient: FusedLocationProviderClient, onLocationRetrieved: (String, Double, Double, List<String>) -> Unit) {
     try {
         fusedLocationProviderClient.lastLocation.addOnSuccessListener { location ->
             if (location != null) {
@@ -380,7 +394,6 @@ private fun getUserLocation(
         Log.e("LocationError", "Permission denied", e)
     }
 }
-
 
 // ✅ Function to get multiple nearby cities based on user’s coordinates
 fun getCityFromCoordinates(lat: Double, lon: Double): String? {
@@ -518,7 +531,6 @@ fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, St
     })
 }
 
-
 fun getWeatherIconResource(condition: String): Int {
     val formattedCondition = condition.lowercase().trim()  // Normalize the string
 
@@ -562,8 +574,6 @@ fun CommunityFeed() {
         CommunityFeedDialog(onDismiss = { showDialog = false })
     }
 }
-
-
 
 @Composable
 fun CommunityFeedDialog(onDismiss: () -> Unit) {
@@ -645,7 +655,6 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
     )
 }
 
-
 // Function to add a new post to Firestore
 fun addPost(postsCollection: CollectionReference, content: String, userId: String) {
     if (content.isBlank()) return
@@ -661,16 +670,12 @@ fun addPost(postsCollection: CollectionReference, content: String, userId: Strin
         .addOnFailureListener { e -> Log.e("Firestore", "Error adding post", e) }
 }
 
-
 // Function to delete a post from Firestore
 fun deletePost(postsCollection: CollectionReference, postId: String) {
     postsCollection.document(postId).delete()
         .addOnSuccessListener { Log.d("Firestore", "Post deleted successfully") }
         .addOnFailureListener { e -> Log.e("Firestore", "Error deleting post", e) }
 }
-
-
-
 
 // 🔹 Product Card Component
 @Composable
@@ -724,7 +729,7 @@ fun ProductCard(product: Product, currentUserId: String, firestore: FirebaseFire
                     .fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
             ) {
-                Text("Add to Cart")
+                Text("View here")
             }
             if (currentUserId == product.prodId) {
                 Row(
@@ -760,7 +765,6 @@ fun deleteProduct(product: Product, firestore: FirebaseFirestore, storage: Fireb
         }
         .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error deleting image", e) }
 }
-
 
 fun editProduct(product: Product, firestore: FirebaseFirestore) {
     val newPrice = 200.0 // Example new price (you should get input from user)
@@ -807,9 +811,6 @@ suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
         emptyList()
     }
 }
-
-
-
 
 // 🔹 Bottom Navigation Bar
 @Composable

@@ -1,5 +1,6 @@
 package com.project.webapp
 
+import EditProfileScreen
 import NotificationScreen
 import SplashScreen
 import androidx.compose.foundation.layout.padding
@@ -16,7 +17,7 @@ import com.project.webapp.pages.Dashboard
 import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
 import com.project.webapp.pages.MarketScreen
-import com.project.webapp.pages.ProfileScreen
+import com.project.webapp.pages.profiles.ProfileScreen
 import com.project.webapp.pages.Register
 
 
@@ -61,6 +62,9 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
             composable(Route.notification) {
                 NotificationScreen(modifier, navController, authViewModel, firestore = FirebaseFirestore.getInstance())
             }
+            composable(Route.editprofile) {
+                EditProfileScreen(navController) }
+
         }
     }
 }

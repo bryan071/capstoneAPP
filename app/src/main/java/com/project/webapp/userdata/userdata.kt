@@ -1,7 +1,14 @@
 package com.project.webapp.userdata
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
 data class UserData(
     val firstname: String = "",
+    val lastname: String = "",
     val email: String = "",
-    val profilePicture: String = "" // Optional: Add this if storing profile pictures
-)
+    val address: String = "",
+    val phoneNumber: String = "",
+    val profilePicture: String = ""
+) : Parcelable

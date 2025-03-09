@@ -54,7 +54,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
     var lastname by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
-    var contact by remember { mutableStateOf("") }
+    var phoneNumber by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmpass by remember { mutableStateOf("") }
     var termsChecked by remember { mutableStateOf(false) }
@@ -134,8 +134,8 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
 
         OutlinedTextField(
             modifier = Modifier.width(340.dp),
-            value = contact,
-            onValueChange = { contact = it },
+            value = phoneNumber,
+            onValueChange = { phoneNumber = it },
             label = { Text(text = "Contact Number") })
 
         OutlinedTextField(
@@ -167,7 +167,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
         Spacer(modifier = Modifier.height(16.dp))
 
             Button(onClick = {
-                authViewModel.signup(email, password, firstname, lastname, address, contact, confirmpass) //dito pwede mailagay yung database
+                authViewModel.signup(email, password, firstname, lastname, address, phoneNumber, confirmpass) //dito pwede mailagay yung database
             }, enabled = authState != AuthState.Loading
             ) {
                 Text(text = "Register")
@@ -189,8 +189,6 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
     }
 
 }
-
-
 
 @Composable
 fun TermsAndCondition(label: String, isChecked: Boolean, onCheckedChange: (Boolean) -> Unit) {
