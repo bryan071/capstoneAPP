@@ -1,7 +1,6 @@
 package com.project.webapp.pages
 
-import android.annotation.SuppressLint
-import android.content.Context
+import WeatherSection
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -28,11 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
@@ -44,40 +38,35 @@ import com.project.webapp.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.productdata.Product
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import org.json.JSONException
-import org.json.JSONObject
-import java.io.IOException
 import java.text.NumberFormat
 import java.util.Locale
 
 
 @Composable
 fun Dashboard(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
-
     val context = LocalContext.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-
     ) {
-
         TopBar()
-        SearchBar()
-        FeaturedProductsSection(authViewModel)
-        DiscountsBanner()
-        WeatherSection(context)
-        CommunityFeed()
 
+        // Scrollable content
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 8.dp), // Add slight top padding
+            verticalArrangement = Arrangement.spacedBy(16.dp) // Space between sections
+        ) {
+            item { SearchBar() }
+            item { FeaturedProductsSection(authViewModel) }
+            item { DiscountsBanner() }
+            item { WeatherSection(context) }
+            item { CommunityFeed() }
+        }
     }
 }
 
@@ -213,338 +202,7 @@ fun DiscountsBanner() {
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class)
-@Composable
-fun WeatherSection(context: Context) {
-    val fusedLocationProviderClient = remember { LocationServices.getFusedLocationProviderClient(context) }
-    val scope = rememberCoroutineScope()
-    val apiKey = "865c1bf771394c12ad1122044250303"
-    var cityName by remember { mutableStateOf("Fetching location...") }
-    var temperature by remember { mutableStateOf("Fetching...") }
-    var weatherCondition by remember { mutableStateOf("Please wait...") }
-    var weatherIcon by remember { mutableStateOf(R.drawable.sun) }
-    var showDialog by remember { mutableStateOf(false) }
-    var nearbyCities by remember { mutableStateOf(listOf<String>()) }
-    var nearbyCityWeather by remember { mutableStateOf<Map<String, Pair<String, Int>>>(emptyMap()) }
-    var nearbyCityForecast by remember { mutableStateOf<Map<String, List<Triple<String, Int, String>>>>(emptyMap()) }
 
-    val locationPermissionState = rememberPermissionState(permission = android.Manifest.permission.ACCESS_FINE_LOCATION)
-
-    LaunchedEffect(locationPermissionState.status) {
-        if (locationPermissionState.status.isGranted) {
-            getUserLocation(fusedLocationProviderClient) { city, lat, lon, cities ->
-                cityName = if (city.isNotBlank()) city else "$lat, $lon"
-                nearbyCities = cities.filter { it != cityName }
-
-                // Fetch weather data for the detected city first
-                fetchWeather(cityName, apiKey) { temp, condition, icon, _ ->
-                    temperature = "$temp°C"
-                    weatherCondition = condition
-                    weatherIcon = icon
-                }
-
-                // Fetch weather data for nearby cities
-                scope.launch {
-                    val weatherData = mutableMapOf<String, Pair<String, Int>>()
-                    val forecastData = mutableMapOf<String, List<Triple<String, Int, String>>>()
-
-                    nearbyCities.forEach { city ->
-                        fetchWeather(city, apiKey) { temp, condition, icon, forecast ->
-                            if (city == cityName) {
-                                temperature = "$temp°C"
-                                weatherCondition = condition
-                                weatherIcon = icon
-                            }
-
-                            weatherData[city] = "$temp°C - $condition" to icon
-                            forecastData[city] = forecast.map { forecastItem ->
-                                Triple(
-                                    forecastItem.first, // Temperature
-                                    forecastItem.second, // Icon
-                                    forecastItem.third  // Weather Condition Text
-                                )
-                            }
-
-                            scope.launch {
-                                nearbyCityWeather = weatherData.toMap()
-                                nearbyCityForecast = forecastData.toMap()
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            locationPermissionState.launchPermissionRequest()
-        }
-    }
-
-    Column {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp)
-                .clickable { showDialog = true },
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(Color(0xFF4CAF50))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(id = weatherIcon),
-                        contentDescription = "Weather Icon",
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("Weather Update", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text(cityName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text("Temperature: $temperature | $weatherCondition", fontSize = 14.sp, color = Color.White)
-                    }
-                }
-            }
-        }
-
-        if (showDialog) {
-            AlertDialog(
-                onDismissRequest = { showDialog = false },
-                title = { Text("Weather Update", fontWeight = FontWeight.Bold) },
-                text = {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 350.dp, height = 400.dp) // Fixed size for the dialog
-                    ) {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize() // Ensures it uses the fixed Box size
-                        ) {
-                            item {
-                                Text("Detected City: $cityName", fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Nearby Cities & Weather:", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            items(nearbyCities) { city ->
-                                val (temp, icon) = nearbyCityWeather[city] ?: ("Fetching..." to R.drawable.sun)
-                                val forecastList = nearbyCityForecast[city] ?: emptyList()
-
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            painter = painterResource(id = icon),
-                                            contentDescription = "Weather Icon",
-                                            modifier = Modifier.size(24.dp),
-                                            tint = Color.Unspecified
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("$city - $temp", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    // Define labels for the next three days
-                                    val dayLabels = listOf("Tomorrow", "In 2 Days", "In 3 Days")
-
-                                    // Display Forecast
-                                    forecastList.forEachIndexed { index, (forecastTemp, forecastIcon, forecastCondition) ->
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                painter = painterResource(id = forecastIcon),
-                                                contentDescription = "Forecast Icon",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = Color.Unspecified
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("${dayLabels.getOrNull(index) ?: "In $index Days"}: $forecastTemp - $forecastCondition", fontSize = 12.sp)
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showDialog = false }) {
-                        Text("OK")
-                    }
-                }
-            )
-        }
-    }
-}
-
-// 🌍 Function to Get User Location & Nearby Cities
-@SuppressLint("MissingPermission")
-private fun getUserLocation(fusedLocationProviderClient: FusedLocationProviderClient, onLocationRetrieved: (String, Double, Double, List<String>) -> Unit) {
-    try {
-        fusedLocationProviderClient.lastLocation.addOnSuccessListener { location ->
-            if (location != null) {
-                val lat = location.latitude
-                val lon = location.longitude
-                val detectedCity = getCityFromCoordinates(lat, lon).orEmpty()
-                val nearbyCities = getNearbyCities(lat, lon)
-
-                onLocationRetrieved(detectedCity, lat, lon, nearbyCities)
-            } else {
-                Log.e("LocationError", "Location is null")
-            }
-        }.addOnFailureListener {
-            Log.e("LocationError", "Failed to get location", it)
-        }
-    } catch (e: SecurityException) {
-        Log.e("LocationError", "Permission denied", e)
-    }
-}
-
-// ✅ Function to get multiple nearby cities based on user’s coordinates
-fun getCityFromCoordinates(lat: Double, lon: Double): String? {
-    return when {
-        // Metro Manila
-        lat in 14.50..14.70 && lon in 120.90..121.00 -> "Manila"
-        lat in 14.55..14.60 && lon in 121.00..121.10 -> "Makati"
-        lat in 14.66..14.74 && lon in 121.00..121.12 -> "Quezon City"
-        lat in 14.52..14.60 && lon in 121.00..121.08 -> "Pasig"
-        lat in 14.52..14.58 && lon in 120.98..121.02 -> "Mandaluyong"
-        lat in 14.43..14.55 && lon in 120.98..121.02 -> "Parañaque"
-        lat in 14.47..14.55 && lon in 120.97..121.03 -> "Taguig"
-        lat in 14.68..14.75 && lon in 120.98..121.06 -> "Caloocan"
-        lat in 14.63..14.72 && lon in 120.98..121.06 -> "Valenzuela"
-        lat in 14.57..14.65 && lon in 121.10..121.20 -> "Marikina"
-        lat in 14.38..14.50 && lon in 120.88..121.00 -> "Las Piñas"
-        lat in 14.47..14.55 && lon in 120.88..121.00 -> "Muntinlupa"
-
-        // Bulacan
-        lat in 14.40..14.50 && lon in 120.85..120.95 -> "Malolos"
-        lat in 14.83..14.88 && lon in 120.80..120.90 -> "Meycauayan"
-        lat in 14.75..14.80 && lon in 120.90..121.00 -> "San Jose del Monte"
-        lat in 14.90..14.95 && lon in 120.85..120.95 -> "Marilao"
-        lat in 14.88..14.93 && lon in 120.90..121.00 -> "Santa Maria"
-        lat in 14.92..14.97 && lon in 120.95..121.05 -> "Norzagaray"
-        lat in 14.85..14.90 && lon in 120.90..121.00 -> "Bocaue"
-        lat in 14.82..14.87 && lon in 120.90..121.00 -> "Balagtas"
-        lat in 14.85..14.90 && lon in 120.85..120.95 -> "Pandi"
-        lat in 14.80..14.85 && lon in 120.85..120.95 -> "Plaridel"
-        lat in 14.65..14.70 && lon in 120.90..121.00 -> "Baliuag"
-        lat in 14.72..14.77 && lon in 120.93..121.03 -> "San Rafael"
-        lat in 14.75..14.80 && lon in 120.85..120.95 -> "San Ildefonso"
-        lat in 14.78..14.83 && lon in 120.92..121.02 -> "Hagonoy"
-        lat in 14.87..14.92 && lon in 120.88..120.98 -> "Angat"
-        lat in 14.70..14.75 && lon in 120.85..120.95 -> "Guiguinto"
-        lat in 14.72..14.77 && lon in 120.87..120.97 -> "Pulilan"
-        lat in 14.68..14.73 && lon in 120.80..120.90 -> "Calumpit"
-        lat in 14.80..14.85 && lon in 120.78..120.88 -> "Doña Remedios Trinidad"
-
-        // Other Cities
-        lat in 14.50..14.70 && lon in 120.90..121.00 -> "Manila"
-        lat in 14.55..14.60 && lon in 121.00..121.10 -> "Makati"
-        lat in 37.40..37.45 && lon in -122.09..-122.07 -> "Mountain View"
-
-        else -> null
-    }
-}
-
-fun getNearbyCities(lat: Double, lon: Double): List<String> {
-    val nearbyList = mutableListOf<String>()
-    val currentCity = getCityFromCoordinates(lat, lon)
-
-    val predefinedCities = listOf(
-        "Manila", "Makati", "Quezon City", "Pasig", "Mandaluyong", "Parañaque", "Taguig",
-        "Caloocan", "Valenzuela", "Marikina", "Las Piñas", "Muntinlupa", "Malolos", "Meycauayan",
-        "San Jose del Monte", "Marilao", "Santa Maria", "Norzagaray", "Bocaue", "Balagtas",
-        "Pandi", "Plaridel", "Baliuag", "San Rafael", "San Ildefonso", "Hagonoy", "Angat",
-        "Guiguinto", "Pulilan", "Calumpit", "Doña Remedios Trinidad"
-    )
-
-    // Find the 3 closest cities based on predefined list
-    predefinedCities.shuffled().take(10).forEach { city ->
-        if (city != currentCity) nearbyList.add(city)
-    }
-
-    return nearbyList
-}
-
-fun fetchWeather(cityName: String, apiKey: String, onWeatherFetched: (String, String, Int, List<Triple<String, Int, String>>) -> Unit) {
-    if (cityName.isBlank()) {
-        Log.e("WeatherError", "City parameter is missing!")
-        return
-    }
-    Log.d("WeatherDebug", "Fetching forecast for city: $cityName")
-
-    val client = OkHttpClient()
-    val request = Request.Builder()
-        .url("https://api.weatherapi.com/v1/forecast.json?key=$apiKey&q=$cityName&days=3")
-        .build()
-
-    client.newCall(request).enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-            Log.e("WeatherError", "Failed to fetch forecast", e)
-        }
-
-        override fun onResponse(call: Call, response: Response) {
-            response.body?.string()?.let { responseBody ->
-                try {
-                    val jsonObject = JSONObject(responseBody)
-                    if (jsonObject.has("error")) {
-                        val errorMessage = jsonObject.getJSONObject("error").getString("message")
-                        Log.e("WeatherError", "API Error: $errorMessage")
-                        return
-                    }
-
-                    val current = jsonObject.getJSONObject("current")
-                    val tempC = current.getDouble("temp_c").toString()
-                    val conditionObj = current.getJSONObject("condition")
-                    val condition = conditionObj.getString("text")
-
-                    Log.d("WeatherDebug", "Current weather condition: $condition")
-
-                    val iconResId = getWeatherIconResource(condition)
-
-                    // Fetch 3-day forecast
-                    val forecastDays = jsonObject.getJSONObject("forecast").getJSONArray("forecastday")
-                    val forecastList = mutableListOf<Triple<String, Int, String>>()  // Now includes weather condition
-
-                    for (i in 0 until forecastDays.length()) {
-                        val dayObj = forecastDays.getJSONObject(i).getJSONObject("day")
-                        val avgTemp = dayObj.getDouble("avgtemp_c").toString() + "°C"
-                        val forecastCondition = dayObj.getJSONObject("condition").getString("text")
-
-                        Log.d("WeatherDebug", "Forecast Condition: $forecastCondition")
-
-                        val forecastIcon = getWeatherIconResource(forecastCondition)
-
-                        Log.d("WeatherDebug", "Forecast Icon ID: $forecastIcon")
-
-                        // Store forecast as Triple (Temp, Icon, Condition)
-                        forecastList.add(Triple(avgTemp, forecastIcon, forecastCondition))
-                    }
-
-                    // Run on Main Thread
-                    CoroutineScope(Dispatchers.Main).launch {
-                        onWeatherFetched(tempC, condition, iconResId, forecastList)
-                        Log.d("WeatherDebug", "Received condition for $cityName: $condition")
-                    }
-
-                } catch (e: JSONException) {
-                    Log.e("WeatherError", "Error parsing weather data: ${e.message}")
-                }
-            }
-        }
-    })
-}
-
-fun getWeatherIconResource(condition: String): Int {
-    val formattedCondition = condition.lowercase().trim()  // Normalize the string
-
-    Log.d("WeatherCondition", "Condition received: $formattedCondition")  // ✅ Check formatted condition
-
-    return when {
-        formattedCondition.contains("thunder") || formattedCondition.contains("storm") -> R.drawable.thunder  // Thunderstorm
-        formattedCondition.contains("drizzle") -> R.drawable.drizzle  // Drizzle
-        formattedCondition.contains("rain") || formattedCondition.contains("shower") -> R.drawable.rainy  // Rainy
-        formattedCondition.contains("cloud") || formattedCondition.contains("overcast") -> R.drawable.cloudy  // Cloudy
-        formattedCondition.contains("clear") || formattedCondition.contains("sunny") || formattedCondition.contains("sun") -> R.drawable.sun  // Sunny
-        else -> R.drawable.sun  // Default fallback
-    }
-}
 
 @Composable
 fun CommunityFeed() {

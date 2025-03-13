@@ -6,3 +6,4 @@ data class WeatherForecast(
     val condition: String,
     val icon: Int
 )
+
