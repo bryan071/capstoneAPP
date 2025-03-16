@@ -1,8 +1,6 @@
 package com.project.webapp.farmers
 
 import WeatherSection
-import android.content.Context
-import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,8 +12,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,8 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -48,7 +42,7 @@ import com.project.webapp.productdata.Product
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
-import java.util.UUID
+
 
 
 @Composable
@@ -300,7 +294,6 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
     }
 }
 
-
 @Composable
 fun DiscountsBanner() {
     Card(
@@ -316,8 +309,6 @@ fun DiscountsBanner() {
         )
     }
 }
-
-
 
 @Composable
 fun CommunityFeed() {
@@ -428,7 +419,6 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
     )
 }
 
-// Function to add a new post to Firestore
 fun addPost(postsCollection: CollectionReference, content: String, userId: String) {
     if (content.isBlank()) return
 
@@ -443,14 +433,12 @@ fun addPost(postsCollection: CollectionReference, content: String, userId: Strin
         .addOnFailureListener { e -> Log.e("Firestore", "Error adding post", e) }
 }
 
-// Function to delete a post from Firestore
 fun deletePost(postsCollection: CollectionReference, postId: String) {
     postsCollection.document(postId).delete()
         .addOnSuccessListener { Log.d("Firestore", "Post deleted successfully") }
         .addOnFailureListener { e -> Log.e("Firestore", "Error deleting post", e) }
 }
 
-// 🔹 Product Card Component
 @Composable
 fun ProductCard(product: Product, firestore: FirebaseFirestore, storage: FirebaseStorage, ) {
     val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
@@ -509,7 +497,6 @@ fun ProductCard(product: Product, firestore: FirebaseFirestore, storage: Firebas
     }
 }
 
-// 🔹 Fetch Products from Firestore
 suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
     return try {
         val snapshot = firestore.collection("products").get().await()
@@ -546,7 +533,6 @@ suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
     }
 }
 
-// 🔹 Bottom Navigation Bar
 @Composable
 fun BottomNavigationBar(navController: NavController) {
     val currentRoute = navController.currentDestination?.route

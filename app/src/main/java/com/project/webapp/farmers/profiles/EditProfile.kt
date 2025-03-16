@@ -6,8 +6,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,6 +42,7 @@ fun FarmerEditProfileScreen(navController: NavController) {
     var address by remember { mutableStateOf("") }
     var contactNumber by remember { mutableStateOf("") }
     var profilePicture by remember { mutableStateOf("") }
+    var userType by remember { mutableStateOf("") }  // userType added here
     var showDialog by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
 
@@ -66,6 +69,7 @@ fun FarmerEditProfileScreen(navController: NavController) {
                             address = it.address ?: ""
                             contactNumber = it.phoneNumber ?: ""
                             profilePicture = it.profilePicture ?: ""
+                            userType = it.userType ?: ""  // Populate userType here
                         }
                     }
                 }
@@ -77,7 +81,8 @@ fun FarmerEditProfileScreen(navController: NavController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Back Button
@@ -141,6 +146,18 @@ fun FarmerEditProfileScreen(navController: NavController) {
         ProfileTextField("Address", address) { address = it }
         ProfileTextField("Contact Number", contactNumber) { contactNumber = it }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Display userType (not editable)
+        Text(
+            text = "User Type: $userType",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            color = Color.Gray
+        )
+
         Spacer(modifier = Modifier.height(24.dp))
 
         // Save Changes Button
@@ -158,7 +175,8 @@ fun FarmerEditProfileScreen(navController: NavController) {
                             lastName,
                             address,
                             contactNumber,
-                            profilePicture
+                            profilePicture,
+                            userType  // userType remains unchanged
                         ) {
                             isSubmitting = false
                             showDialog = true
@@ -171,7 +189,8 @@ fun FarmerEditProfileScreen(navController: NavController) {
                         lastName,
                         address,
                         contactNumber,
-                        profilePicture
+                        profilePicture,
+                        userType  // userType remains unchanged
                     ) {
                         isSubmitting = false
                         showDialog = true
@@ -206,7 +225,7 @@ fun FarmerEditProfileScreen(navController: NavController) {
         }
     }
 
-// Success Dialog
+    // Success Dialog
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
@@ -247,6 +266,7 @@ fun updateProfile(
     address: String,
     contactNumber: String,
     profilePicture: String,
+    userType: String,  // userType is passed but not updated
     onSuccess: () -> Unit
 ) {
     val firestore = FirebaseFirestore.getInstance()
@@ -257,9 +277,11 @@ fun updateProfile(
             "address", address,
             "phoneNumber", contactNumber,
             "profilePicture", profilePicture
+            // userType is not updated here; it remains unchanged
         )
         .addOnSuccessListener { onSuccess() }
 }
+
 @Composable
 fun ProfileTextField(
     label: String,
@@ -290,4 +312,5 @@ fun ProfileTextField(
             .clip(RoundedCornerShape(10.dp))
     )
 }
+
 

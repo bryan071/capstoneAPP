@@ -63,7 +63,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
     var confirmpass by remember { mutableStateOf("") }
     var termsChecked by remember { mutableStateOf(false) }
     var privacyChecked by remember { mutableStateOf(false) }
-    var userType by remember { mutableStateOf("Farmer") }
+    var userType by remember { mutableStateOf("") }
 
     var authState = authViewModel.authState.observeAsState()
     val context = LocalContext.current
