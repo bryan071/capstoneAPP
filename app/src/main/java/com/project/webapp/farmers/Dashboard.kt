@@ -1,8 +1,11 @@
-package com.project.webapp.pages
+package com.project.webapp.farmers
 
 import WeatherSection
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,11 +15,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
@@ -37,20 +43,22 @@ import kotlinx.coroutines.tasks.await
 import com.project.webapp.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
+import com.project.webapp.api.AutoImageSlider
 import com.project.webapp.productdata.Product
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
+import java.util.UUID
 
 
 @Composable
-fun Dashboard(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
+fun FarmerDashboard(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
     val context = LocalContext.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
         TopBar()
 
@@ -62,7 +70,8 @@ fun Dashboard(modifier: Modifier = Modifier, navController: NavController, authV
             verticalArrangement = Arrangement.spacedBy(16.dp) // Space between sections
         ) {
             item { SearchBar() }
-            item { FeaturedProductsSection(authViewModel) }
+            item { HeroBanner() }
+            item { FeaturedProductsSection(authViewModel, navController) }
             item { DiscountsBanner() }
             item { WeatherSection(context) }
             item { CommunityFeed() }
@@ -128,11 +137,57 @@ fun SearchBar() {
 }
 
 @Composable
-fun FeaturedProductsSection(authViewModel: AuthViewModel) {
+fun HeroBanner() {
+    val bannerImages = listOf(
+        "https://www.healthyeating.org/images/default-source/home-0.0/nutrition-topics-2.0/general-nutrition-wellness/2-2-2-2foodgroups_vegetables_detailfeature.jpg?sfvrsn=226f1bc7_6",
+        "https://ujamaaseeds.com/cdn/shop/collections/TUBERS_720x.jpg?v=1674322049",
+        "https://domf5oio6qrcr.cloudfront.net/medialibrary/11499/3b360279-8b43-40f3-9b11-604749128187.jpg"
+    )
+
+    // 🔥 Hero Banner Section
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Gray) // Fallback color
+    ) {
+        AutoImageSlider(images = bannerImages)
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.3f)) // Dark overlay
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.Start
+        ) {
+
+            Text(
+                text = "🌿 Fresh & Organic",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                text = "Discover the best local products!",
+                fontSize = 16.sp,
+                color = Color.White
+            )
+        }
+    }
+}
+
+@Composable
+fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavController) {
     val storage = FirebaseStorage.getInstance()
     val firestore = FirebaseFirestore.getInstance()
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }  // Loading state
+    var isLoading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -144,12 +199,23 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel) {
             } else {
                 Log.w("FirestoreDebug", "No products available")
             }
-            isLoading = false  // Stop loading when data is fetched
+            isLoading = false
         }
     }
 
-    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        Text("Featured Products", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+
+        Text(
+            text = "🌟 Featured Products",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF085F2F),
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
 
         if (isLoading) {
             Box(
@@ -165,26 +231,75 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel) {
                 "No featured products available",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
+                color = Color.Gray,
                 modifier = Modifier.padding(16.dp)
             )
         } else {
             LazyRow(
                 modifier = Modifier
                     .padding(top = 8.dp)
-                    .height(240.dp)
+                    .height(250.dp) // Increased height for better layout
             ) {
                 items(products) { product ->
-                    ProductCard(
-                        product = product,
-                        currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: "",
-                        firestore = firestore,
-                        storage = storage
-                    )
+                    ElevatedCard(
+                        modifier = Modifier
+                            .width(180.dp)
+                            .padding(end = 12.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        elevation = CardDefaults.elevatedCardElevation(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)) // Soft green
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            AsyncImage(
+                                model = product.imageUrl,
+                                contentDescription = product.name,
+                                modifier = Modifier
+                                    .size(120.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = product.name,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF085F2F)
+                            )
+                            Text(
+                                text = "₱${product.price}",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // View Details Button
+                            Button(
+                                onClick = {
+                                    navController.navigate("productDetails/${product.prodId}")
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF0DA54B),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("View Details")
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun DiscountsBanner() {
@@ -337,18 +452,17 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
 
 // 🔹 Product Card Component
 @Composable
-fun ProductCard(product: Product, currentUserId: String, firestore: FirebaseFirestore, storage: FirebaseStorage) {
-    val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH")) // Change to desired locale
+fun ProductCard(product: Product, firestore: FirebaseFirestore, storage: FirebaseStorage, ) {
+    val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
     val formattedPrice = currencyFormatter.format(product.price)
 
     Card(
         modifier = Modifier
             .padding(end = 8.dp)
             .width(150.dp)
-            .clickable{}
             .height(220.dp),
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(Color.LightGray),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)),
     ) {
         Column(
             modifier = Modifier.padding(12.dp).fillMaxSize(),
@@ -358,8 +472,10 @@ fun ProductCard(product: Product, currentUserId: String, firestore: FirebaseFire
             AsyncImage(
                 model = product.imageUrl,
                 contentDescription = product.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(80.dp)
+                contentScale = ContentScale.FillBounds, // or ContentScale.Fit
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(4.dp)) // Prevents awkward image edges
             )
             Text(
                 text = product.name,
@@ -381,7 +497,7 @@ fun ProductCard(product: Product, currentUserId: String, firestore: FirebaseFire
                 modifier = Modifier.padding(top = 4.dp)
             )
             Button(
-                onClick = { /* Add to Cart */ },
+                onClick = { /* View Details Logic */ },
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .fillMaxWidth(),
@@ -389,48 +505,8 @@ fun ProductCard(product: Product, currentUserId: String, firestore: FirebaseFire
             ) {
                 Text("View here")
             }
-            if (currentUserId == product.prodId) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    IconButton(onClick = { editProduct(product, firestore) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit")
-                    }
-                    IconButton(onClick = { deleteProduct(product, firestore, storage) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
-                    }
-                }
-            }
         }
     }
-}
-
-fun deleteProduct(product: Product, firestore: FirebaseFirestore, storage: FirebaseStorage) {
-    // 🔹 Delete image from Firebase Storage
-    val imageRef = storage.getReferenceFromUrl(product.imageUrl)
-    imageRef.delete()
-        .addOnSuccessListener {
-            Log.d("FirestoreDebug", "Image deleted successfully")
-
-            // 🔹 Delete product document from Firestore
-            firestore.collection("products").document(product.prodId)
-                .delete()
-                .addOnSuccessListener {
-                    Log.d("FirestoreDebug", "Product deleted successfully")
-                }
-                .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error deleting product", e) }
-        }
-        .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error deleting image", e) }
-}
-
-fun editProduct(product: Product, firestore: FirebaseFirestore) {
-    val newPrice = 200.0 // Example new price (you should get input from user)
-
-    firestore.collection("products").document(product.prodId)
-        .update("price", newPrice)
-        .addOnSuccessListener { Log.d("FirestoreDebug", "Product updated successfully") }
-        .addOnFailureListener { e -> Log.e("FirestoreDebug", "Error updating product", e) }
 }
 
 // 🔹 Fetch Products from Firestore
@@ -473,35 +549,88 @@ suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
 // 🔹 Bottom Navigation Bar
 @Composable
 fun BottomNavigationBar(navController: NavController) {
-    NavigationBar {
-        val currentRoute = navController.currentDestination?.route
+    val currentRoute = navController.currentDestination?.route
 
-        NavigationBarItem(
-            icon = { Icon(painterResource(id = R.drawable.home_icon), contentDescription = "Home", modifier = Modifier.size(24.dp)) },
-            label = { Text("Home") },
-            selected = currentRoute == Route.dashboard,
-            onClick = { navController.navigate(Route.dashboard) }
+    NavigationBar(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(70.dp), // Adjust height for a modern look
+        containerColor = Color.White,
+        tonalElevation = 8.dp // Soft shadow effect
+    ) {
+        NavigationItem(
+            iconId = R.drawable.home_icon,
+            label = "Home",
+            isSelected = currentRoute == Route.farmerdashboard,
+            onClick = {
+                // Only navigate if not already on the screen
+                if (currentRoute != Route.farmerdashboard) {
+                    navController.navigate(Route.farmerdashboard)
+                }
+            }
         )
 
-        NavigationBarItem(
-            icon = { Icon(painterResource(id = R.drawable.stall_icon), contentDescription = "Market", modifier = Modifier.size(24.dp)) },
-            label = { Text("Market") },
-            selected = currentRoute == Route.market,
-            onClick = { navController.navigate(Route.market) }
+        NavigationItem(
+            iconId = R.drawable.stall_icon,
+            label = "Market",
+            isSelected = currentRoute == Route.market,
+            onClick = {
+                if (currentRoute != Route.market) {
+                    navController.navigate(Route.market)
+                }
+            }
         )
 
-        NavigationBarItem(
-            icon = { Icon(painterResource(id = R.drawable.notification_icon), contentDescription = "Notifications", modifier = Modifier.size(24.dp)) },
-            label = { Text("Notifications") },
-            selected = currentRoute == Route.notification,
-            onClick = { navController.navigate(Route.notification) }
+        NavigationItem(
+            iconId = R.drawable.notification_icon,
+            label = "Notifications",
+            isSelected = currentRoute == Route.notification,
+            onClick = {
+                if (currentRoute != Route.notification) {
+                    navController.navigate(Route.notification)
+                }
+            }
         )
 
-        NavigationBarItem(
-            icon = { Icon(painterResource(id = R.drawable.profile_icon), contentDescription = "Profile", modifier = Modifier.size(24.dp)) },
-            label = { Text("Profile") },
-            selected = currentRoute == Route.profiie, // Fixed typo (was Route.profiie)
-            onClick = { navController.navigate(Route.profiie) }
+        NavigationItem(
+            iconId = R.drawable.profile_icon,
+            label = "Profile",
+            isSelected = currentRoute == Route.profile,
+            onClick = {
+                if (currentRoute != Route.profile) {
+                    navController.navigate(Route.profile)
+                }
+            }
         )
     }
 }
+
+@Composable
+fun RowScope.NavigationItem(iconId: Int, label: String, isSelected: Boolean, onClick: () -> Unit) {
+    NavigationBarItem(
+        icon = {
+            Icon(
+                painter = painterResource(id = iconId),
+                contentDescription = label,
+                modifier = Modifier.size(28.dp),
+                tint = Color.Unspecified // 🔹 Keeps the original icon color
+            )
+        },
+        label = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isSelected) Color(0xFF4CAF50) else Color.Gray
+            )
+        },
+        selected = isSelected,
+        onClick = onClick,
+        alwaysShowLabel = true,
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = Color.Unspecified, // 🔹 Keeps original color for selected icon
+            unselectedIconColor = Color.Unspecified, // 🔹 Keeps original color for unselected icon
+            indicatorColor = Color(0xFFDCEDC8) // Light green background for selected tab
+        )
+    )
+}
+

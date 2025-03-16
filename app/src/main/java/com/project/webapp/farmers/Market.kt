@@ -1,5 +1,6 @@
-package com.project.webapp.pages
+package com.project.webapp.farmers
 
+import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
@@ -12,10 +13,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
-import androidx.compose.material.FloatingActionButton
 import androidx.compose.material.Icon
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.ButtonDefaults
@@ -40,19 +41,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun MarketScreen(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
+fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
     val firestore = FirebaseFirestore.getInstance()
     val storage = FirebaseStorage.getInstance()
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
@@ -117,25 +122,26 @@ fun MarketScreen(modifier: Modifier = Modifier, navController: NavController, au
             ) {
                 items(filteredProducts.size) { index ->
                     val product = filteredProducts[index]
-                    ProductCard(product, authViewModel.currentUser?.uid ?: "", firestore, storage)
+                    ProductCard(product, firestore, storage)
                 }
             }
         }
     }
 
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         contentAlignment = Alignment.BottomEnd
     ) {
         FloatingActionButton(
             onClick = { showDialog = true },
-            modifier = Modifier.padding(16.dp),
-            backgroundColor = Color(0xFF0DA54B) // Correct for Material2
+            containerColor = Color(0xFF0DA54B), // Material3 FAB color
+            contentColor = Color.White
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Add Product", tint = Color.White)
+            Icon(Icons.Default.Add, contentDescription = "Add Product")
         }
     }
-
 
     if (showDialog) {
         AddProductDialog(
@@ -170,85 +176,125 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
     var price by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        imageUri = it
-    }
+        imageUri = it }
     val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
     var expanded by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
     var pressedCategory by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add Product") },
-        text = {
-            Column {
-                Text("Category")
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = !expanded }
-                ) {
-                    OutlinedTextField(
-                        value = selectedCategory,
-                        onValueChange = {},
-                        readOnly = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor()
-                            .onGloballyPositioned { coordinates ->
-                                textFieldSize = coordinates.size.toSize()
-                            },
-                        trailingIcon = {
-                            IconButton(onClick = { expanded = !expanded }) {
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
-                            }
-                        }
-                    )
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Add Product", style = MaterialTheme.typography.headlineSmall)
 
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        modifier = Modifier
-                            .width(with(LocalDensity.current) { textFieldSize.width.toDp() })
-                    ) {
-                        categories.forEach { category ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        category,
-                                        textDecoration = if (pressedCategory == category) TextDecoration.Underline else TextDecoration.None
-                                    )
-                                },
-                                onClick = {
-                                    pressedCategory = category
-                                    selectedCategory = category
-                                    expanded = false
-                                }
-                            )
-
+            // Category Dropdown
+            Text("Category", style = MaterialTheme.typography.labelLarge)
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+            ) {
+                OutlinedTextField(
+                    value = selectedCategory,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor()
+                        .onGloballyPositioned { coordinates ->
+                            textFieldSize = coordinates.size.toSize()
+                        },
+                    trailingIcon = {
+                        IconButton(onClick = { expanded = !expanded }) {
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
                         }
                     }
-                }
-                TextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-                TextField(value = price, onValueChange = { price = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { imagePickerLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Select Image")
+                )
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier
+                        .width(with(LocalDensity.current) { textFieldSize.width.toDp() })
+                ) {
+                    categories.forEach { category ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    category,
+                                    textDecoration = if (pressedCategory == category) TextDecoration.Underline else TextDecoration.None
+                                )
+                            },
+                            onClick = {
+                                pressedCategory = category
+                                selectedCategory = category
+                                expanded = false
+                            }
+                        )
+                    }
                 }
             }
-        },
-        confirmButton = {
-            Button(onClick = {
-                val priceDouble = price.toDoubleOrNull() ?: 0.0
-                onAddProduct(selectedCategory, name, priceDouble, imageUri)
-            }) {
-                Text("Add")
+
+            // Product Name
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Price Input
+            OutlinedTextField(
+                value = price,
+                onValueChange = { price = it },
+                label = { Text("Price (₱)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Image Preview
+            imageUri?.let {
+                AsyncImage(
+                    model = it,
+                    contentDescription = "Product Image",
+                    modifier = Modifier
+                        .height(150.dp)
+                        .fillMaxWidth()
+                )
             }
-        },
-        dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Cancel")
+
+            // Image Picker Button
+            Button(
+                onClick = { imagePickerLauncher.launch("image/*") },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Select Image")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Form Actions
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = Color.Black)) {
+                    Text("Cancel")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+                    onClick = {
+                        val priceDouble = price.toDoubleOrNull() ?: 0.0
+                        onAddProduct(selectedCategory, name, priceDouble, imageUri)
+                        onDismiss()
+                    }
+                ) {
+                    Text("Add Product")
+                }
             }
         }
-    )
+    }
 }
 
 fun uploadProduct(

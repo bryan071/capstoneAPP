@@ -87,6 +87,8 @@ dependencies {
 
     // Accompanist Permissions
     implementation("com.google.accompanist:accompanist-permissions:0.31.3-beta")
+    implementation ("com.google.accompanist:accompanist-pager:0.32.0")
+    implementation ("com.google.accompanist:accompanist-pager-indicators:0.32.0")
 
     // Weather API
     implementation("com.squareup.retrofit2:retrofit:2.9.0")

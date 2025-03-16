@@ -10,5 +10,7 @@ data class UserData(
     val email: String = "",
     val address: String = "",
     val phoneNumber: String = "",
-    val profilePicture: String = ""
+    val profilePicture: String = "",
+    val productsListed: Int = 0,
+    val salesCompleted: Int = 0
 ) : Parcelable

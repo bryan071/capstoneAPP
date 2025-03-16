@@ -6,9 +6,15 @@ object Route {
     var login = "login"
     var register = "register"
     var forgot = "forgot"
-    var dashboard = "dashboard"
-    var profiie = "profile"
+
+    var farmerdashboard = "farmerdashboard"
+    var profile = "profile"
     var market = "market"
     var notification = "notification"
     var editprofile = "editprofile"
+
+    var marketdashboard = "marketdashboard"
+
+    var orgdashboard = "orgdashboard"
+
 }

@@ -69,7 +69,7 @@ fun WeatherSection(context: Context) {
     val fusedLocationProviderClient =
         remember { LocationServices.getFusedLocationProviderClient(context) }
     val scope = rememberCoroutineScope()
-    val apiKey = "865c1bf771394c12ad1122044250303"
+    val apiKey = "c4d27afd35ac4cd69a444237251403"
 
     var cityName by remember { mutableStateOf("Fetching location...") }
     var temperature by remember { mutableStateOf("Fetching...") }
@@ -130,23 +130,21 @@ fun WeatherSection(context: Context) {
         ElevatedCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .clickable { showDialog = true }
-                .background(Color(0xFFC8E6C9)) // 🍃 Modern muted green
-                .padding(20.dp), // Extra padding for a spacious look
-            elevation = CardDefaults.elevatedCardElevation(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)) // Apply green shade
+                .height(100.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { showDialog = true },
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)) // Green background
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(10.dp)
             ) {
                 Icon(
                     painter = painterResource(id = weatherIcon),
                     contentDescription = "Weather Icon",
                     tint = Color.Unspecified,
                     modifier = Modifier
-                        .size(72.dp) // Slightly larger icon for better balance
+                        .size(72.dp)
                         .padding(8.dp)
                 )
                 Spacer(modifier = Modifier.width(20.dp))
@@ -155,7 +153,7 @@ fun WeatherSection(context: Context) {
                         text = "Weather Update",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF085F2F) // 🌿 Deeper green for a premium look
+                        color = Color(0xFF0DA54B) // 🌿 Deep green
                     )
                     Text(
                         text = cityName,
@@ -219,7 +217,7 @@ fun WeatherSection(context: Context) {
                                         .fillMaxWidth()
                                         .padding(vertical = 8.dp),
                                     elevation = CardDefaults.elevatedCardElevation(6.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0DA54B))
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -233,7 +231,8 @@ fun WeatherSection(context: Context) {
                                             Text(
                                                 text = "$city - $temp",
                                                 style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
                                             )
                                         }
 
@@ -252,7 +251,8 @@ fun WeatherSection(context: Context) {
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
                                                     text = "${dayLabels.getOrNull(index) ?: "In $index Days"}: $forecastTemp - $forecastCondition",
-                                                    style = MaterialTheme.typography.bodyMedium
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = Color.White
                                                 )
                                             }
                                         }
@@ -266,7 +266,7 @@ fun WeatherSection(context: Context) {
                     Button(
                         onClick = { showDialog = false },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
+                            containerColor = Color(0xFF0DA54B),
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         modifier = Modifier.padding(8.dp)

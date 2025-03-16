@@ -1,3 +1,5 @@
+package com.farmaid.ui.notifications
+
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -22,44 +24,51 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.project.webapp.AuthViewModel
 import com.project.webapp.R
-
+import com.project.webapp.farmers.TopBar
 
 @Composable
-fun NotificationScreen(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel, firestore: FirebaseFirestore) {
+fun FarmerNotificationScreen(
+    modifier: Modifier = Modifier,
+    navController: NavController,
+    authViewModel: AuthViewModel,
+    firestore: FirebaseFirestore
+) {
     var notifications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
-    var isLoading by remember { mutableStateOf(true) }  // Loading state
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         firestore.collection("notifications")
             .orderBy("timestamp")
             .addSnapshotListener { snapshot, _ ->
-                isLoading = false  // Stop loading when data is fetched
+                isLoading = false
                 if (snapshot != null) {
                     notifications = snapshot.documents.mapNotNull { doc ->
-                        val data = doc.data
-                        data?.plus("id" to doc.id)
+                        doc.data?.plus("id" to doc.id)
                     }
                     Log.d("Firestore", "Fetched notifications: $notifications")
                 }
             }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Notifications", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF0DA54B))
-            }
-        } else if (notifications.isEmpty()) {
-            Text("No notifications available", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(16.dp))
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
-                items(notifications.size) { index ->
-                    val notification = notifications[index]
-                    NotificationItem(notification, firestore) { selectedNotification = notification }
-                    Log.d("Notification Clicked", "Selected: $selectedNotification")
+    Scaffold(
+        topBar = {
+            TopBar()
+        }
+    ) { paddingValues ->
+        Column(modifier = Modifier.padding(paddingValues).fillMaxSize().padding(16.dp)) {
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFF0DA54B))
+                }
+            } else if (notifications.isEmpty()) {
+                EmptyNotificationScreen()
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
+                    items(notifications.size) { index ->
+                        val notification = notifications[index]
+                        NotificationItem(notification, firestore) { selectedNotification = notification }
+                    }
                 }
             }
         }
@@ -78,7 +87,7 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
     val name = notification["name"] as? String ?: "Unnamed"
     val price = notification["price"] as? Double ?: 0.0
     val timestamp = notification["timestamp"] as? Long ?: 0L
-    val notificationId = notification["id"] as? String // ✅ Now correctly retrieves Firestore document ID
+    val notificationId = notification["id"] as? String
     val formattedTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
 
     Card(
@@ -86,29 +95,38 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
             .fillMaxWidth()
             .padding(8.dp)
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(Color.White)
+        colors = CardDefaults.cardColors(Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(16.dp)
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.iconlogo),
-                contentDescription = "FarmAID Logo",
-                modifier = Modifier.size(40.dp)
-            )
+            if (imageUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = "Product Image",
+                    modifier = Modifier.size(50.dp)
+                )
+            } else {
+                Icon(
+                    painter = painterResource(id = R.drawable.iconlogo),
+                    contentDescription = "Default Icon",
+                    modifier = Modifier.size(50.dp),
+                    tint = Color.Unspecified
+                )
+            }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(message, fontWeight = FontWeight.Bold)
-                Text("Category: $category")
-                Text("Name: $name")
-                Text("Price: ₱$price")
+                Text(message, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("Category: $category", fontSize = 14.sp, color = Color.Gray)
+                Text("Name: $name", fontSize = 14.sp)
+                Text("Price: ₱$price", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Text("Added on: $formattedTime", fontSize = 12.sp, color = Color.Gray)
             }
 
-            // ✅ Fix delete button (only if notificationId is not null)
             if (notificationId != null) {
                 IconButton(onClick = { deleteNotification(firestore, notificationId) }) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
@@ -117,7 +135,6 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
         }
     }
 }
-
 
 
 @Composable
@@ -135,17 +152,26 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
         title = { Text("Product Details") },
         text = {
             Column {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = "Product Image",
-                    modifier = Modifier.fillMaxWidth().height(200.dp)
-                )
+                if (imageUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = "Product Image",
+                        modifier = Modifier.fillMaxWidth().height(200.dp)
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(id = R.drawable.iconlogo),
+                        contentDescription = "Default Icon",
+                        modifier = Modifier.size(100.dp),
+                        tint = Color.Unspecified
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Category: $category", fontWeight = FontWeight.Bold)
-                Text("Name: $name", fontWeight = FontWeight.Bold)
-                Text("Price: ₱$price", fontWeight = FontWeight.Bold)
-                Text("Location: $location") // ✅ Shows the city name instead of coordinates
-                Text("Added on: $formattedTime")
+                Text("Category: $category", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Name: $name", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Price: ₱$price", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Location: $location", fontSize = 14.sp)
+                Text("Added on: $formattedTime", fontSize = 12.sp, color = Color.Gray)
             }
         },
         confirmButton = {
@@ -154,6 +180,19 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
             }
         }
     )
+}
+
+@Composable
+fun EmptyNotificationScreen() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(painterResource(id = R.drawable.iconlogo), contentDescription = "No Notifications", tint = Color.Gray)
+        Text("No notifications yet", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+        Text("You'll see updates about new products here.", fontSize = 14.sp, color = Color.Gray)
+    }
 }
 
 fun deleteNotification(firestore: FirebaseFirestore, notificationId: String) {
@@ -166,7 +205,3 @@ fun deleteNotification(firestore: FirebaseFirestore, notificationId: String) {
             Log.e("Firestore", "Error deleting notification", e)
         }
 }
-
-
-
-
