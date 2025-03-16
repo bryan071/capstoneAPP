@@ -30,6 +30,7 @@ fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavControl
     val auth = FirebaseAuth.getInstance()
     val userData = remember { mutableStateOf<UserData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var showDialog by remember { mutableStateOf(false) }
 
 
     // Fetch user data
@@ -124,11 +125,38 @@ fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavControl
                 ProfileOption("Settings", R.drawable.setting) { /* Navigate to settings */ }
                 ProfileOption("Recent Activity", R.drawable.history) { /* Navigate to Recent Activity */ }
                 ProfileOption("Logout", R.drawable.logout) {
-                    authViewModel.logout()
-                    navController.navigate(Route.LOGIN) {
-                        popUpTo(Route.FARMER_DASHBOARD) { inclusive = true }
-                    }
+                    showDialog = true
                 }
+            }
+
+            if (showDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDialog = false },
+                    title = { Text("Confirm Logout") },
+                    text = { Text("Are you sure you want to log out?") },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                authViewModel.logout()
+                                navController.navigate(Route.LOGIN) {
+                                    popUpTo(Route.FARMER_DASHBOARD) { inclusive = true }
+                                }
+                                showDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Text("Logout")
+                        }
+                    },
+                    dismissButton = {
+                        Button(
+                            onClick = { showDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
+                )
             }
         }
     }
