@@ -185,6 +185,7 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
     var isLoading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
+
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             val fetchedProducts = fetchProducts(firestore)
@@ -266,7 +267,7 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
                                 color = Color(0xFF085F2F)
                             )
                             Text(
-                                text = "₱${product.price}",
+                                text ="₱${String.format("%,d", product.price.toInt())}.00",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = Color.Black
