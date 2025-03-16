@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -40,10 +41,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.project.webapp.R
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -55,15 +58,21 @@ import com.project.webapp.dashboards.fetchProducts
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
+fun FarmerMarketScreen(
+    modifier: Modifier = Modifier,
+    navController: NavController,
+    authViewModel: AuthViewModel
+) {
     val firestore = FirebaseFirestore.getInstance()
     val storage = FirebaseStorage.getInstance()
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
     var filteredProducts by remember { mutableStateOf<List<Product>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var isAscending by remember { mutableStateOf(true) } // Sorting state
     val categories = listOf("All", "vegetable", "fruits", "rootcrops", "grains", "spices")
     val coroutineScope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
@@ -71,35 +80,39 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
         remember { LocationServices.getFusedLocationProviderClient(navController.context) }
     val permissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
     val context = LocalContext.current
+    var minPrice by remember { mutableStateOf("") }
+    var maxPrice by remember { mutableStateOf("") }
 
-
+    // Fetch products on first load
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             products = fetchProducts(firestore)
-            filteredProducts = products
+            filteredProducts = products.sortedBy { it.price }
             isLoading = false
         }
     }
 
-    LaunchedEffect(selectedCategory) {
-        filteredProducts =
-            if (selectedCategory == null || selectedCategory.equals("All", ignoreCase = true)) {
-                products
-            } else {
-                selectedCategory?.let { category ->
-                    products.filter {
-                        it.category.trim().lowercase() == category.trim().lowercase()
-                    }
-                } ?: products
-            }
-    }
+    // Apply category filtering and price sorting
+    LaunchedEffect(selectedCategory, minPrice, maxPrice, isAscending, products) {
+        val category = selectedCategory?.trim()?.lowercase()
+        val min = minPrice.toDoubleOrNull() ?: 0.0
+        val max = maxPrice.toDoubleOrNull() ?: Double.MAX_VALUE
 
+        filteredProducts = products.filter { product ->
+            val productPrice = product.price
+            val isCategoryMatch = category == null || category == "all" || product.category.trim().lowercase() == category
+            val isPriceInRange = productPrice in min..max
+
+            isCategoryMatch && isPriceInRange
+        }.sortedBy { if (isAscending) it.price else -it.price }
+    }
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         TopBar()
         SearchBar()
 
         Text("Market", fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
+        // Category Filter Buttons
         LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
             items(categories) { category ->
                 Button(
@@ -114,6 +127,27 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
             }
         }
 
+        // Price Filtering Inputs - Modernized UI
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            PriceFilterSection(
+                minPrice = minPrice,
+                maxPrice = maxPrice,
+                onMinPriceChange = { minPrice = it },
+                onMaxPriceChange = { maxPrice = it },
+                isAscending = isAscending,
+                onSortToggle = { isAscending = !isAscending }
+            )
+        }
+
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -127,12 +161,13 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
             ) {
                 items(filteredProducts.size) { index ->
                     val product = filteredProducts[index]
-                    ProductCard(product, navController, firestore, storage )
+                    ProductCard(product, navController, firestore, storage)
                 }
             }
         }
     }
 
+    // Floating Action Button for Adding a Product
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -141,13 +176,14 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
     ) {
         FloatingActionButton(
             onClick = { showDialog = true },
-            containerColor = Color(0xFF0DA54B), // Material3 FAB color
+            containerColor = Color(0xFF0DA54B),
             contentColor = Color.White
         ) {
             Icon(Icons.Default.Add, contentDescription = "Add Product")
         }
     }
 
+    // Add Product Dialog
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
@@ -155,7 +191,7 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
                 if (permissionState.status.isGranted) {
                     uploadProduct(
                         name = name,
-                        description = description, // Pass description here
+                        description = description,
                         category = category,
                         price = price,
                         imageUri = imageUri,
@@ -173,6 +209,7 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
         )
     }
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -432,6 +469,65 @@ fun addNotification(firestore: FirebaseFirestore, product: Product, userId: Stri
         }
 }
 
+@OptIn(ExperimentalMaterial3Api::class) // Suppress warning
+@Composable
+fun PriceFilterSection(
+    minPrice: String,
+    maxPrice: String,
+    onMinPriceChange: (String) -> Unit,
+    onMaxPriceChange: (String) -> Unit,
+    isAscending: Boolean,
+    onSortToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedTextField(
+            value = minPrice,
+            onValueChange = onMinPriceChange,
+            label = { Text("Min Price") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = Color(0xFF0DA54B),
+                cursorColor = Color(0xFF0DA54B)
+            ),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.weight(1f)
+        )
+
+        OutlinedTextField(
+            value = maxPrice,
+            onValueChange = onMaxPriceChange,
+            label = { Text("Max Price") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = Color(0xFF0DA54B),
+                cursorColor = Color(0xFF0DA54B)
+            ),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.weight(1f)
+        )
+
+        ElevatedButton(
+            onClick = onSortToggle,
+            colors = ButtonDefaults.elevatedButtonColors(containerColor = Color(0xFF0DA54B)),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .height(56.dp)
+                .width(64.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = if (isAscending) R.drawable.arrowup else R.drawable.arrowdown),
+                contentDescription = "Sort Order",
+                tint = Color.White
+            )
+        }
+    }
+}
 
 
 
