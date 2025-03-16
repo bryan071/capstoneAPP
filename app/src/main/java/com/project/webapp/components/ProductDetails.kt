@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,14 +69,37 @@ fun ProductDetailsScreen(
                     .fillMaxSize()
                     .padding(16.dp)
             ) {
+                // Back Button
+                Button(
+                    onClick = { navController.popBackStack() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                ) {
+                    Text("Back")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 TopBar()
-                AsyncImage(
-                    model = prod.imageUrl, contentDescription = "Product Image",
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(250.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                )
+                        .background(Color(0xFFC8E6C9), RoundedCornerShape(12.dp))
+                        .padding(16.dp) // Adds spacing between the image and background
+                ) {
+                    AsyncImage(
+                        model = prod.imageUrl,
+                        contentDescription = "Product Image",
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f) // Ensures the image is smaller than the box
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .align(Alignment.Center), // Centers image within the box
+                        contentScale = ContentScale.Fit // Ensures the image retains aspect ratio
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Card(
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)),
@@ -167,6 +191,7 @@ fun ProductDetailsScreen(
         } ?: Text("Product not found", fontSize = 18.sp, modifier = Modifier.padding(16.dp))
     }
 }
+
 
 fun fetchOwnerName(firestore: FirebaseFirestore, ownerId: String, onResult: (String) -> Unit) {
     firestore.collection("users").document(ownerId)

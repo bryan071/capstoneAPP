@@ -17,6 +17,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.farmaid.ui.notifications.FarmerNotificationScreen
 import com.google.firebase.firestore.FirebaseFirestore
+import com.project.webapp.components.EditProductScreen
 import com.project.webapp.dashboards.BottomNavigationBar
 import com.project.webapp.dashboards.FarmerDashboard
 import com.project.webapp.components.FarmerMarketScreen
@@ -100,6 +101,10 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
             composable("productDetails/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId") ?: ""
                 ProductDetailsScreen(navController, productId, FirebaseFirestore.getInstance())
+            }
+            composable("editProduct/{productId}") { backStackEntry ->
+                val productId = backStackEntry.arguments?.getString("productId")
+                EditProductScreen(navController, productId, FirebaseFirestore.getInstance())
             }
         }
     }

@@ -13,6 +13,7 @@ object Route {
     const val EDIT_PROFILE = "editprofile"
     const val MARKET = "market"
     const val NOTIFICATION = "notification"
+    const val EDIT_PRODUCT = "editProduct/{productId}"
 
     // Market Routes
     const val MARKET_DASHBOARD = "marketdashboard"
