@@ -66,9 +66,9 @@ fun Login(
             is AuthState.Authenticated -> {
                 val normalizedUserType = state.userType.trim().lowercase()  // Ensure consistency
                 when (normalizedUserType) {
-                    "farmer" -> navController.navigate(Route.farmerdashboard)
-                    "market" -> navController.navigate(Route.marketdashboard)
-                    "organization" -> navController.navigate(Route.orgdashboard)
+                    "farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
+                    "market" -> navController.navigate(Route.MARKET_DASHBOARD)
+                    "organization" -> navController.navigate(Route.ORG_DASHBOARD)
                     else -> Toast.makeText(context, "User type not found: $normalizedUserType", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -134,11 +134,11 @@ fun Login(
             )
         }
 
-        TextButton(onClick = { navController.navigate(Route.forgot) }) {
+        TextButton(onClick = { navController.navigate(Route.FORGOT_PASSWORD) }) {
             Text(text = "Forgot Password?")
         }
 
-        TextButton(onClick = { navController.navigate(Route.register) }) {
+        TextButton(onClick = { navController.navigate(Route.REGISTER) }) {
             Text(text = "Don't have an account? Register here.", fontSize = 15.sp)
         }
     }

@@ -1,6 +1,5 @@
-package com.project.webapp.farmers
+package com.project.webapp.components
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
@@ -36,7 +35,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.project.webapp.AuthViewModel
-import com.project.webapp.productdata.Product
+import com.project.webapp.datas.Product
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -49,9 +48,10 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.SetOptions
+import com.project.webapp.dashboards.ProductCard
+import com.project.webapp.dashboards.SearchBar
+import com.project.webapp.dashboards.TopBar
+import com.project.webapp.dashboards.fetchProducts
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -67,9 +67,11 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
     val categories = listOf("All", "vegetable", "fruits", "rootcrops", "grains", "spices")
     val coroutineScope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
-    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(navController.context) }
+    val fusedLocationClient =
+        remember { LocationServices.getFusedLocationProviderClient(navController.context) }
     val permissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
     val context = LocalContext.current
+
 
     LaunchedEffect(Unit) {
         coroutineScope.launch {
@@ -80,13 +82,16 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
     }
 
     LaunchedEffect(selectedCategory) {
-        filteredProducts = if (selectedCategory == null || selectedCategory.equals("All", ignoreCase = true)) {
-            products
-        } else {
-            selectedCategory?.let { category ->
-                products.filter { it.category.trim().lowercase() == category.trim().lowercase() }
-            } ?: products
-        }
+        filteredProducts =
+            if (selectedCategory == null || selectedCategory.equals("All", ignoreCase = true)) {
+                products
+            } else {
+                selectedCategory?.let { category ->
+                    products.filter {
+                        it.category.trim().lowercase() == category.trim().lowercase()
+                    }
+                } ?: products
+            }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -122,7 +127,7 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
             ) {
                 items(filteredProducts.size) { index ->
                     val product = filteredProducts[index]
-                    ProductCard(product, firestore, storage)
+                    ProductCard(product, navController, firestore, storage )
                 }
             }
         }
@@ -146,10 +151,11 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
-            onAddProduct = { category, name, price, imageUri ->
+            onAddProduct = { category, name, description, price, imageUri ->
                 if (permissionState.status.isGranted) {
                     uploadProduct(
                         name = name,
+                        description = description, // Pass description here
                         category = category,
                         price = price,
                         imageUri = imageUri,
@@ -170,13 +176,17 @@ fun FarmerMarketScreen(modifier: Modifier = Modifier, navController: NavControll
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Double, Uri?) -> Unit) {
+fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, String, Double, Uri?) -> Unit) {
     var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") } // New description field
     var selectedCategory by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        imageUri = it }
+        imageUri = it
+    }
+
     val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
     var expanded by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
@@ -241,6 +251,15 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // Description Input
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Description") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 3
+            )
+
             // Price Input
             OutlinedTextField(
                 value = price,
@@ -283,10 +302,11 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
                     Text("Cancel")
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Button(colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
                     onClick = {
                         val priceDouble = price.toDoubleOrNull() ?: 0.0
-                        onAddProduct(selectedCategory, name, priceDouble, imageUri)
+                        onAddProduct(selectedCategory, name, description, priceDouble, imageUri)
                         onDismiss()
                     }
                 ) {
@@ -297,8 +317,10 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Doubl
     }
 }
 
+
 fun uploadProduct(
     name: String,
+    description: String,
     category: String,
     price: Double,
     imageUri: Uri?,
@@ -311,61 +333,82 @@ fun uploadProduct(
     val productRef = firestore.collection("products").document()
     val userId = authViewModel.currentUser?.uid ?: "Unknown"
 
-    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-            if (location != null) {
-                val geocoder = Geocoder(context, Locale.getDefault())
-                val addressList = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-                val cityName = if (!addressList.isNullOrEmpty()) {
-                    addressList[0].locality ?: "Unknown City"
-                } else {
-                    "Unknown City"
-                }
-
-                val uploadImageAndSaveProduct: (String) -> Unit = { imageUrl ->
-                    val prodId = productRef.id // Generate a Firestore document ID
-                    val product =  Product(
-                        prodId = prodId,
-                        category = category,
-                        imageUrl = imageUrl,
-                        name = name,
-                        price = price,
-                        cityName = cityName
-                    )
-
-                    productRef.set(product, SetOptions.merge()) // ✅ Prevents overwriting other fields
-                        .addOnSuccessListener {
-                            addNotification(firestore, product, userId, cityName)
-                        }
-                }
-
-
-                if (imageUri != null) {
-                    val imageRef = storage.reference.child("product_images/${productRef.id}.jpg")
-                    imageRef.putFile(imageUri).addOnSuccessListener {
-                        imageRef.downloadUrl.addOnSuccessListener { uri ->
-                            uploadImageAndSaveProduct(uri.toString())
-                        }
-                    }.addOnFailureListener {
-                        Log.e("Firebase", "Image upload failed", it)
-                    }
-                } else {
-                    uploadImageAndSaveProduct("")
-                }
-            } else {
-                Log.e("Location", "Failed to get location")
-            }
-        }.addOnFailureListener {
-            Log.e("Location", "Failed to get location", it)
-        }
-    } else {
+    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
         Log.e("Location", "Permission not granted")
+        return
+    }
+
+    fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+        val cityName = if (location != null) {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            val addressList = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+            addressList?.firstOrNull()?.locality ?: "Unknown City"
+        } else {
+            Log.e("Location", "Failed to get location")
+            "Unknown City"
+        }
+
+        // ✅ Image Upload Process
+        if (imageUri != null) {
+            val imageRef = storage.reference.child("product_images/${productRef.id}.jpg")
+            Log.d("Firebase", "Uploading image to: ${imageRef.path}")
+
+            imageRef.putFile(imageUri)
+                .addOnSuccessListener {
+                    imageRef.downloadUrl.addOnSuccessListener { uri ->
+                        Log.d("Firebase", "Image uploaded successfully: $uri")
+                        saveProductToFirestore(firestore, productRef.id, userId, category, uri.toString(), name, description, price, cityName, context)
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e("Firebase", "Image upload failed", e)
+                }
+        } else {
+            Log.e("Firebase", "Image URI is null")
+            saveProductToFirestore(firestore, productRef.id, userId, category, "", name, description, price, cityName, context)
+        }
+    }.addOnFailureListener {
+        Log.e("Location", "Failed to get location", it)
     }
 }
 
+fun saveProductToFirestore(
+    firestore: FirebaseFirestore,
+    productId: String,
+    userId: String,
+    category: String,
+    imageUrl: String,
+    name: String,
+    description: String,
+    price: Double,
+    cityName: String,
+    context: Context
+) {
+    val product = Product(
+        prodId = productId,
+        ownerId = userId,
+        category = category,
+        imageUrl = imageUrl,
+        name = name,
+        description = description,
+        price = price,
+        cityName = cityName
+    )
+
+    firestore.collection("products").document(productId).set(product)
+        .addOnSuccessListener {
+            Log.d("Firebase", "Product added successfully!")
+            addNotification(firestore, product, userId, cityName)
+        }
+        .addOnFailureListener { e ->
+            Log.e("Firebase", "Error adding product", e)
+        }
+}
+
+// Function to create a notification
 fun addNotification(firestore: FirebaseFirestore, product: Product, userId: String, location: String) {
     val notificationRef = firestore.collection("notifications").document()
-    val notificationId = notificationRef.id // Generate unique ID
+    val notificationId = notificationRef.id
 
     val notification = mapOf(
         "id" to notificationId, // ✅ Store ID for deletion
@@ -380,11 +423,13 @@ fun addNotification(firestore: FirebaseFirestore, product: Product, userId: Stri
         "isRead" to false
     )
 
-    notificationRef.set(notification).addOnSuccessListener {
-        Log.d("Firestore", "Notification added successfully: ${product.name}")
-    }.addOnFailureListener { e ->
-        Log.e("Firestore", "Error adding notification", e)
-    }
+    notificationRef.set(notification)
+        .addOnSuccessListener {
+            Log.d("Firestore", "Notification added successfully: ${product.name}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("Firestore", "Error adding notification", e)
+        }
 }
 
 

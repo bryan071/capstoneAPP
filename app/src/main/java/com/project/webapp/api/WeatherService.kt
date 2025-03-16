@@ -105,7 +105,7 @@ fun WeatherSection(context: Context) {
 
                     nearbyCities.forEach { city ->
                         fetchWeather(city, apiKey) { temp, condition, icon, forecast ->
-                            weatherData[city] = "$temp°C - $condition" to icon
+                            weatherData[city] = "$temp - $condition" to icon
                             forecastData[city] =
                                 forecast.map { Triple(it.first, it.second, it.third) }
 

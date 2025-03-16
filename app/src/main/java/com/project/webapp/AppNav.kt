@@ -1,7 +1,8 @@
 package com.project.webapp
 
-
 import FarmerEditProfileScreen
+import MarketDashboard
+import OrganizationDashboard
 import SplashScreen
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -16,14 +17,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.farmaid.ui.notifications.FarmerNotificationScreen
 import com.google.firebase.firestore.FirebaseFirestore
-import com.project.webapp.farmers.BottomNavigationBar
-import com.project.webapp.farmers.FarmerDashboard
-import com.project.webapp.farmers.FarmerMarketScreen
+import com.project.webapp.dashboards.BottomNavigationBar
+import com.project.webapp.dashboards.FarmerDashboard
+import com.project.webapp.components.FarmerMarketScreen
+import com.project.webapp.components.ProductDetailsScreen
 import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
-import com.project.webapp.farmers.profiles.FarmerProfileScreen
-import com.project.webapp.market.MarketDashboard
-import com.project.webapp.org.OrgDashboard
+import com.project.webapp.components.profiles.FarmerProfileScreen
 import com.project.webapp.pages.Register
 
 
@@ -40,13 +40,12 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
     LaunchedEffect(navController) {
         navController.addOnDestinationChangedListener { _, destination, _ ->
             isBottomNavVisible.value = when (destination.route) {
-                Route.editprofile -> false
-                Route.profile -> true // Corrected typo here
+                Route.EDIT_PROFILE -> false
+                Route.PROFILE -> true
                 else -> true
             }
         }
     }
-
 
     Scaffold(
         bottomBar = {
@@ -57,45 +56,55 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
     ) { paddingValues ->
         NavHost(
             navController = navController,
-            startDestination = Route.login,
+            startDestination = Route.LOGIN, // Updated reference
             modifier = Modifier.padding(paddingValues)
         ) {
-            composable(Route.splash) {
+            composable(Route.SPLASH) {
                 SplashScreen(navController)
             }
-            composable(Route.login) {
+            composable(Route.LOGIN) {
                 Login(modifier, navController, authViewModel)
             }
-            composable(Route.register) {
+            composable(Route.REGISTER) {
                 Register(modifier, navController, authViewModel)
             }
-            composable(Route.forgot) {
+            composable(Route.FORGOT_PASSWORD) {
                 ForgotPass(modifier, navController, authViewModel)
             }
-            composable(Route.farmerdashboard) {
+            composable(Route.FARMER_DASHBOARD) {
                 FarmerDashboard(modifier, navController, authViewModel)
             }
-            composable(Route.profile) {
+            composable(Route.PROFILE) {
                 FarmerProfileScreen(modifier, navController, authViewModel)
             }
-            composable(Route.market) {
+            composable(Route.MARKET) {
                 FarmerMarketScreen(modifier, navController, authViewModel)
             }
-            composable(Route.notification) {
-                FarmerNotificationScreen(modifier, navController, authViewModel, firestore = FirebaseFirestore.getInstance())
+            composable(Route.NOTIFICATION) {
+                FarmerNotificationScreen(
+                    modifier,
+                    navController,
+                    authViewModel,
+                    firestore = FirebaseFirestore.getInstance()
+                )
             }
-            composable(Route.editprofile) {
+            composable(Route.EDIT_PROFILE) {
                 FarmerEditProfileScreen(navController)
             }
-            composable(Route.marketdashboard) {
+            composable(Route.MARKET_DASHBOARD) {
                 MarketDashboard(modifier, navController, authViewModel)
             }
-            composable(Route.orgdashboard) {
-                OrgDashboard(modifier, navController, authViewModel)
+            composable(Route.ORG_DASHBOARD) {
+                OrganizationDashboard(modifier, navController, authViewModel)
+            }
+            composable("productDetails/{productId}") { backStackEntry ->
+                val productId = backStackEntry.arguments?.getString("productId") ?: ""
+                ProductDetailsScreen(navController, productId, FirebaseFirestore.getInstance())
             }
         }
     }
 }
+
 
 
 

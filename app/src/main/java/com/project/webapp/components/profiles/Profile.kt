@@ -1,7 +1,6 @@
-package com.project.webapp.farmers.profiles
+package com.project.webapp.components.profiles
 
 import android.util.Log
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -22,8 +21,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
-import com.project.webapp.farmers.TopBar
-import com.project.webapp.userdata.UserData
+import com.project.webapp.dashboards.TopBar
+import com.project.webapp.datas.UserData
 
 @Composable
 fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
@@ -94,7 +93,7 @@ fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavControl
             Button(
                 onClick = {
                     userData.value?.let { user ->
-                        navController.navigate(Route.editprofile)
+                        navController.navigate(Route.EDIT_PROFILE)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
@@ -126,8 +125,8 @@ fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavControl
                 ProfileOption("Recent Activity", R.drawable.history) { /* Navigate to Recent Activity */ }
                 ProfileOption("Logout", R.drawable.logout) {
                     authViewModel.logout()
-                    navController.navigate(Route.login) {
-                        popUpTo(Route.farmerdashboard) { inclusive = true }
+                    navController.navigate(Route.LOGIN) {
+                        popUpTo(Route.FARMER_DASHBOARD) { inclusive = true }
                     }
                 }
             }

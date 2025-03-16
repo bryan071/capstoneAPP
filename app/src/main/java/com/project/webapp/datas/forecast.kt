@@ -1,4 +1,4 @@
-package com.project.webapp.dataforecast
+package com.project.webapp.datas
 
 data class WeatherForecast(
     val date: String,

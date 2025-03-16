@@ -1,20 +1,24 @@
 package com.project.webapp
 
 object Route {
+    // Authentication Routes
+    const val SPLASH = "splash"
+    const val LOGIN = "login"
+    const val REGISTER = "register"
+    const val FORGOT_PASSWORD = "forgot"
 
-    var splash = "splash"
-    var login = "login"
-    var register = "register"
-    var forgot = "forgot"
+    // Farmer User Routes
+    const val FARMER_DASHBOARD = "farmerdashboard"
+    const val PROFILE = "profile"
+    const val EDIT_PROFILE = "editprofile"
+    const val MARKET = "market"
+    const val NOTIFICATION = "notification"
 
-    var farmerdashboard = "farmerdashboard"
-    var profile = "profile"
-    var market = "market"
-    var notification = "notification"
-    var editprofile = "editprofile"
+    // Market Routes
+    const val MARKET_DASHBOARD = "marketdashboard"
 
-    var marketdashboard = "marketdashboard"
+    // Organization Routes
+    const val ORG_DASHBOARD = "orgdashboard"
 
-    var orgdashboard = "orgdashboard"
-
+    const val PRODUCT_DETAILS = "product_details/{productId}"
 }

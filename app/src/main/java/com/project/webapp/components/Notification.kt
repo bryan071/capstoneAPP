@@ -1,7 +1,6 @@
 package com.farmaid.ui.notifications
 
 import android.util.Log
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,7 +23,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.project.webapp.AuthViewModel
 import com.project.webapp.R
-import com.project.webapp.farmers.TopBar
+import com.project.webapp.dashboards.TopBar
 
 @Composable
 fun FarmerNotificationScreen(

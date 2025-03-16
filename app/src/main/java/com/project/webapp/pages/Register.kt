@@ -70,12 +70,25 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
 
     LaunchedEffect(authState.value) {
         when (authState.value) {
-            is AuthState.Authenticated -> navController.navigate("dashboard")
+            is AuthState.Authenticated -> {
+                val userId = authViewModel.auth.currentUser?.uid
+                userId?.let {
+                    authViewModel.firestore.collection("users").document(it).get()
+                        .addOnSuccessListener { document ->
+                            val userType = document.getString("userType") ?: "Market"
+                            when (userType) {
+                                "farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
+                                "market" -> navController.navigate(Route.MARKET_DASHBOARD)
+                                "organization" -> navController.navigate(Route.ORG_DASHBOARD)
+                                else -> Toast.makeText(context, "User type not found", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                }
+            }
             is AuthState.Error -> Toast.makeText(
                 context,
                 (authState.value as AuthState.Error).message, Toast.LENGTH_SHORT
             ).show()
-
             else -> Unit
         }
     }
@@ -218,7 +231,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
             }
 
             Button(
-                onClick = { navController.navigate(Route.login) },
+                onClick = { navController.navigate(Route.LOGIN) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(text = "Back to Login")

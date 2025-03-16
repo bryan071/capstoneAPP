@@ -1,4 +1,4 @@
-package com.project.webapp.farmers
+package com.project.webapp.dashboards
 
 import WeatherSection
 import android.util.Log
@@ -31,14 +31,15 @@ import coil.compose.AsyncImage
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import com.project.webapp.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.api.AutoImageSlider
-import com.project.webapp.productdata.Product
+import com.project.webapp.datas.Post
+import com.project.webapp.datas.Product
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
@@ -275,16 +276,18 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
                             // View Details Button
                             Button(
                                 onClick = {
-                                    navController.navigate("productDetails/${product.prodId}")
+                                    if (!product.prodId.isNullOrEmpty()) {
+                                        navController.navigate("productDetails/${product.prodId}")
+                                    } else {
+                                        Log.e("Navigation", "Invalid productId: ${product.prodId}")
+                                    }
                                 },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF0DA54B),
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
                             ) {
-                                Text("View Details")
+                                Text("View here")
                             }
                         }
                     }
@@ -345,25 +348,20 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
     val postsCollection = db.collection("community_posts")
 
     var newPost by remember { mutableStateOf("") }
-    var posts by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    val posts = remember { mutableStateListOf<Post>() }
     val userId = "user_123" // Replace with actual logged-in user ID
 
-    // Firestore listener with DisposableEffect
-    DisposableEffect(Unit) {
-        val listener: ListenerRegistration = postsCollection
+    // Firestore listener with LaunchedEffect
+    LaunchedEffect(Unit) {
+        postsCollection.orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.e("Firestore", "Listen failed.", e)
                     return@addSnapshotListener
                 }
-
-                val updatedPosts = snapshot?.documents?.map { doc ->
-                    Pair(doc.id, doc.getString("content") ?: "")
-                } ?: emptyList()
-                posts = updatedPosts
+                posts.clear()
+                snapshot?.documents?.mapNotNull { it.toObject(Post::class.java) }?.let { posts.addAll(it) }
             }
-
-        onDispose { listener.remove() }
     }
 
     AlertDialog(
@@ -372,7 +370,7 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 LazyColumn(modifier = Modifier.height(200.dp)) {
-                    items(posts) { (postId, post) ->
+                    items(posts) { post ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -380,12 +378,12 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = post,
+                                text = post.content, // Ensure Post class has a content field
                                 fontSize = 14.sp,
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(
-                                onClick = { deletePost(postsCollection, postId) },
+                                onClick = { deletePost(postsCollection, post.id) }, // Ensure Post class has an id field
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
@@ -407,17 +405,25 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            Button(onClick = { addPost(postsCollection, newPost, userId) }) {
+            Button(
+                onClick = { addPost(postsCollection, newPost, userId) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)) // Button background color
+            ) {
                 Text("Post")
             }
         },
         dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Close")
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent) // No background color
+            ) {
+                Text("Close", color = Color.Black) // Black text
             }
         }
+
     )
 }
+
 
 fun addPost(postsCollection: CollectionReference, content: String, userId: String) {
     if (content.isBlank()) return
@@ -440,7 +446,8 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
 }
 
 @Composable
-fun ProductCard(product: Product, firestore: FirebaseFirestore, storage: FirebaseStorage, ) {
+fun ProductCard(product: Product, navController: NavController, firestore: FirebaseFirestore, storage: FirebaseStorage) {
+
     val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
     val formattedPrice = currencyFormatter.format(product.price)
 
@@ -485,7 +492,13 @@ fun ProductCard(product: Product, firestore: FirebaseFirestore, storage: Firebas
                 modifier = Modifier.padding(top = 4.dp)
             )
             Button(
-                onClick = { /* View Details Logic */ },
+                onClick = {
+                    if (!product.prodId.isNullOrEmpty()) {
+                        navController.navigate("productDetails/${product.prodId}")
+                    } else {
+                        Log.e("Navigation", "Invalid productId: ${product.prodId}")
+                    }
+                },
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .fillMaxWidth(),
@@ -507,21 +520,29 @@ suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
             val imageUrl = doc.getString("imageUrl") ?: return@mapNotNull null
             val category = doc.getString("category") ?: return@mapNotNull null
             val name = doc.getString("name") ?: return@mapNotNull null
+            val description = doc.getString("description") ?: "" // Default empty if missing
             val price = doc.getDouble("price") ?: return@mapNotNull null
-            val cityName = doc.getString("cityName") ?: "Unknown" // Ensure default if missing
+            val cityName = doc.getString("cityName") ?: "Unknown"
+            val ownerId = doc.getString("ownerId") ?: return@mapNotNull null
+            val listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
 
-            Log.d("FirestoreDebug", "Product Loaded: ID=$id, Name=$name, Category=$category, Price=$price,  CityName=$cityName")
+            Log.d(
+                "FirestoreDebug",
+                "Product Loaded: ID=$id, Name=$name, Category=$category, Price=$price, " +
+                        "CityName=$cityName, OwnerID=$ownerId, ListedAt=$listedAt"
+            )
 
             // Assign values correctly
             Product(
                 prodId = id,
+                ownerId = ownerId,
                 category = category,
                 imageUrl = imageUrl,
                 name = name,
+                description = description,
                 price = price,
-                cityName = cityName
-
-
+                cityName = cityName,
+                listedAt = listedAt
             )
         }
 
@@ -532,6 +553,7 @@ suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
         emptyList()
     }
 }
+
 
 @Composable
 fun BottomNavigationBar(navController: NavController) {
@@ -547,11 +569,11 @@ fun BottomNavigationBar(navController: NavController) {
         NavigationItem(
             iconId = R.drawable.home_icon,
             label = "Home",
-            isSelected = currentRoute == Route.farmerdashboard,
+            isSelected = currentRoute == Route.FARMER_DASHBOARD,
             onClick = {
                 // Only navigate if not already on the screen
-                if (currentRoute != Route.farmerdashboard) {
-                    navController.navigate(Route.farmerdashboard)
+                if (currentRoute != Route.FARMER_DASHBOARD) {
+                    navController.navigate(Route.FARMER_DASHBOARD)
                 }
             }
         )
@@ -559,10 +581,10 @@ fun BottomNavigationBar(navController: NavController) {
         NavigationItem(
             iconId = R.drawable.stall_icon,
             label = "Market",
-            isSelected = currentRoute == Route.market,
+            isSelected = currentRoute == Route.MARKET,
             onClick = {
-                if (currentRoute != Route.market) {
-                    navController.navigate(Route.market)
+                if (currentRoute != Route.MARKET) {
+                    navController.navigate(Route.MARKET)
                 }
             }
         )
@@ -570,10 +592,10 @@ fun BottomNavigationBar(navController: NavController) {
         NavigationItem(
             iconId = R.drawable.notification_icon,
             label = "Notifications",
-            isSelected = currentRoute == Route.notification,
+            isSelected = currentRoute == Route.NOTIFICATION,
             onClick = {
-                if (currentRoute != Route.notification) {
-                    navController.navigate(Route.notification)
+                if (currentRoute != Route.NOTIFICATION) {
+                    navController.navigate(Route.NOTIFICATION)
                 }
             }
         )
@@ -581,10 +603,10 @@ fun BottomNavigationBar(navController: NavController) {
         NavigationItem(
             iconId = R.drawable.profile_icon,
             label = "Profile",
-            isSelected = currentRoute == Route.profile,
+            isSelected = currentRoute == Route.PROFILE,
             onClick = {
-                if (currentRoute != Route.profile) {
-                    navController.navigate(Route.profile)
+                if (currentRoute != Route.PROFILE) {
+                    navController.navigate(Route.PROFILE)
                 }
             }
         )
