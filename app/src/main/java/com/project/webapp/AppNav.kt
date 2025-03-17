@@ -15,26 +15,31 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.farmaid.ui.notifications.FarmerNotificationScreen
 import com.google.firebase.firestore.FirebaseFirestore
+import com.project.webapp.Viewmodel.AuthState
+import com.project.webapp.Viewmodel.AuthViewModel
+import com.project.webapp.components.CartScreen
+import com.project.webapp.components.CheckoutScreen
 import com.project.webapp.components.EditProductScreen
 import com.project.webapp.dashboards.BottomNavigationBar
 import com.project.webapp.dashboards.FarmerDashboard
 import com.project.webapp.components.FarmerMarketScreen
+import com.project.webapp.components.GcashScreen
+import com.project.webapp.components.PaymentScreen
 import com.project.webapp.components.ProductDetailsScreen
 import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
 import com.project.webapp.components.profiles.FarmerProfileScreen
 import com.project.webapp.pages.Register
 
-
-
 @SuppressLint("ContextCastToActivity")
 @Composable
-fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
+fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartViewModel: CartViewModel) {
     val navController = rememberNavController()
     val authState = authViewModel.authState.observeAsState().value
 
@@ -75,43 +80,80 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
             }
             composable(Route.FORGOT_PASSWORD) {
                 val activity = LocalContext.current as Activity // Get the current activity
-                ForgotPass(modifier, navController, authViewModel, activity)
+                ForgotPass(modifier, navController, authViewModel, activity, cartViewModel)
             }
             composable(Route.FARMER_DASHBOARD) {
-                FarmerDashboard(modifier, navController, authViewModel)
+                FarmerDashboard(modifier, navController, authViewModel, cartViewModel)
             }
             composable(Route.PROFILE) {
                 FarmerProfileScreen(modifier, navController, authViewModel)
             }
             composable(Route.MARKET) {
-                FarmerMarketScreen(modifier, navController, authViewModel)
+                FarmerMarketScreen(modifier, navController, authViewModel, cartViewModel)
             }
             composable(Route.NOTIFICATION) {
                 FarmerNotificationScreen(
                     modifier,
                     navController,
                     authViewModel,
-                    firestore = FirebaseFirestore.getInstance()
+                    firestore = FirebaseFirestore.getInstance(),cartViewModel
                 )
             }
             composable(Route.EDIT_PROFILE) {
                 FarmerEditProfileScreen(navController)
             }
             composable(Route.MARKET_DASHBOARD) {
-                MarketDashboard(modifier, navController, authViewModel)
+                MarketDashboard(modifier, navController, authViewModel, cartViewModel)
             }
             composable(Route.ORG_DASHBOARD) {
-                OrganizationDashboard(modifier, navController, authViewModel)
+                OrganizationDashboard(modifier, navController, authViewModel, cartViewModel)
             }
             composable("productDetails/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId") ?: ""
-                ProductDetailsScreen(navController, productId, FirebaseFirestore.getInstance())
+
+                ProductDetailsScreen(
+                    navController = navController,
+                    productId = productId,
+                    firestore = FirebaseFirestore.getInstance()
+                )
+            }
+
+            composable("checkout/{productId}/{productName}/{productPrice}/{productImageUrl}") { backStackEntry ->
+                val productId = backStackEntry.arguments?.getString("productId")
+                val productName = backStackEntry.arguments?.getString("productName")
+                val productPrice = backStackEntry.arguments?.getString("productPrice")
+                val productImageUrl = backStackEntry.arguments?.getString("productImageUrl")
+
+                val cartViewModel: CartViewModel = viewModel()
+
+                CheckoutScreen(
+                    navController = navController,
+                    cartViewModel = cartViewModel
+                )
             }
             composable("editProduct/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
                 EditProductScreen(navController, productId, FirebaseFirestore.getInstance())
             }
+            composable("cart") { CartScreen(cartViewModel, navController)
+            }
+            composable("payment/{totalPrice}") { backStackEntry ->
+                val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0"
+
+                PaymentScreen(navController, totalPrice, cartViewModel
+                )
+            }
+            composable("gcashScreen/{totalPrice}") { backStackEntry ->
+                val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
+
+                GcashScreen(navController, totalPrice)
+            }
+
+
+
+
         }
+
     }
 }
 

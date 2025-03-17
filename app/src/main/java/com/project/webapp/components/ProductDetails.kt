@@ -1,6 +1,6 @@
 package com.project.webapp.components
 
-import android.util.Log
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,16 +12,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.project.webapp.AuthState
-import com.project.webapp.AuthViewModel
-import com.project.webapp.dashboards.TopBar
+import com.project.webapp.R
+import com.project.webapp.Viewmodel.AuthState
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.datas.Product
 
 @Composable
@@ -29,12 +31,15 @@ fun ProductDetailsScreen(
     navController: NavController,
     productId: String?,
     firestore: FirebaseFirestore,
-    authViewModel: AuthViewModel = viewModel()
+    authViewModel: AuthViewModel = viewModel(),
+    cartViewModel: CartViewModel = viewModel()
 ) {
     var product by remember { mutableStateOf<Product?>(null) }
     var ownerName by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     val authState by authViewModel.authState.observeAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val productPrice = remember { mutableStateOf(0.0) }
 
     LaunchedEffect(productId) {
         if (productId.isNullOrEmpty()) {
@@ -57,6 +62,19 @@ fun ProductDetailsScreen(
                 isLoading = false
             }
     }
+    var userType by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        userId?.let {
+            FirebaseFirestore.getInstance().collection("users")
+                .document(it)
+                .get()
+                .addOnSuccessListener { document ->
+                    userType = document.getString("userType") // Ensure field exists in Firestore
+                }
+        }
+    }
 
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -70,31 +88,39 @@ fun ProductDetailsScreen(
                     .padding(16.dp)
             ) {
                 // Back Button
-                Button(
+                IconButton(
                     onClick = { navController.popBackStack() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                    modifier = Modifier.align(Alignment.Start)
                 ) {
-                    Text("Back")
+                    Icon(
+                        painter = painterResource(id = R.drawable.backbtn),
+                        contentDescription = "Back",
+                        tint = Color.Unspecified
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                TopBar()
+                // Show TopBar only when userType is available
+                userType?.let { type ->
+                    TopBar(navController, cartViewModel, userType = type)
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFFC8E6C9), RoundedCornerShape(12.dp))
-                        .padding(16.dp) // Adds spacing between the image and background
+                        .padding(16.dp)
                 ) {
                     AsyncImage(
                         model = prod.imageUrl,
                         contentDescription = "Product Image",
                         modifier = Modifier
-                            .fillMaxWidth(0.8f) // Ensures the image is smaller than the box
+                            .fillMaxWidth(0.8f)
                             .height(220.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .align(Alignment.Center), // Centers image within the box
-                        contentScale = ContentScale.Fit // Ensures the image retains aspect ratio
+                            .align(Alignment.Center),
+                        contentScale = ContentScale.Fit
                     )
                 }
 
@@ -115,7 +141,7 @@ fun ProductDetailsScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
-                            "₱${String.format("%,d", prod.price.toInt())}.00", // Ensures 30,000 format
+                            "₱${String.format("%,d", prod.price.toInt())}.00",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0DA54B)
@@ -164,20 +190,29 @@ fun ProductDetailsScreen(
                         } else if (userType == "market") {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Button(
-                                    onClick = { addToCart(productId!!, userId) },
+                                    onClick = {
+                                        cartViewModel.addToCart(prod)
+                                    },
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Blue)
                                 ) {
-                                    Text("Add to Cart")
+                                    Text(text = "Add to Cart")
                                 }
+
                                 Spacer(modifier = Modifier.height(8.dp))
+
                                 Button(
-                                    onClick = { buyProduct(productId!!, userId) },
+                                    onClick = {
+                                        val productData = product ?: return@Button // Ensure product is not null
+                                        val productPrice = productData.price.toString()
+                                        navController.navigate("payment/$productPrice")
+                                    },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
                                 ) {
                                     Text("Buy Now")
                                 }
+
                             }
                         } else if (userType == "organization") {
                             Text("Organizations cannot buy or sell products.", fontSize = 16.sp, color = Color.Gray)
@@ -190,7 +225,18 @@ fun ProductDetailsScreen(
             }
         } ?: Text("Product not found", fontSize = 18.sp, modifier = Modifier.padding(16.dp))
     }
+
+    // Snackbar notification
+    LaunchedEffect(cartViewModel.snackbarMessage.collectAsState().value) {
+        cartViewModel.snackbarMessage.value?.let {
+            snackbarHostState.showSnackbar(it)
+            cartViewModel.clearSnackbarMessage() // Clear message after displaying snackbar
+        }
+    }
+
+    SnackbarHost(hostState = snackbarHostState)
 }
+
 
 
 fun fetchOwnerName(firestore: FirebaseFirestore, ownerId: String, onResult: (String) -> Unit) {

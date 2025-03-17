@@ -35,7 +35,7 @@ import androidx.navigation.NavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
-import com.project.webapp.AuthViewModel
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.datas.Product
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.livedata.observeAsState
@@ -52,10 +52,10 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.project.webapp.AuthState
+import com.google.firebase.auth.FirebaseAuth
+import com.project.webapp.Viewmodel.AuthState
 import com.project.webapp.dashboards.ProductCard
 import com.project.webapp.dashboards.SearchBar
-import com.project.webapp.dashboards.TopBar
 import com.project.webapp.dashboards.fetchProducts
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -66,7 +66,8 @@ import java.util.Locale
 fun FarmerMarketScreen(
     modifier: Modifier = Modifier,
     navController: NavController,
-    authViewModel: AuthViewModel
+    authViewModel: AuthViewModel,
+    cartViewModel: CartViewModel
 ) {
     val firestore = FirebaseFirestore.getInstance()
     val storage = FirebaseStorage.getInstance()
@@ -74,7 +75,7 @@ fun FarmerMarketScreen(
     var filteredProducts by remember { mutableStateOf<List<Product>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var isAscending by remember { mutableStateOf(true) } // Sorting state
+    var isAscending by remember { mutableStateOf(true) }
     val categories = listOf("All", "vegetable", "fruits", "rootcrops", "grains", "spices")
     val coroutineScope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
@@ -84,6 +85,31 @@ fun FarmerMarketScreen(
     val context = LocalContext.current
     var minPrice by remember { mutableStateOf("") }
     var maxPrice by remember { mutableStateOf("") }
+    val authState by authViewModel.authState.observeAsState()
+
+    var userType by remember { mutableStateOf<String?>(null) }
+
+    // ✅ Fetch user type only once
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        Log.d("FarmerMarketScreen", "Fetching userType for userId: $userId")
+
+        userId?.let {
+            firestore.collection("users")
+                .document(it)
+                .get()
+                .addOnSuccessListener { document ->
+                    val fetchedUserType = document.getString("userType")?.trim()?.lowercase()
+                    userType = fetchedUserType
+                    Log.d("FarmerMarketScreen", "Fetched userType: $userType")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("FarmerMarketScreen", "Error fetching userType", e)
+                }
+        }
+    }
+
+    val isFarmer = userType == "farmer"
 
     // Fetch products on first load
     LaunchedEffect(Unit) {
@@ -102,98 +128,95 @@ fun FarmerMarketScreen(
 
         filteredProducts = products.filter { product ->
             val productPrice = product.price
-            val isCategoryMatch = category == null || category == "all" || product.category.trim().lowercase() == category
+            val isCategoryMatch = category == null || category == "all" || product.category.trim()
+                .lowercase() == category
             val isPriceInRange = productPrice in min..max
 
             isCategoryMatch && isPriceInRange
         }.sortedBy { if (isAscending) it.price else -it.price }
     }
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        TopBar()
-        SearchBar()
 
-        Text("Market", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
-        // Category Filter Buttons
-        LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
-            items(categories) { category ->
-                Button(
-                    onClick = { selectedCategory = if (category == "All") null else category },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedCategory == category) Color(0xFF0DA54B) else Color.LightGray
-                    ),
-                    modifier = Modifier.padding(end = 8.dp)
-                ) {
-                    Text(category)
-                }
-            }
-        }
-
-        // Price Filtering Inputs - Modernized UI
-        Row(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .fillMaxSize()
+                .padding(14.dp)
         ) {
-            PriceFilterSection(
-                minPrice = minPrice,
-                maxPrice = maxPrice,
-                onMinPriceChange = { minPrice = it },
-                onMaxPriceChange = { maxPrice = it },
-                isAscending = isAscending,
-                onSortToggle = { isAscending = !isAscending }
-            )
-        }
+            userType?.let { type -> TopBar(navController, cartViewModel, userType = type) }
+            SearchBar()
+            Text("Market", fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize().padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredProducts.size) { index ->
-                    val product = filteredProducts[index]
-                    ProductCard(product, navController, firestore, storage)
+            LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
+                items(categories) { category ->
+                    Button(
+                        onClick = { selectedCategory = if (category == "All") null else category },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selectedCategory == category) Color(0xFF0DA54B) else Color.LightGray
+                        ),
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(category)
+                    }
                 }
             }
-        }
-    }
 
-    // Floating Action Button for Adding a Product
-    val authState by authViewModel.authState.observeAsState()
-
-    if (authState is AuthState.Authenticated) {
-        val userType = (authState as AuthState.Authenticated).userType
-
-        if (userType == "farmer") {
-            Box(
+            // Price Filtering Inputs
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                contentAlignment = Alignment.BottomEnd
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                FloatingActionButton(
-                    onClick = { showDialog = true },
-                    containerColor = Color(0xFF0DA54B),
-                    contentColor = Color.White
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Product")
+                PriceFilterSection(
+                    minPrice = minPrice,
+                    maxPrice = maxPrice,
+                    onMinPriceChange = { minPrice = it },
+                    onMaxPriceChange = { maxPrice = it },
+                    isAscending = isAscending,
+                    onSortToggle = { isAscending = !isAscending }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredProducts.size) { index ->
+                        val product = filteredProducts[index]
+                        ProductCard(product, navController, firestore, storage)
+                    }
+                }
+            }
+        }
+
+        // ✅ Correct placement of FloatingActionButton inside Box
+        if (isFarmer) {
+            Log.d("FarmerMarketScreen", "Displaying FloatingActionButton for farmer userType")
+
+            FloatingActionButton(
+                onClick = { showDialog = true },
+                containerColor = Color(0xFF0DA54B),
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Product")
             }
         }
     }
 
-    // Add Product Dialog
+    // Add Product Dialog (only shown if showDialog is true)
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
@@ -212,7 +235,7 @@ fun FarmerMarketScreen(
                         context = context
                     )
                 } else {
-                    permissionState.launchPermissionRequest() // Request permission
+                    permissionState.launchPermissionRequest()
                 }
                 showDialog = false
             }

@@ -18,19 +18,21 @@ import java.util.Locale
 import java.util.Date
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.project.webapp.AuthViewModel
+import com.google.firebase.auth.FirebaseAuth
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
-import com.project.webapp.dashboards.TopBar
+
 
 @Composable
 fun FarmerNotificationScreen(
     modifier: Modifier = Modifier,
     navController: NavController,
     authViewModel: AuthViewModel,
-    firestore: FirebaseFirestore
+    firestore: FirebaseFirestore, cartViewModel: CartViewModel
 ) {
     var notifications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
@@ -49,13 +51,36 @@ fun FarmerNotificationScreen(
                 }
             }
     }
+    val context = LocalContext.current
+    var userType by remember { mutableStateOf<String?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopBar()
+    // Simulate fetching userType from Firebase or ViewModel
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        userId?.let {
+            FirebaseFirestore.getInstance().collection("users")
+                .document(it)
+                .get()
+                .addOnSuccessListener { document ->
+                    userType = document.getString("userType") // Ensure field exists in Firestore
+                }
         }
-    ) { paddingValues ->
-        Column(modifier = Modifier.padding(paddingValues).fillMaxSize().padding(16.dp)) {
+    }
+    Scaffold() { paddingValues ->
+        Column(
+            modifier = Modifier
+                .padding(paddingValues)
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // 🔹 Add "Notification" title
+            Text(
+                text = "Notification",
+                fontSize = 30.sp, // Adjust size as needed
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp) // Space between title and content
+            )
+
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF0DA54B))
@@ -76,6 +101,7 @@ fun FarmerNotificationScreen(
     selectedNotification?.let { notification ->
         NotificationDetailsDialog(notification, onDismiss = { selectedNotification = null })
     }
+
 }
 
 @Composable

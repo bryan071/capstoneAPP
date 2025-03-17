@@ -2,15 +2,12 @@ package com.project.webapp.pages
 
 import android.app.Activity
 import android.util.Log
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -24,10 +21,9 @@ import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
-import com.project.webapp.AuthViewModel
-import com.project.webapp.R
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.Route
-import com.project.webapp.dashboards.TopBar
+import com.project.webapp.components.TopBar
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -35,7 +31,7 @@ fun ForgotPass(
     modifier: Modifier = Modifier,
     navController: NavController,
     authViewModel: AuthViewModel,
-    activity: Activity
+    activity: Activity, cartViewModel: CartViewModel
 ) {
     var phoneNumber by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
@@ -44,13 +40,30 @@ fun ForgotPass(
     var verificationId by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) } // Stores error messages
     val auth = FirebaseAuth.getInstance()
+    var userType by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        userId?.let {
+            FirebaseFirestore.getInstance().collection("users")
+                .document(it)
+                .get()
+                .addOnSuccessListener { document ->
+                    userType = document.getString("userType") // Ensure field exists in Firestore
+                }
+        }
+    }
+
 
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TopBar()
+        // Show TopBar only when userType is available
+        userType?.let { type ->
+            TopBar(navController, cartViewModel, userType = type)
+        }
         Text(
             text = "Supporting farmers, reducing waste!",
             fontSize = 23.sp,

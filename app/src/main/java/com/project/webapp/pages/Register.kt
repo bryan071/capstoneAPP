@@ -1,6 +1,5 @@
 package com.project.webapp.pages
 
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -37,19 +36,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.MutableLiveData
 import androidx.navigation.NavController
-import com.project.webapp.AuthViewModel
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.popup.Privacy
 import com.project.webapp.popup.Terms
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.project.webapp.AuthState
+import com.project.webapp.Viewmodel.AuthState
 
 
 @Composable

@@ -1,5 +1,6 @@
-package com.project.webapp
+package com.project.webapp.Viewmodel
 
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -21,6 +22,8 @@ class AuthViewModel : ViewModel() {
     private val _authState = MutableLiveData<AuthState>()
     val authState: LiveData<AuthState> get() = _authState
 
+
+
     init {
         checkAuthStatus()
     }
@@ -39,12 +42,15 @@ class AuthViewModel : ViewModel() {
             .get()
             .addOnSuccessListener { document ->
                 val userType = document.getString("userType") ?: "unknown"
+                Log.d("AuthViewModel", "Fetched userType: $userType") // Debug log
                 _authState.value = AuthState.Authenticated(userId, userType)
             }
             .addOnFailureListener {
+                Log.e("AuthViewModel", "Failed to fetch user type: ${it.message}") // Debug log
                 _authState.value = AuthState.Error("Failed to fetch user type.")
             }
     }
+
 
     fun login(email: String, password: String) {
         if (email.isEmpty() || password.isEmpty()) {
@@ -94,22 +100,6 @@ class AuthViewModel : ViewModel() {
                     _authState.postValue(AuthState.Error(task.exception?.message ?: "Signup failed"))
                 }
             }
-    }
-
-
-
-    private fun validateSignupData(
-        email: String, password: String, firstname: String,
-        lastname: String, address: String, phoneNumber: String, confirmpass: String
-    ): String? {
-        return when {
-            email.isEmpty() || password.isEmpty() || firstname.isEmpty() ||
-                    lastname.isEmpty() || address.isEmpty() || phoneNumber.isEmpty() || confirmpass.isEmpty() ->
-                "You need to fill this."
-            password != confirmpass -> "Passwords do not match."
-            password.length < 6 -> "Password must be at least 6 characters long."
-            else -> null
-        }
     }
 
     fun logout() {

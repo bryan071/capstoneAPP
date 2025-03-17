@@ -18,10 +18,9 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.project.webapp.AuthViewModel
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
-import com.project.webapp.dashboards.TopBar
 import com.project.webapp.datas.UserData
 
 @Composable
@@ -63,7 +62,6 @@ fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavControl
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TopBar()
 
         Spacer(modifier = Modifier.height(20.dp))
 

@@ -2,6 +2,7 @@ package com.project.webapp.dashboards
 
 import WeatherSection
 import android.util.Log
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,15 +10,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -28,18 +32,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
-import com.project.webapp.AuthViewModel
+import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.api.AutoImageSlider
+import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
@@ -47,22 +54,44 @@ import java.util.Locale
 
 
 @Composable
-fun FarmerDashboard(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel) {
+fun FarmerDashboard(
+    modifier: Modifier = Modifier,
+    navController: NavController,
+    authViewModel: AuthViewModel,
+    cartViewModel: CartViewModel
+) {
     val context = LocalContext.current
+    var userType by remember { mutableStateOf<String?>(null) }
+
+    // Simulate fetching userType from Firebase or ViewModel
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        userId?.let {
+            FirebaseFirestore.getInstance().collection("users")
+                .document(it)
+                .get()
+                .addOnSuccessListener { document ->
+                    userType = document.getString("userType") // Ensure field exists in Firestore
+                }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(14.dp)
+            .padding(16.dp)
     ) {
-        TopBar()
+        // Only show TopBar when userType is available
+        userType?.let { type ->
+            TopBar(navController, cartViewModel, userType = type)
+        }
 
         // Scrollable content
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 8.dp), // Add slight top padding
-            verticalArrangement = Arrangement.spacedBy(16.dp) // Space between sections
+                .padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { SearchBar() }
             item { HeroBanner() }
@@ -74,33 +103,6 @@ fun FarmerDashboard(modifier: Modifier = Modifier, navController: NavController,
     }
 }
 
-// 🔹 Top Bar
-@Composable
-fun TopBar() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Expanding the logo size while keeping space constraints
-        Image(
-            painter = painterResource(id = R.drawable.logo),
-            contentDescription = "logo image",
-            modifier = Modifier
-                .size(100.dp) // Enlarged size
-                .weight(1f) // Prevents extra spacing on the sides
-        )
-
-        Row(
-            modifier = Modifier.weight(1f), // Ensures icons don't move too much
-            horizontalArrangement = Arrangement.End
-        ) {
-
-        }
-    }
-}
 
 @Composable
 fun SearchBar() {
