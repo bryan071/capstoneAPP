@@ -1,6 +1,5 @@
 package com.project.webapp.components
 
-import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.*
@@ -17,8 +16,11 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.project.webapp.datas.CartItem
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.Color
-
+import androidx.compose.ui.res.painterResource
+import com.project.webapp.R
 
 
 @Composable
@@ -34,11 +36,15 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
             TopAppBar(
                 title = { Text(text = "Cart", color = Color.White) },
                 navigationIcon = {
-                    Button(
+                    // Back Button
+                    IconButton(
                         onClick = { navController.popBackStack() },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = Color.Gray)
                     ) {
-                        Text("Back")
+                        Icon(
+                            painter = painterResource(id = R.drawable.backbtn),
+                            contentDescription = "Back",
+                            tint = Color.Unspecified
+                        )
                     }
                 },
                 backgroundColor = Color(0xFF0DA54B), // Green theme
