@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -48,6 +47,18 @@ import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
 import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.ButtonDefaults
+
+
 
 
 @Composable
@@ -352,19 +363,32 @@ fun CommunityFeed() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .clickable { showDialog = true },
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(Color.White),
-        elevation = CardDefaults.cardElevation(4.dp)
+        elevation = CardDefaults.cardElevation(6.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Community Feed", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Person, contentDescription = "Community Icon", tint = Color(0xFF0DA54B))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Click to see the latest posts or share your own!", fontSize = 14.sp)
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Groups, // Correct for Material 3
+                contentDescription = "Community Icon",
+                tint = Color(0xFF0DA54B),
+                modifier = Modifier.size(32.dp)
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text("Community Feed", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Tap to see the latest posts or share your own thoughts!",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
             }
         }
     }
@@ -381,9 +405,9 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
 
     var newPost by remember { mutableStateOf("") }
     val posts = remember { mutableStateListOf<Post>() }
-    val userId = "user_123" // Replace with actual logged-in user ID
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "user_123" // Get actual user ID
 
-    // Firestore listener with LaunchedEffect
+    // Firestore listener
     LaunchedEffect(Unit) {
         postsCollection.orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, e ->
@@ -398,63 +422,87 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Community Feed") },
+        title = { Text("Community Feed", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                LazyColumn(modifier = Modifier.height(200.dp)) {
+                // Posts List
+                LazyColumn(
+                    modifier = Modifier.height(300.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
                     items(posts) { post ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = post.content, // Ensure Post class has a content field
-                                fontSize = 14.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = { deletePost(postsCollection, post.id) }, // Ensure Post class has an id field
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete Post",
-                                    tint = Color.Red
-                                )
-                            }
-                        }
+                        PostItem(post, postsCollection, userId)
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+
+                // New Post Input
                 OutlinedTextField(
                     value = newPost,
                     onValueChange = { newPost = it },
-                    label = { Text("Write a post...") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Write something...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
                 )
             }
         },
         confirmButton = {
             Button(
-                onClick = { addPost(postsCollection, newPost, userId) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)) // Button background color
+                onClick = { addPost(postsCollection, newPost, userId); newPost = "" },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
             ) {
                 Text("Post")
             }
         },
         dismissButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent) // No background color
-            ) {
-                Text("Close", color = Color.Black) // Black text
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = Color.Gray)
             }
         }
-
     )
 }
+
+@Composable
+fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "User Icon",
+                tint = Color(0xFF0DA54B),
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = post.content, fontSize = 14.sp)
+                Text(
+                    text = post.timestamp?.toDate()?.toString() ?: "Unknown time", // Converts to readable date
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+            }
+            if (post.userId == userId) {
+                IconButton(onClick = { deletePost(postsCollection, post.id) }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Post", tint = Color.Red)
+                }
+            }
+        }
+    }
+}
+
 
 
 fun addPost(postsCollection: CollectionReference, content: String, userId: String) {
@@ -463,7 +511,7 @@ fun addPost(postsCollection: CollectionReference, content: String, userId: Strin
     val newPost = hashMapOf(
         "userId" to userId,
         "content" to content,
-        "timestamp" to FieldValue.serverTimestamp()
+        "timestamp" to FieldValue.serverTimestamp() // This ensures Firestore saves a proper timestamp
     )
 
     postsCollection.add(newPost)

@@ -79,6 +79,7 @@ dependencies {
     implementation("androidx.compose.material:material:1.5.4")
     implementation ("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.compose.material:material-icons-extended:1.5.0")
+    implementation ("androidx.compose.material3:material3:1.1.2")
 
     // ViewModel Support
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
