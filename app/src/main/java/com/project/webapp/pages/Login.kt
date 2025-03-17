@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -121,7 +122,8 @@ fun Login(
 
         Button(
             onClick = { authViewModel.login(email, password) },
-            enabled = authState.value !is AuthState.Loading
+            enabled = authState.value !is AuthState.Loading,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
         ) {
             Text(text = "Login")
         }
@@ -135,11 +137,11 @@ fun Login(
         }
 
         TextButton(onClick = { navController.navigate(Route.FORGOT_PASSWORD) }) {
-            Text(text = "Forgot Password?")
+            Text(text = "Forgot Password?", color = Color.Black)
         }
 
         TextButton(onClick = { navController.navigate(Route.REGISTER) }) {
-            Text(text = "Don't have an account? Register here.", fontSize = 15.sp)
+            Text(text = "Don't have an account? Register here.", fontSize = 15.sp, color = Color.Black)
         }
     }
 }

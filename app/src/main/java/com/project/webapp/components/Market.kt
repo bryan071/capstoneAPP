@@ -38,6 +38,7 @@ import com.google.firebase.storage.FirebaseStorage
 import com.project.webapp.AuthViewModel
 import com.project.webapp.datas.Product
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -51,6 +52,7 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.project.webapp.AuthState
 import com.project.webapp.dashboards.ProductCard
 import com.project.webapp.dashboards.SearchBar
 import com.project.webapp.dashboards.TopBar
@@ -168,18 +170,26 @@ fun FarmerMarketScreen(
     }
 
     // Floating Action Button for Adding a Product
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        contentAlignment = Alignment.BottomEnd
-    ) {
-        FloatingActionButton(
-            onClick = { showDialog = true },
-            containerColor = Color(0xFF0DA54B),
-            contentColor = Color.White
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Add Product")
+    val authState by authViewModel.authState.observeAsState()
+
+    if (authState is AuthState.Authenticated) {
+        val userType = (authState as AuthState.Authenticated).userType
+
+        if (userType == "farmer") {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                FloatingActionButton(
+                    onClick = { showDialog = true },
+                    containerColor = Color(0xFF0DA54B),
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Product")
+                }
+            }
         }
     }
 

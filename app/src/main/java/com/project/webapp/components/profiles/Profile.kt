@@ -39,18 +39,23 @@ fun FarmerProfileScreen(modifier: Modifier = Modifier, navController: NavControl
             firestore.collection("users").document(userId).get()
                 .addOnSuccessListener { document ->
                     if (document.exists()) {
+                        Log.d("ProfileScreen", "Fetched user data: ${document.data}") // ✅ Debug log
+
                         userData.value = document.toObject(UserData::class.java)
+                    } else {
+                        Log.e("ProfileScreen", "Document does not exist")
                     }
                     isLoading = false
                 }
-                .addOnFailureListener {
-                    Log.e("ProfileScreen", "Error fetching user data: ${it.message}")
+                .addOnFailureListener { e ->
+                    Log.e("ProfileScreen", "Error fetching user data: ${e.message}")
                     isLoading = false
                 }
         } ?: run {
             isLoading = false
         }
     }
+
 
     Column(
         modifier = Modifier

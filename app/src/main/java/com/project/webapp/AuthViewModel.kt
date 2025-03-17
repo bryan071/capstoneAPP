@@ -12,8 +12,8 @@ import kotlinx.coroutines.launch
 
 class AuthViewModel : ViewModel() {
 
-     val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
-     val auth: FirebaseAuth = FirebaseAuth.getInstance()
+    val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
+    val auth: FirebaseAuth = FirebaseAuth.getInstance()
 
     val currentUser: FirebaseUser?
         get() = auth.currentUser
@@ -64,46 +64,47 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun signup(
-        email: String, password: String, firstname: String, lastname: String,
-        address: String, contact: String, confirmpass: String, userType: String
-    ) {
-        val errorMsg = validateSignupData(email, password, firstname, lastname, address, contact, confirmpass)
-        if (errorMsg != null) {
-            _authState.value = AuthState.Error(errorMsg)
+    fun signup(email: String, password: String, firstname: String, lastname: String, address: String, phoneNumber: String, userType: String, confirmpass: String) {
+        if (password != confirmpass) {
+            _authState.postValue(AuthState.Error("Passwords do not match"))
             return
         }
 
-        _authState.value = AuthState.Loading
-        viewModelScope.launch {
-            try {
-                val result = auth.createUserWithEmailAndPassword(email, password).await()
-                val userId = result.user?.uid ?: throw Exception("User ID is null.")
+        auth.createUserWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val userId = auth.currentUser?.uid ?: return@addOnCompleteListener
+                    val userMap = hashMapOf(
+                        "firstname" to firstname,
+                        "lastname" to lastname,
+                        "email" to email,
+                        "address" to address,
+                        "phoneNumber" to phoneNumber,
+                        "userType" to userType
+                    )
 
-                val user = hashMapOf(
-                    "firstname" to firstname,
-                    "lastname" to lastname,
-                    "email" to email,
-                    "address" to address,
-                    "contact" to contact,
-                    "userType" to userType
-                )
-
-                firestore.collection("users").document(userId).set(user).await()
-                _authState.value = AuthState.Authenticated(userId, userType)
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(e.message ?: "Something went wrong.")
+                    firestore.collection("users").document(userId).set(userMap)
+                        .addOnSuccessListener {
+                            _authState.postValue(AuthState.Authenticated(userId, userType))
+                        }
+                        .addOnFailureListener {
+                            _authState.postValue(AuthState.Error("Firestore error: ${it.message}"))
+                        }
+                } else {
+                    _authState.postValue(AuthState.Error(task.exception?.message ?: "Signup failed"))
+                }
             }
-        }
     }
+
+
 
     private fun validateSignupData(
         email: String, password: String, firstname: String,
-        lastname: String, address: String, contact: String, confirmpass: String
+        lastname: String, address: String, phoneNumber: String, confirmpass: String
     ): String? {
         return when {
             email.isEmpty() || password.isEmpty() || firstname.isEmpty() ||
-                    lastname.isEmpty() || address.isEmpty() || contact.isEmpty() || confirmpass.isEmpty() ->
+                    lastname.isEmpty() || address.isEmpty() || phoneNumber.isEmpty() || confirmpass.isEmpty() ->
                 "You need to fill this."
             password != confirmpass -> "Passwords do not match."
             password.length < 6 -> "Password must be at least 6 characters long."

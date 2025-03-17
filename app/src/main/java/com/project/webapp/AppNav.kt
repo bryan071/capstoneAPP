@@ -4,6 +4,8 @@ import FarmerEditProfileScreen
 import MarketDashboard
 import OrganizationDashboard
 import SplashScreen
+import android.annotation.SuppressLint
+import android.app.Activity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -12,6 +14,7 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -29,6 +32,7 @@ import com.project.webapp.pages.Register
 
 
 
+@SuppressLint("ContextCastToActivity")
 @Composable
 fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
     val navController = rememberNavController()
@@ -70,7 +74,8 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel) {
                 Register(modifier, navController, authViewModel)
             }
             composable(Route.FORGOT_PASSWORD) {
-                ForgotPass(modifier, navController, authViewModel)
+                val activity = LocalContext.current as Activity // Get the current activity
+                ForgotPass(modifier, navController, authViewModel, activity)
             }
             composable(Route.FARMER_DASHBOARD) {
                 FarmerDashboard(modifier, navController, authViewModel)

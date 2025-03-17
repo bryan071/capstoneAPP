@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,26 +70,32 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
     val context = LocalContext.current
 
     LaunchedEffect(authState.value) {
-        when (authState.value) {
+        when (val state = authState.value) {
             is AuthState.Authenticated -> {
                 val userId = authViewModel.auth.currentUser?.uid
                 userId?.let {
                     authViewModel.firestore.collection("users").document(it).get()
                         .addOnSuccessListener { document ->
-                            val userType = document.getString("userType") ?: "Market"
-                            when (userType) {
-                                "farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
-                                "market" -> navController.navigate(Route.MARKET_DASHBOARD)
-                                "organization" -> navController.navigate(Route.ORG_DASHBOARD)
-                                else -> Toast.makeText(context, "User type not found", Toast.LENGTH_SHORT).show()
+                            val userType = document.getString("userType")
+                            if (userType.isNullOrEmpty()) {
+                                Toast.makeText(context, "User type not found", Toast.LENGTH_SHORT).show()
+                            } else {
+                                when (userType) {
+                                    "Farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
+                                    "Market" -> navController.navigate(Route.MARKET_DASHBOARD)
+                                    "Organization" -> navController.navigate(Route.ORG_DASHBOARD)
+                                    else -> Toast.makeText(context, "Invalid user type", Toast.LENGTH_SHORT).show()
+                                }
                             }
+                        }
+                        .addOnFailureListener {
+                            Toast.makeText(context, "Failed to fetch user data", Toast.LENGTH_SHORT).show()
                         }
                 }
             }
-            is AuthState.Error -> Toast.makeText(
-                context,
-                (authState.value as AuthState.Error).message, Toast.LENGTH_SHORT
-            ).show()
+            is AuthState.Error -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+            }
             else -> Unit
         }
     }
@@ -147,14 +154,24 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                     label = { Text(text = "Address") }
                 )
 
-                OutlinedTextField(
-                    modifier = Modifier.width(340.dp),
-                    value = phoneNumber,
-                    onValueChange = { phoneNumber = it },
-                    label = { Text(text = "Contact Number") }
-                )
+            OutlinedTextField(
+                modifier = Modifier.width(340.dp),
+                value = phoneNumber,
+                onValueChange = { input ->
+                    // Ensure it starts with +63
+                    if (input.length >= 3 && input.startsWith("+63")) {
+                        val digitsOnly = input.substring(3).filter { it.isDigit() } // Remove non-numeric characters
+                        if (digitsOnly.length <= 10) { // Limit to 10 digits after +63
+                            phoneNumber = "+63$digitsOnly"
+                        }
+                    } else {
+                        phoneNumber = "+63" // Reset if invalid
+                    }
+                },
+                label = { Text(text = "Contact Number") }
+            )
 
-                OutlinedTextField(
+            OutlinedTextField(
                     modifier = Modifier.width(340.dp),
                     value = password,
                     onValueChange = { password = it },
@@ -213,14 +230,22 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                     if (!termsChecked || !privacyChecked) {
                         Toast.makeText(context, "You must accept the terms and privacy policy", Toast.LENGTH_SHORT).show()
                     } else {
-                        authViewModel.signup(email, password, firstname, lastname, address, phoneNumber, confirmpass, userType)
+                        val formattedPhone = formatPhoneNumber(phoneNumber) // Ensure correct format
+
+                        if (password != confirmpass) {
+                            Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
+                        } else {
+                            authViewModel.signup(email, password, firstname, lastname, address, formattedPhone, userType, confirmpass) // ✅ Added confirmpass
+                        }
                     }
                 },
                 enabled = authState != AuthState.Loading,
-                modifier = Modifier.fillMaxWidth() // Make button aligned
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
             ) {
                 Text(text = "Register")
             }
+
 
             if (authState.value is AuthState.Error) {
                 Text(
@@ -230,11 +255,11 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                 )
             }
 
-            Button(
+            TextButton(
                 onClick = { navController.navigate(Route.LOGIN) },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(text = "Back to Login")
+                Text(text = "Back to Login", color = Color.Black)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -293,6 +318,15 @@ fun DataPrivacy(label: String, isChecked: Boolean, onCheckedChange: (Boolean) ->
     }
 }
 
+fun formatPhoneNumber(input: String): String {
+    val cleaned = input.replace("\\s".toRegex(), "").replace("-", "") // Remove spaces & hyphens
+
+    return when {
+        cleaned.startsWith("+63") -> cleaned // Already correct
+        cleaned.startsWith("09") -> "+63" + cleaned.removePrefix("0") // Convert 09 to +639
+        else -> "+63" // Default if invalid input
+    }
+}
 
 
 
