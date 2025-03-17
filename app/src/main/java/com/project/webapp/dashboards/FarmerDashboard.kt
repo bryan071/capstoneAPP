@@ -2,8 +2,6 @@ package com.project.webapp.dashboards
 
 import WeatherSection
 import android.util.Log
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,15 +11,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -42,15 +39,15 @@ import kotlinx.coroutines.tasks.await
 import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
+import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.api.AutoImageSlider
 import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
-
+import androidx.compose.material.icons.outlined.Chat
 
 
 @Composable
@@ -58,12 +55,14 @@ fun FarmerDashboard(
     modifier: Modifier = Modifier,
     navController: NavController,
     authViewModel: AuthViewModel,
-    cartViewModel: CartViewModel
+    cartViewModel: CartViewModel,
+    chatViewModel: ChatViewModel
 ) {
     val context = LocalContext.current
     var userType by remember { mutableStateOf<String?>(null) }
+    val unreadCount by chatViewModel.unreadMessagesCount.collectAsState(initial = 0)
 
-    // Simulate fetching userType from Firebase or ViewModel
+    // Fetch userType from Firebase
     LaunchedEffect(Unit) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid
         userId?.let {
@@ -71,37 +70,67 @@ fun FarmerDashboard(
                 .document(it)
                 .get()
                 .addOnSuccessListener { document ->
-                    userType = document.getString("userType") // Ensure field exists in Firestore
+                    userType = document.getString("userType")
                 }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        // Only show TopBar when userType is available
-        userType?.let { type ->
-            TopBar(navController, cartViewModel, userType = type)
-        }
-
-        // Scrollable content
-        LazyColumn(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(16.dp)
         ) {
-            item { SearchBar() }
-            item { HeroBanner() }
-            item { FeaturedProductsSection(authViewModel, navController) }
-            item { DiscountsBanner() }
-            item { WeatherSection(context) }
-            item { CommunityFeed() }
+            userType?.let { type ->
+                TopBar(navController, cartViewModel, userType = type)
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item { SearchBar() }
+                item { HeroBanner() }
+                item { FeaturedProductsSection(authViewModel, navController) }
+                item { DiscountsBanner() }
+                item { WeatherSection(context) }
+                item { CommunityFeed() }
+            }
+        }
+
+        // Floating Action Button (FAB) for Chat
+        FloatingActionButton(
+            onClick = { navController.navigate("chat") },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)  // Ensures placement at bottom right
+                .padding(16.dp),
+            containerColor = Color(0xFF0DA54B)
+        ) {
+            Icon(Icons.Outlined.Chat, contentDescription = "Chat")
+        }
+
+        // Unread messages badge
+        if (unreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .background(Color.Red, shape = CircleShape)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = (-4).dp, y = (-4).dp), // Adjusts position relative to FAB
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = unreadCount.toString(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
+
 
 
 @Composable

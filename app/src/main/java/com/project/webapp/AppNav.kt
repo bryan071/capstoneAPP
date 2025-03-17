@@ -23,7 +23,9 @@ import com.farmaid.ui.notifications.FarmerNotificationScreen
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.Viewmodel.AuthState
 import com.project.webapp.Viewmodel.AuthViewModel
+import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.components.CartScreen
+import com.project.webapp.components.ChatScreen
 import com.project.webapp.components.CheckoutScreen
 import com.project.webapp.components.EditProductScreen
 import com.project.webapp.dashboards.BottomNavigationBar
@@ -83,7 +85,8 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 ForgotPass(modifier, navController, authViewModel, activity, cartViewModel)
             }
             composable(Route.FARMER_DASHBOARD) {
-                FarmerDashboard(modifier, navController, authViewModel, cartViewModel)
+                val chatViewModel: ChatViewModel = viewModel()
+                FarmerDashboard(modifier, navController, authViewModel, cartViewModel, chatViewModel)
             }
             composable(Route.PROFILE) {
                 FarmerProfileScreen(modifier, navController, authViewModel)
@@ -148,8 +151,17 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
 
                 GcashScreen(navController, totalPrice)
             }
+            composable("chat") {
+                val chatViewModel = viewModel<ChatViewModel>()
+                val defaultChatRoomId = "default_room" // Define a default chat room
+                ChatScreen(navController = navController, viewModel = chatViewModel, chatRoomId = defaultChatRoomId, isAdmin = false)
+            }
 
-
+            composable("chat/{chatRoomId}") { backStackEntry ->
+                val chatRoomId = backStackEntry.arguments?.getString("chatRoomId") ?: "default_room"
+                val chatViewModel = viewModel<ChatViewModel>()  // Ensure ViewModel is provided
+                ChatScreen(navController = navController, viewModel = chatViewModel, chatRoomId = chatRoomId, isAdmin = false)
+            }
 
 
         }
