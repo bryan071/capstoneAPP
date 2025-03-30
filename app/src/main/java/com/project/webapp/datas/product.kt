@@ -7,10 +7,12 @@ data class Product(
     val imageUrl: String = "",
     val name: String = "",
     val description: String = "",
+    val quantity: Double = 0.0,
+    val quantityUnit: String = "",
     val price: Double = 0.0,
     val cityName: String = "",
-    val listedAt: Long = System.currentTimeMillis() // Default to current time
+    val listedAt: Long = System.currentTimeMillis()
 ) {
     // Empty constructor needed for Firebase
-    constructor() : this("", "", "", "", "", "", 0.0, "", 0L)
+    constructor() : this("", "", "", "", "", "",0.0, "", 0.0, "", 0L)
 }

@@ -3,7 +3,9 @@ package com.project.webapp.components
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -52,16 +54,13 @@ fun ProductDetailsScreen(
             .addOnSuccessListener { document ->
                 product = document.toObject(Product::class.java)
                 product?.ownerId?.let { ownerId ->
-                    fetchOwnerName(firestore, ownerId) { name ->
-                        ownerName = name
-                    }
+                    fetchOwnerName(firestore, ownerId) { name -> ownerName = name }
                 }
                 isLoading = false
             }
-            .addOnFailureListener {
-                isLoading = false
-            }
+            .addOnFailureListener { isLoading = false }
     }
+
     var userType by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -71,13 +70,18 @@ fun ProductDetailsScreen(
                 .document(it)
                 .get()
                 .addOnSuccessListener { document ->
-                    userType = document.getString("userType") // Ensure field exists in Firestore
+                    userType = document.getString("userType")
                 }
         }
     }
 
     if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
             CircularProgressIndicator()
         }
     } else {
@@ -86,8 +90,8 @@ fun ProductDetailsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp)
+                    .verticalScroll(rememberScrollState()) // Enables scrolling
             ) {
-                // Back Button
                 IconButton(
                     onClick = { navController.popBackStack() },
                     modifier = Modifier.align(Alignment.Start)
@@ -101,7 +105,6 @@ fun ProductDetailsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Show TopBar only when userType is available
                 userType?.let { type ->
                     TopBar(navController, cartViewModel, userType = type)
                 }
@@ -131,9 +134,7 @@ fun ProductDetailsScreen(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Text(prod.name, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                         Text("Category: ${prod.category}", fontSize = 16.sp, color = Color.Gray)
                         Text("Location: ${prod.cityName}", fontSize = 16.sp, color = Color.Gray)
@@ -144,6 +145,16 @@ fun ProductDetailsScreen(
                             "₱${String.format("%,d", prod.price.toInt())}.00",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0DA54B)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // ✅ Display the Quantity
+                        Text(
+                            "Quantity: ${prod.quantity.toInt()} ${prod.quantityUnit}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
                             color = Color(0xFF0DA54B)
                         )
                     }
@@ -190,9 +201,7 @@ fun ProductDetailsScreen(
                         } else if (userType == "market") {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Button(
-                                    onClick = {
-                                        cartViewModel.addToCart(prod)
-                                    },
+                                    onClick = { cartViewModel.addToCart(prod) },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Blue)
                                 ) {
@@ -203,7 +212,7 @@ fun ProductDetailsScreen(
 
                                 Button(
                                     onClick = {
-                                        val productData = product ?: return@Button // Ensure product is not null
+                                        val productData = product ?: return@Button
                                         val productPrice = productData.price.toString()
                                         navController.navigate("payment/$productPrice")
                                     },
@@ -212,7 +221,6 @@ fun ProductDetailsScreen(
                                 ) {
                                     Text("Buy Now")
                                 }
-
                             }
                         } else if (userType == "organization") {
                             Text("Organizations cannot buy or sell products.", fontSize = 16.sp, color = Color.Gray)
@@ -226,16 +234,16 @@ fun ProductDetailsScreen(
         } ?: Text("Product not found", fontSize = 18.sp, modifier = Modifier.padding(16.dp))
     }
 
-    // Snackbar notification
     LaunchedEffect(cartViewModel.snackbarMessage.collectAsState().value) {
         cartViewModel.snackbarMessage.value?.let {
             snackbarHostState.showSnackbar(it)
-            cartViewModel.clearSnackbarMessage() // Clear message after displaying snackbar
+            cartViewModel.clearSnackbarMessage()
         }
     }
 
     SnackbarHost(hostState = snackbarHostState)
 }
+
 
 
 

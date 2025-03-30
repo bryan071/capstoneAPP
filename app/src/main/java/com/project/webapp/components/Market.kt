@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.net.Uri
+import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -53,7 +55,6 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.firebase.auth.FirebaseAuth
-import com.project.webapp.Viewmodel.AuthState
 import com.project.webapp.dashboards.ProductCard
 import com.project.webapp.dashboards.SearchBar
 import com.project.webapp.dashboards.fetchProducts
@@ -79,14 +80,12 @@ fun FarmerMarketScreen(
     val categories = listOf("All", "vegetable", "fruits", "rootcrops", "grains", "spices")
     val coroutineScope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
-    val fusedLocationClient =
-        remember { LocationServices.getFusedLocationProviderClient(navController.context) }
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(navController.context) }
     val permissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
     val context = LocalContext.current
     var minPrice by remember { mutableStateOf("") }
     var maxPrice by remember { mutableStateOf("") }
     val authState by authViewModel.authState.observeAsState()
-
     var userType by remember { mutableStateOf<String?>(null) }
 
     // ✅ Fetch user type only once
@@ -111,14 +110,19 @@ fun FarmerMarketScreen(
 
     val isFarmer = userType == "farmer"
 
-    // Fetch products on first load
-    LaunchedEffect(Unit) {
-        coroutineScope.launch {
-            products = fetchProducts(firestore)
-            filteredProducts = products.sortedBy { it.price }
+    // ✅ Fetch products on first load using Firestore listener
+    DisposableEffect(Unit) {
+        val listenerRegistration = fetchProducts(firestore) { fetchedProducts ->
+            products = fetchedProducts
+            filteredProducts = fetchedProducts.sortedBy { it.price }
             isLoading = false
         }
+
+        onDispose {
+            listenerRegistration.remove()  // 🔥 Properly remove the Firestore listener when screen is destroyed
+        }
     }
+
 
     // Apply category filtering and price sorting
     LaunchedEffect(selectedCategory, minPrice, maxPrice, isAscending, products) {
@@ -199,7 +203,6 @@ fun FarmerMarketScreen(
             }
         }
 
-        // ✅ Correct placement of FloatingActionButton inside Box
         if (isFarmer) {
             Log.d("FarmerMarketScreen", "Displaying FloatingActionButton for farmer userType")
 
@@ -216,17 +219,19 @@ fun FarmerMarketScreen(
         }
     }
 
-    // Add Product Dialog (only shown if showDialog is true)
+    // Add Product Dialog
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
-            onAddProduct = { category, name, description, price, imageUri ->
+            onAddProduct = { category, name, description, quantity, unit, price, imageUri ->
                 if (permissionState.status.isGranted) {
                     uploadProduct(
                         name = name,
                         description = description,
                         category = category,
                         price = price,
+                        quantity = quantity,  // ✅ Now passed as a separate numeric value
+                        unit = unit,  // ✅ Now passed as a separate string
                         imageUri = imageUri,
                         firestore = firestore,
                         storage = storage,
@@ -243,14 +248,14 @@ fun FarmerMarketScreen(
     }
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, String, Double, Uri?) -> Unit) {
+fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, String, Double, String, Double, Uri?) -> Unit) {
     var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") } // New description field
+    var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
+    var quantity by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
@@ -258,19 +263,24 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
     }
 
     val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
-    var expanded by remember { mutableStateOf(false) }
+    var expandedCategory by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
-    var pressedCategory by remember { mutableStateOf<String?>(null) }
+
+    // Unit Selection
+    val unitOptions = listOf("kg", "grams")  // ✅ Updated with more common units
+    var selectedUnit by remember { mutableStateOf(unitOptions[0]) }
+    var expandedUnit by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Add Product", style = MaterialTheme.typography.headlineSmall)
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Category Dropdown
             Text("Category", style = MaterialTheme.typography.labelLarge)
             ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+                expanded = expandedCategory,
+                onExpandedChange = { expandedCategory = !expandedCategory }
             ) {
                 OutlinedTextField(
                     value = selectedCategory,
@@ -279,34 +289,25 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                     modifier = Modifier
                         .fillMaxWidth()
                         .menuAnchor()
-                        .onGloballyPositioned { coordinates ->
-                            textFieldSize = coordinates.size.toSize()
-                        },
+                        .onGloballyPositioned { coordinates -> textFieldSize = coordinates.size.toSize() },
                     trailingIcon = {
-                        IconButton(onClick = { expanded = !expanded }) {
+                        IconButton(onClick = { expandedCategory = !expandedCategory }) {
                             Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
                         }
                     }
                 )
 
                 DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false },
-                    modifier = Modifier
-                        .width(with(LocalDensity.current) { textFieldSize.width.toDp() })
+                    expanded = expandedCategory,
+                    onDismissRequest = { expandedCategory = false },
+                    modifier = Modifier.width(with(LocalDensity.current) { textFieldSize.width.toDp() })
                 ) {
                     categories.forEach { category ->
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    category,
-                                    textDecoration = if (pressedCategory == category) TextDecoration.Underline else TextDecoration.None
-                                )
-                            },
+                            text = { Text(category) },
                             onClick = {
-                                pressedCategory = category
                                 selectedCategory = category
-                                expanded = false
+                                expandedCategory = false
                             }
                         )
                     }
@@ -333,13 +334,60 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
             // Price Input
             OutlinedTextField(
                 value = price,
-                onValueChange = { price = it },
+                onValueChange = { price = it.filter { char -> char.isDigit() || char == '.' } },
                 label = { Text("Price (₱)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // Quantity and Unit Row
+            Row(modifier = Modifier.fillMaxWidth()) {
+                // Quantity Input
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it.filter { char -> char.isDigit() || char == '.' } },
+                    label = { Text("Quantity") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.width(190.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Unit Dropdown
+                ExposedDropdownMenuBox(
+                    expanded = expandedUnit,
+                    onExpandedChange = { expandedUnit = it } // Correctly toggling state
+                ) {
+                    OutlinedTextField(
+                        value = selectedUnit,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Unit") },
+                        modifier = Modifier
+                            .width(130.dp)
+                            .menuAnchor(),
+                        trailingIcon = {
+                            IconButton(onClick = { expandedUnit = !expandedUnit }) {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
+                            }
+                        }
+                    )
+
+                    DropdownMenu(
+                        expanded = expandedUnit,
+                        onDismissRequest = { expandedUnit = false }
+                    ) {
+                        unitOptions.forEach { unit ->
+                            DropdownMenuItem(
+                                text = { Text(unit) },
+                                onClick = {
+                                    selectedUnit = unit
+                                    expandedUnit = false // Correctly closing dropdown
+                                }
+                            )
+                        }
+                    }
+                }
+            }
 
             // Image Preview
             imageUri?.let {
@@ -351,6 +399,7 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                         .fillMaxWidth()
                 )
             }
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Image Picker Button
             Button(
@@ -360,7 +409,6 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
             ) {
                 Text("Select Image")
             }
-
             Spacer(modifier = Modifier.height(8.dp))
 
             // Form Actions
@@ -376,7 +424,8 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
                     onClick = {
                         val priceDouble = price.toDoubleOrNull() ?: 0.0
-                        onAddProduct(selectedCategory, name, description, priceDouble, imageUri)
+                        val finalQuantity = quantity.toDoubleOrNull() ?: 1.0  // ✅ Convert quantity to Double safely
+                        onAddProduct(selectedCategory, name, description, finalQuantity, selectedUnit, priceDouble, imageUri)
                         onDismiss()
                     }
                 ) {
@@ -388,10 +437,15 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
 }
 
 
+
+
+
 fun uploadProduct(
     name: String,
     description: String,
     category: String,
+    quantity: Double,  // ✅ Ensuring it's passed as a Double
+    unit: String,  // ✅ Ensuring unit is separate
     price: Double,
     imageUri: Uri?,
     firestore: FirebaseFirestore,
@@ -400,45 +454,55 @@ fun uploadProduct(
     fusedLocationClient: FusedLocationProviderClient,
     context: Context
 ) {
-    val productRef = firestore.collection("products").document()
-    val userId = authViewModel.currentUser?.uid ?: "Unknown"
+    if (name.isBlank() || description.isBlank() || category.isBlank() || quantity <= 0 || unit.isBlank()) {
+        Toast.makeText(context, "All fields are required, and quantity must be greater than 0!", Toast.LENGTH_SHORT).show()
+        return
+    }
 
-    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-        Log.e("Location", "Permission not granted")
+    val productRef = firestore.collection("products").document()
+    val userId = authViewModel.currentUser?.uid ?: return
+
+    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+        ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        Toast.makeText(context, "Location permission is required to add a product", Toast.LENGTH_LONG).show()
         return
     }
 
     fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-        val cityName = if (location != null) {
+        val cityName = try {
             val geocoder = Geocoder(context, Locale.getDefault())
-            val addressList = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-            addressList?.firstOrNull()?.locality ?: "Unknown City"
-        } else {
-            Log.e("Location", "Failed to get location")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val addressList = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                addressList?.firstOrNull()?.locality ?: "Unknown City"
+            } else {
+                geocoder.getFromLocation(location.latitude, location.longitude, 1)?.firstOrNull()?.locality ?: "Unknown City"
+            }
+        } catch (e: Exception) {
+            Log.e("Geocoder", "Failed to retrieve city name", e)
             "Unknown City"
         }
 
-        // ✅ Image Upload Process
         if (imageUri != null) {
             val imageRef = storage.reference.child("product_images/${productRef.id}.jpg")
-            Log.d("Firebase", "Uploading image to: ${imageRef.path}")
-
             imageRef.putFile(imageUri)
                 .addOnSuccessListener {
                     imageRef.downloadUrl.addOnSuccessListener { uri ->
-                        Log.d("Firebase", "Image uploaded successfully: $uri")
-                        saveProductToFirestore(firestore, productRef.id, userId, category, uri.toString(), name, description, price, cityName, context)
+                        saveProductToFirestore(firestore, productRef.id, userId, category, uri.toString(), name, description, price, quantity, unit, cityName, context)
+                    }.addOnFailureListener { e ->
+                        Log.e("Firebase", "Failed to get download URL", e)
+                        Toast.makeText(context, "Image upload failed. Please try again.", Toast.LENGTH_SHORT).show()
                     }
                 }
                 .addOnFailureListener { e ->
                     Log.e("Firebase", "Image upload failed", e)
+                    Toast.makeText(context, "Failed to upload image. Check your internet connection.", Toast.LENGTH_SHORT).show()
                 }
         } else {
-            Log.e("Firebase", "Image URI is null")
-            saveProductToFirestore(firestore, productRef.id, userId, category, "", name, description, price, cityName, context)
+            saveProductToFirestore(firestore, productRef.id, userId, category, "", name, description, price, quantity, unit, cityName, context)
         }
     }.addOnFailureListener {
         Log.e("Location", "Failed to get location", it)
+        Toast.makeText(context, "Could not retrieve location. Please try again.", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -451,6 +515,8 @@ fun saveProductToFirestore(
     name: String,
     description: String,
     price: Double,
+    quantity: Double,
+    unit: String,
     cityName: String,
     context: Context
 ) {
@@ -462,6 +528,8 @@ fun saveProductToFirestore(
         name = name,
         description = description,
         price = price,
+        quantity = quantity,  // ✅ Ensure separate numeric quantity
+        quantityUnit = unit,  // ✅ Ensure unit is passed correctly
         cityName = cityName
     )
 
@@ -469,9 +537,11 @@ fun saveProductToFirestore(
         .addOnSuccessListener {
             Log.d("Firebase", "Product added successfully!")
             addNotification(firestore, product, userId, cityName)
+            Toast.makeText(context, "Product added successfully!", Toast.LENGTH_SHORT).show()
         }
         .addOnFailureListener { e ->
             Log.e("Firebase", "Error adding product", e)
+            Toast.makeText(context, "Failed to add product. Please try again.", Toast.LENGTH_SHORT).show()
         }
 }
 

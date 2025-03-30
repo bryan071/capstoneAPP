@@ -167,7 +167,9 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
     val category = notification["category"] as? String ?: "Unknown"
     val imageUrl = notification["imageUrl"] as? String ?: ""
     val name = notification["name"] as? String ?: "Unnamed"
-    val price = notification["price"] as? Double ?: 0.0
+    val price = notification["price"] as? Int ?: 0
+    val quantity = notification["quantity"] as? Int ?: 0 // Fetch quantity
+    val quantityUnit = notification["quantityUnit"] as? String ?: "Unknown" // Fetch quantity unit
     val location = notification["location"] as? String ?: "Location not available"
     val timestamp = notification["timestamp"] as? Long ?: 0L
     val formattedTime = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
@@ -195,6 +197,7 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
                 Text("Category: $category", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Text("Name: $name", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Text("Price: ₱$price", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Quantity: $quantity $quantityUnit", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0DA54B)) // Display Quantity
                 Text("Location: $location", fontSize = 14.sp)
                 Text("Added on: $formattedTime", fontSize = 12.sp, color = Color.Gray)
             }
@@ -207,14 +210,16 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
     )
 }
 
+
 @Composable
 fun EmptyNotificationScreen() {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
+
     ) {
-        Icon(painterResource(id = R.drawable.iconlogo), contentDescription = "No Notifications", tint = Color.Gray)
+        Icon(painterResource(id = R.drawable.iconlogo), contentDescription = "No Notifications", tint = Color.Unspecified)
         Text("No notifications yet", fontSize = 18.sp, fontWeight = FontWeight.Medium)
         Text("You'll see updates about new products here.", fontSize = 14.sp, color = Color.Gray)
     }

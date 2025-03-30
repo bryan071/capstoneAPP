@@ -57,9 +57,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.ButtonDefaults
-
-
-
+import com.google.firebase.firestore.ListenerRegistration
 
 @Composable
 fun FarmerDashboard(
@@ -221,23 +219,20 @@ fun HeroBanner() {
 
 @Composable
 fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavController) {
-    val storage = FirebaseStorage.getInstance()
     val firestore = FirebaseFirestore.getInstance()
+    val storage = FirebaseStorage.getInstance()
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    val coroutineScope = rememberCoroutineScope()
 
-
-    LaunchedEffect(Unit) {
-        coroutineScope.launch {
-            val fetchedProducts = fetchProducts(firestore)
-            if (fetchedProducts.isNotEmpty()) {
-                Log.d("FirestoreDebug", "Updating UI with ${fetchedProducts.size} products")
-                products = fetchedProducts
-            } else {
-                Log.w("FirestoreDebug", "No products available")
-            }
+    // Manage Firestore listener lifecycle
+    DisposableEffect(Unit) {
+        val listenerRegistration = fetchProducts(firestore) { fetchedProducts ->
+            products = fetchedProducts
             isLoading = false
+        }
+
+        onDispose {
+            listenerRegistration.remove()
         }
     }
 
@@ -279,6 +274,9 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
                     .height(250.dp) // Increased height for better layout
             ) {
                 items(products) { product ->
+                    val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
+                    val formattedPrice = currencyFormatter.format(product.price) // ✅ Properly formatted price
+
                     ElevatedCard(
                         modifier = Modifier
                             .width(180.dp)
@@ -309,12 +307,19 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
                                 color = Color(0xFF085F2F)
                             )
                             Text(
-                                text ="₱${String.format("%,d", product.price.toInt())}.00",
-                                fontSize = 14.sp,
+                                text = "Quantity: ${product.quantity.toInt()} ${product.quantityUnit}",
+                                fontSize = 12.sp,
+                                color = Color.DarkGray,
                                 fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                            Text(
+                                text = "$formattedPrice",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = Color.Black
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+
 
                             // View Details Button
                             Button(
@@ -339,6 +344,7 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
         }
     }
 }
+
 
 @Composable
 fun DiscountsBanner() {
@@ -527,7 +533,6 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
 
 @Composable
 fun ProductCard(product: Product, navController: NavController, firestore: FirebaseFirestore, storage: FirebaseStorage) {
-
     val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
     val formattedPrice = currencyFormatter.format(product.price)
 
@@ -547,10 +552,10 @@ fun ProductCard(product: Product, navController: NavController, firestore: Fireb
             AsyncImage(
                 model = product.imageUrl,
                 contentDescription = product.name,
-                contentScale = ContentScale.FillBounds, // or ContentScale.Fit
+                contentScale = ContentScale.FillBounds,
                 modifier = Modifier
                     .size(80.dp)
-                    .clip(RoundedCornerShape(4.dp)) // Prevents awkward image edges
+                    .clip(RoundedCornerShape(4.dp))
             )
             Text(
                 text = product.name,
@@ -566,10 +571,17 @@ fun ProductCard(product: Product, navController: NavController, firestore: Fireb
                 modifier = Modifier.padding(top = 4.dp)
             )
             Text(
-                text = formattedPrice,
+                text = "Quantity: ${product.quantity.toInt()} ${product.quantityUnit}",
+                fontSize = 12.sp,
+                color = Color.DarkGray,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Text(
+                text = "$formattedPrice",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 4.dp)
+                color = Color.Black
             )
             Button(
                 onClick = {
@@ -590,49 +602,48 @@ fun ProductCard(product: Product, navController: NavController, firestore: Fireb
     }
 }
 
-suspend fun fetchProducts(firestore: FirebaseFirestore): List<Product> {
-    return try {
-        val snapshot = firestore.collection("products").get().await()
-        Log.d("FirestoreDebug", "Fetched ${snapshot.documents.size} products")
 
-        val productList = snapshot.documents.mapNotNull { doc ->
-            val id = doc.id
-            val imageUrl = doc.getString("imageUrl") ?: return@mapNotNull null
-            val category = doc.getString("category") ?: return@mapNotNull null
-            val name = doc.getString("name") ?: return@mapNotNull null
-            val description = doc.getString("description") ?: "" // Default empty if missing
-            val price = doc.getDouble("price") ?: return@mapNotNull null
-            val cityName = doc.getString("cityName") ?: "Unknown"
-            val ownerId = doc.getString("ownerId") ?: return@mapNotNull null
-            val listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
+fun fetchProducts(firestore: FirebaseFirestore, onProductsFetched: (List<Product>) -> Unit): ListenerRegistration {
+    return firestore.collection("products")
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e("FirestoreDebug", "Error fetching products: ${error.message}", error)
+                return@addSnapshotListener
+            }
 
-            Log.d(
-                "FirestoreDebug",
-                "Product Loaded: ID=$id, Name=$name, Category=$category, Price=$price, " +
-                        "CityName=$cityName, OwnerID=$ownerId, ListedAt=$listedAt"
-            )
+            if (snapshot == null || snapshot.isEmpty) {
+                Log.w("FirestoreDebug", "No products found")
+                onProductsFetched(emptyList())
+                return@addSnapshotListener
+            }
 
-            // Assign values correctly
-            Product(
-                prodId = id,
-                ownerId = ownerId,
-                category = category,
-                imageUrl = imageUrl,
-                name = name,
-                description = description,
-                price = price,
-                cityName = cityName,
-                listedAt = listedAt
-            )
+            val fetchedProducts = snapshot.documents.mapNotNull { doc ->
+                try {
+                    Product(
+                        prodId = doc.id,
+                        ownerId = doc.getString("ownerId") ?: return@mapNotNull null,
+                        category = doc.getString("category") ?: return@mapNotNull null,
+                        imageUrl = doc.getString("imageUrl") ?: return@mapNotNull null,
+                        name = doc.getString("name") ?: return@mapNotNull null,
+                        description = doc.getString("description") ?: "",
+                        price = doc.getDouble("price") ?: 0.0,
+                        quantity = doc.getDouble("quantity") ?: 0.0,
+                        quantityUnit = doc.getString("quantityUnit") ?: "unit",
+                        cityName = doc.getString("cityName") ?: "Unknown",
+                        listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
+                    )
+                } catch (e: Exception) {
+                    Log.e("FirestoreDebug", "Error parsing product data: ${e.message}", e)
+                    null
+                }
+            }
+
+            onProductsFetched(fetchedProducts)
+            Log.d("FirestoreDebug", "Updated UI with ${fetchedProducts.size} products")
         }
-
-        Log.d("FirestoreDebug", "Returning ${productList.size} products")
-        productList
-    } catch (e: Exception) {
-        Log.e("FirestoreDebug", "Error fetching products", e)
-        emptyList()
-    }
 }
+
+
 
 
 @Composable

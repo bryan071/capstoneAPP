@@ -51,7 +51,7 @@ fun Login(
     LaunchedEffect(authState.value) {
         when (val state = authState.value) {
             is AuthState.Authenticated -> {
-                val normalizedUserType = state.userType.trim().lowercase()  // Ensure consistency
+                val normalizedUserType = state.userType.trim().lowercase()
                 when (normalizedUserType) {
                     "farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
                     "market" -> navController.navigate(Route.MARKET_DASHBOARD)

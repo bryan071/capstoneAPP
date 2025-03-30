@@ -25,6 +25,7 @@ import com.google.firebase.storage.FirebaseStorage
 import com.project.webapp.datas.Product
 import kotlinx.coroutines.tasks.await
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditProductScreen(
     navController: NavController,
@@ -38,20 +39,21 @@ fun EditProductScreen(
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
+
+    // Dropdown menu states
     var category by remember { mutableStateOf("") }
+    var isCategoryExpanded by remember { mutableStateOf(false) }
+    val categories = listOf("Vegetable", "Fruits", "Rootcrops", "Grains", "Spices") // Define categories
+
+    var quantity by remember { mutableStateOf("") }
+    var quantityUnit by remember { mutableStateOf("") }
+    var isUnitExpanded by remember { mutableStateOf(false) }
+    val units = listOf("kilo", "grams") // Define units
+
     var imageUrl by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Image Picker
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        selectedImageUri = uri
-    }
-
-    // Fetch Product Data
     LaunchedEffect(productId) {
         if (!productId.isNullOrEmpty()) {
             firestore.collection("products").document(productId)
@@ -63,6 +65,8 @@ fun EditProductScreen(
                         description = it.description
                         price = it.price.toString()
                         category = it.category
+                        quantity = it.quantity.toString()
+                        quantityUnit = it.quantityUnit
                         imageUrl = it.imageUrl
                     }
                     isLoading = false
@@ -86,46 +90,6 @@ fun EditProductScreen(
                     .fillMaxSize()
                     .padding(16.dp)
             ) {
-                // Back Button
-                Button(
-                    onClick = { navController.popBackStack() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
-                ) {
-                    Text("Back")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text("Edit Product", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Show Current or Selected Image
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = rememberImagePainter(selectedImageUri ?: imageUrl),
-                        contentDescription = "Product Image",
-                        modifier = Modifier
-                            .height(200.dp)
-                            .fillMaxWidth()
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Button to Pick Image (Green Color)
-                Button(
-                    onClick = { imagePickerLauncher.launch("image/*") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
-                ) {
-                    Text("Change Image")
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -133,7 +97,6 @@ fun EditProductScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -141,7 +104,6 @@ fun EditProductScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
@@ -151,15 +113,76 @@ fun EditProductScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // Category Dropdown
+                ExposedDropdownMenuBox(
+                    expanded = isCategoryExpanded,
+                    onExpandedChange = { isCategoryExpanded = !isCategoryExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = { },
+                        label = { Text("Category") },
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isCategoryExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = isCategoryExpanded,
+                        onDismissRequest = { isCategoryExpanded = false }
+                    ) {
+                        categories.forEach { selection ->
+                            DropdownMenuItem(
+                                text = { Text(selection) },
+                                onClick = {
+                                    category = selection
+                                    isCategoryExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    label = { Text("Category") },
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("Quantity") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Quantity Unit Dropdown
+                ExposedDropdownMenuBox(
+                    expanded = isUnitExpanded,
+                    onExpandedChange = { isUnitExpanded = !isUnitExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = quantityUnit,
+                        onValueChange = { },
+                        label = { Text("Quantity Unit") },
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isUnitExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = isUnitExpanded,
+                        onDismissRequest = { isUnitExpanded = false }
+                    ) {
+                        units.forEach { unit ->
+                            DropdownMenuItem(
+                                text = { Text(unit) },
+                                onClick = {
+                                    quantityUnit = unit
+                                    isUnitExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Save Button (Green Color)
+                // Save Button
                 Button(
                     onClick = {
                         if (selectedImageUri != null) {
@@ -177,10 +200,19 @@ fun EditProductScreen(
                 ) {
                     Text("Update Product")
                 }
+                // Back Button
+                Button(
+                    onClick = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                ) {
+                    Text("Back")
+                }
             }
         }
     }
 }
+
 
 // Upload Image and Save Product Data
 fun uploadImageAndSaveData(
