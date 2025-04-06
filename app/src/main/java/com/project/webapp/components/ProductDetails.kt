@@ -250,16 +250,4 @@ fun deleteProduct(firestore: FirebaseFirestore, productId: String, navController
         .addOnSuccessListener { navController.popBackStack() }
 }
 
-fun addToCart(productId: String, userId: String?) {
-    if (userId == null) return
-    val firestore = FirebaseFirestore.getInstance()
-    val cartItem = hashMapOf("userId" to userId, "productId" to productId, "quantity" to 1)
-    firestore.collection("cart").add(cartItem)
-}
 
-fun buyProduct(productId: String, userId: String?) {
-    if (userId == null) return
-    val firestore = FirebaseFirestore.getInstance()
-    val orderItem = hashMapOf("userId" to userId, "productId" to productId, "status" to "Pending", "orderDate" to System.currentTimeMillis())
-    firestore.collection("orders").add(orderItem)
-}

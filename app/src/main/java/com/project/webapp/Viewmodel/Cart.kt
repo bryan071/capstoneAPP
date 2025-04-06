@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.datas.CartItem
 import com.project.webapp.datas.Product
+import com.project.webapp.datas.UserData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -37,8 +38,25 @@ class CartViewModel : ViewModel() {
         items.sumOf { it.price * it.quantity }
     }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
+    private val _currentUser = MutableStateFlow<UserData?>(null)
+    val currentUser: StateFlow<UserData?> = _currentUser
+
+
     init {
         loadCartItems()
+        loadCurrentUser()
+    }
+
+    private fun loadCurrentUser() {
+        val userId = auth.currentUser?.uid ?: return
+        firestore.collection("users").document(userId).get()
+            .addOnSuccessListener { document ->
+                val user = document.toObject(UserData::class.java)
+                _currentUser.value = user
+            }
+            .addOnFailureListener { e ->
+                Log.e("CartViewModel", "Error loading user data: ${e.message}")
+            }
     }
 
     fun loadCartItems() {
@@ -191,6 +209,18 @@ class CartViewModel : ViewModel() {
         }
     }
 
+    fun getUserById(userId: String, onResult: (UserData?) -> Unit) {
+        firestore.collection("users").document(userId)
+            .get()
+            .addOnSuccessListener { document ->
+                val user = document.toObject(UserData::class.java)
+                onResult(user)
+            }
+            .addOnFailureListener { e ->
+                Log.e("CartViewModel", "Error fetching user: ${e.message}")
+                onResult(null)
+            }
+    }
 
 
     fun clearSnackbarMessage() {

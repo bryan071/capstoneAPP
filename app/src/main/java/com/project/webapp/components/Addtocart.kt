@@ -20,13 +20,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import com.project.webapp.R
 
 
 @Composable
 fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
     val cartItems by cartViewModel.cartItems.collectAsStateWithLifecycle()
-    val totalPrice by cartViewModel.totalCartPrice.collectAsStateWithLifecycle()
+    val subtotalPrice by cartViewModel.totalCartPrice.collectAsStateWithLifecycle()
 
 
     var showDialog by remember { mutableStateOf(false) } // Controls the success dialog
@@ -64,12 +65,12 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
                     .fillMaxWidth()
             ) {
                 items(cartItems) { item ->
-                    CartItemRow(item, cartViewModel)
+                    CartItemRow(cartItem = item, cartViewModel = cartViewModel)
                 }
             }
 
             Text(
-                text = "Total: ₱${"%.2f".format(totalPrice)}",
+                text = "Total: ₱${"%.2f".format(subtotalPrice)}",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(16.dp)
@@ -77,7 +78,8 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
 
             Button(
                 onClick = {
-                    navController.navigate("paymentScreen/null/{totalPrice}") // ✅ Navigate only for cart checkout
+                    navController.navigate("paymentScreen/null/${cartViewModel.getTotalCartPrice()}")
+                    // ✅ Navigate only for cart checkout
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -98,9 +100,12 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
     }
 }
 
-
 @Composable
-fun CartItemRow(cartItem: CartItem, cartViewModel: CartViewModel? = null) {
+fun CartItemRow(
+    cartItem: CartItem,
+    sellerName: String = "",
+    cartViewModel: CartViewModel? = null
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -125,6 +130,9 @@ fun CartItemRow(cartItem: CartItem, cartViewModel: CartViewModel? = null) {
                 Text(text = "Price: ₱${cartItem.price}0")
                 Text(text = "Unit Weight: ${cartItem.weight.toInt()} ${cartItem.unit}")
                 Text(text = "Quantity: ${cartItem.quantity}")
+                if (sellerName.isNotBlank()) {
+                    Text(text = "Seller: $sellerName", fontStyle = FontStyle.Italic)
+                }
             }
             IconButton(
                 onClick = { cartViewModel?.removeFromCart(cartItem.productId) }
@@ -132,7 +140,7 @@ fun CartItemRow(cartItem: CartItem, cartViewModel: CartViewModel? = null) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Remove from Cart",
-                    tint = Color.Red // Red delete button
+                    tint = Color.Red
                 )
             }
         }

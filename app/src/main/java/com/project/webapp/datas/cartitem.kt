@@ -9,7 +9,8 @@ data class CartItem(
     val sellerId: String = "",
     val weight: Double = 0.0,
     val unit: String = "",
-    val isDirectBuy: Boolean = false
+    val isDirectBuy: Boolean = false,
+    val sellerName: String = ""
 ) {
     // Empty constructor needed for Firebase
     constructor() : this("", "", 0.0, 1, "", "", 0.0, "", false)
