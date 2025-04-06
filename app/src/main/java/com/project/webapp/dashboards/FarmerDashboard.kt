@@ -2,6 +2,11 @@ package com.project.webapp.dashboards
 
 import WeatherSection
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,11 +18,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -33,8 +43,9 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.storage.FirebaseStorage
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.launch
 import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
@@ -43,21 +54,8 @@ import com.project.webapp.api.AutoImageSlider
 import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
-import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
-import androidx.compose.material.icons.outlined.Chat
-import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material3.Icon
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.Text
-import androidx.compose.material3.Button
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.ButtonDefaults
-import com.google.firebase.firestore.ListenerRegistration
 
 @Composable
 fun FarmerDashboard(
@@ -67,9 +65,19 @@ fun FarmerDashboard(
     cartViewModel: CartViewModel,
     chatViewModel: ChatViewModel
 ) {
+
     val context = LocalContext.current
     var userType by remember { mutableStateOf<String?>(null) }
     val unreadCount by chatViewModel.unreadMessagesCount.collectAsState(initial = 0)
+    var loading by remember { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Animated loading scale
+    val loadingScale by animateFloatAsState(
+        targetValue = if (loading) 1.2f else 1f,
+        animationSpec = tween(durationMillis = 1000),
+        label = "loadingScale"
+    )
 
     // Fetch userType from Firebase
     LaunchedEffect(Unit) {
@@ -80,44 +88,120 @@ fun FarmerDashboard(
                 .get()
                 .addOnSuccessListener { document ->
                     userType = document.getString("userType")
+                    loading = false
                 }
-        }
+                .addOnFailureListener {
+                    Log.e("FirebaseError", "Failed to fetch user type: ${it.message}")
+                    loading = false
+                }
+        } ?: run { loading = false }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
+        AnimatedVisibility(
+            visible = loading,
+            enter = fadeIn(),
+            exit = fadeOut()
         ) {
-            userType?.let { type ->
-                TopBar(navController, cartViewModel, userType = type)
-            }
-
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                item { SearchBar() }
-                item { HeroBanner() }
-                item { FeaturedProductsSection(authViewModel, navController) }
-                item { DiscountsBanner() }
-                item { WeatherSection(context) }
-                item { CommunityFeed() }
+                CircularProgressIndicator(
+                    modifier = Modifier.scale(loadingScale),
+                    color = Color(0xFF0DA54B)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Loading Dashboard...",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color(0xFF0DA54B)
+                )
             }
         }
 
-        // Floating Action Button (FAB) for Chat
-        FloatingActionButton(
-            onClick = { navController.navigate("chat") },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)  // Ensures placement at bottom right
-                .padding(16.dp),
-            containerColor = Color(0xFF0DA54B)
+        AnimatedVisibility(
+            visible = !loading,
+            enter = fadeIn(animationSpec = tween(durationMillis = 500)),
+            exit = fadeOut()
         ) {
-            Icon(Icons.Outlined.Chat, contentDescription = "Chat")
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                userType?.let { type ->
+                    TopBar(navController, cartViewModel, userType = type)
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item { SearchBar(modifier) }
+                    item { HeroBanner() }
+                    item { FeaturedProductsSection(authViewModel, navController) }
+                    item { DiscountsBanner() }
+                    item { WeatherSection(context) }
+                    item { CommunityFeed() }
+
+                    item { Spacer(modifier = Modifier.height(72.dp)) }
+                }
+            }
+        }
+
+        // Chat FAB with pulse animation effect
+        ChatFab(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+            unreadCount = unreadCount,
+            onClick = { navController.navigate("chat") }
+        )
+    }
+}
+
+@Composable
+fun ChatFab(
+    modifier: Modifier = Modifier,
+    unreadCount: Int,
+    onClick: () -> Unit
+) {
+    // Pulse animation for when there are unread messages
+    val pulseState = remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pulseState.value && unreadCount > 0) 1.1f else 1f,
+        animationSpec = tween(500),
+        label = "pulseScale"
+    )
+
+    // Trigger pulse animation periodically when unread messages exist
+    LaunchedEffect(unreadCount) {
+        if (unreadCount > 0) {
+            while (true) {
+                pulseState.value = true
+                kotlinx.coroutines.delay(1000)
+                pulseState.value = false
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+
+    Box(modifier = modifier) {
+        FloatingActionButton(
+            onClick = onClick,
+            modifier = Modifier.scale(scale),
+            containerColor = Color(0xFF0DA54B),
+            contentColor = Color.White
+        ) {
+            Icon(
+                Icons.Outlined.Chat,
+                contentDescription = "Chat",
+                modifier = Modifier.size(24.dp)
+            )
         }
 
         // Unread messages badge
@@ -126,46 +210,48 @@ fun FarmerDashboard(
                 modifier = Modifier
                     .size(24.dp)
                     .background(Color.Red, shape = CircleShape)
-                    .align(Alignment.BottomEnd)
-                    .offset(x = (-4).dp, y = (-4).dp), // Adjusts position relative to FAB
+                    .align(Alignment.TopEnd)
+                    .offset(x = 4.dp, y = (-4).dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = unreadCount.toString(),
+                    text = if (unreadCount > 99) "99+" else unreadCount.toString(),
                     color = Color.White,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
     }
 }
 
-
-
 @Composable
-fun SearchBar() {
+fun SearchBar(modifier: Modifier) {
     var query by remember { mutableStateOf("") }
 
     OutlinedTextField(
         value = query,
         onValueChange = { query = it },
-        placeholder = { Text("What you want to see?") },
+        placeholder = { Text("What are you looking for?") },
         leadingIcon = {
             Icon(
-                painter = painterResource(id = android.R.drawable.ic_menu_search),
+                imageVector = Icons.Default.Search,
                 contentDescription = "Search Icon",
-                tint = Color.Gray
+                tint = Color(0xFF0DA54B)
             )
         },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp),
-        shape = RoundedCornerShape(12.dp),
+            .padding(vertical = 8.dp)
+            .height(56.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.White,
             unfocusedContainerColor = Color.White,
             focusedIndicatorColor = Color(0xFF0DA54B),
-            unfocusedIndicatorColor = Color.LightGray
+            unfocusedIndicatorColor = Color.LightGray,
+            cursorColor = Color(0xFF0DA54B)
         ),
         singleLine = true
     )
@@ -179,40 +265,58 @@ fun HeroBanner() {
         "https://domf5oio6qrcr.cloudfront.net/medialibrary/11499/3b360279-8b43-40f3-9b11-604749128187.jpg"
     )
 
-    // 🔥 Hero Banner Section
-    Box(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.Gray) // Fallback color
+            .height(200.dp),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(8.dp)
     ) {
-        AutoImageSlider(images = bannerImages)
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.3f)) // Dark overlay
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.Start
         ) {
+            // Image slider
+            AutoImageSlider(images = bannerImages)
 
-            Text(
-                text = "🌿 Fresh & Organic",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+            // Gradient overlay for better text visibility
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.7f)
+                            ),
+                            startY = 0f,
+                            endY = 450f
+                        )
+                    )
             )
-            Text(
-                text = "Discover the best local products!",
-                fontSize = 16.sp,
-                color = Color.White
-            )
+
+            // Banner content
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.Bottom,
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    text = "🌿 Fresh & Organic",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Discover the best local products!",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -239,16 +343,33 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "🌟 Featured Products",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF085F2F)
+            )
 
-        Text(
-            text = "🌟 Featured Products",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF085F2F),
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+            TextButton(
+                onClick = { navController.navigate(Route.MARKET) },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color(0xFF0DA54B)
+                )
+            ) {
+                Text(
+                    "View All",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
 
         if (isLoading) {
             Box(
@@ -260,105 +381,203 @@ fun FeaturedProductsSection(authViewModel: AuthViewModel, navController: NavCont
                 CircularProgressIndicator(color = Color(0xFF0DA54B))
             }
         } else if (products.isEmpty()) {
-            Text(
-                "No featured products available",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.Gray,
-                modifier = Modifier.padding(16.dp)
-            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .padding(8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFFF5F5F5)
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "No Products",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "No featured products available",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Gray
+                    )
+                }
+            }
         } else {
             LazyRow(
                 modifier = Modifier
                     .padding(top = 8.dp)
-                    .height(250.dp) // Increased height for better layout
+                    .height(250.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp)
             ) {
                 items(products) { product ->
-                    val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
-                    val formattedPrice = currencyFormatter.format(product.price) // ✅ Properly formatted price
-
-                    ElevatedCard(
-                        modifier = Modifier
-                            .width(180.dp)
-                            .padding(end = 12.dp)
-                            .clip(RoundedCornerShape(16.dp)),
-                        elevation = CardDefaults.elevatedCardElevation(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)) // Soft green
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            AsyncImage(
-                                model = product.imageUrl,
-                                contentDescription = product.name,
-                                modifier = Modifier
-                                    .size(120.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
-                                contentScale = ContentScale.Crop
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = product.name,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF085F2F)
-                            )
-                            Text(
-                                text = "Quantity: ${product.quantity.toInt()} ${product.quantityUnit}",
-                                fontSize = 12.sp,
-                                color = Color.DarkGray,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                            Text(
-                                text = "$formattedPrice",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Black
-                            )
-
-
-                            // View Details Button
-                            Button(
-                                onClick = {
-                                    if (!product.prodId.isNullOrEmpty()) {
-                                        navController.navigate("productDetails/${product.prodId}")
-                                    } else {
-                                        Log.e("Navigation", "Invalid productId: ${product.prodId}")
-                                    }
-                                },
-                                modifier = Modifier
-                                    .padding(top = 8.dp)
-                                    .fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
-                            ) {
-                                Text("View here")
+                    ProductCard(
+                        product = product,
+                        navController = navController,
+                        firestore = firestore,
+                        storage = storage,
+                        onCardClick = {
+                            if (!product.prodId.isNullOrEmpty()) {
+                                navController.navigate("productDetails/${product.prodId}")
+                            } else {
+                                Log.e("Navigation", "Invalid productId: ${product.prodId}")
                             }
                         }
-                    }
+                    )
                 }
             }
         }
     }
 }
 
+@Composable
+fun ProductCard(
+    product: Product,
+    navController: NavController,
+    firestore: FirebaseFirestore,
+    storage: FirebaseStorage,
+    onCardClick: () -> Unit = {} // Optional parameter with default value
+){
+    val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
+    val formattedPrice = currencyFormatter.format(product.price)
+
+    Card(
+        modifier = Modifier
+            .width(180.dp)
+            .padding(end = 12.dp)
+            .clickable { onCardClick() },
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFEAF5EA) // Lighter green for softer look
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Product Image with overlay for better aesthetics
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFDCEDC8))
+            ) {
+                AsyncImage(
+                    model = product.imageUrl,
+                    contentDescription = product.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = product.name,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF085F2F),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = "Quantity: ${product.quantity.toInt()} ${product.quantityUnit}",
+                fontSize = 12.sp,
+                color = Color.DarkGray,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+
+            Text(
+                text = formattedPrice,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+
+            // View Details Button
+            Button(
+                onClick = {
+                    if (!product.prodId.isNullOrEmpty()) {
+                        navController.navigate("productDetails/${product.prodId}")
+                    } else {
+                        Log.e("Navigation", "Invalid productId: ${product.prodId}")
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("View Details")
+            }
+        }
+    }
+}
 
 @Composable
 fun DiscountsBanner() {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(8.dp),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(Color(0xFFD32F2F))
-    ) {
-        Text(
-            "Exclusive Discounts! Up to 50% off!",
-            fontSize = 18.sp,
-            color = Color.White,
-            modifier = Modifier.padding(16.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .height(80.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFFFEBEE) // Light red background
         )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFFD32F2F),
+                            Color(0xFFFF5252)
+                        )
+                    )
+                )
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.notification_icon), // Use appropriate icon
+                contentDescription = "Discount Icon",
+                tint = Color.White,
+                modifier = Modifier.size(36.dp)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column {
+                Text(
+                    "Special Offers!",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    "Up to 50% off on select products",
+                    fontSize = 14.sp,
+                    color = Color.White
+                )
+            }
+        }
     }
 }
 
@@ -369,33 +588,57 @@ fun CommunityFeed() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
             .clickable { showDialog = true },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(Color.White),
-        elevation = CardDefaults.cardElevation(6.dp)
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .padding(16.dp)
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Groups, // Correct for Material 3
-                contentDescription = "Community Icon",
-                tint = Color(0xFF0DA54B),
-                modifier = Modifier.size(32.dp)
-            )
+            // Community icon with background
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFE8F5E9)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Groups,
+                    contentDescription = "Community Icon",
+                    tint = Color(0xFF0DA54B),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
 
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text("Community Feed", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Community Feed",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF3E3E3E)
+                )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "Tap to see the latest posts or share your own thoughts!",
+                    "Connect with local farmers and share your thoughts!",
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
             }
+
+            Icon(
+                painter = painterResource(id = R.drawable.search), // Replace with appropriate arrow icon
+                contentDescription = "View Community",
+                tint = Color(0xFF0DA54B),
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 
@@ -411,7 +654,8 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
 
     var newPost by remember { mutableStateOf("") }
     val posts = remember { mutableStateListOf<Post>() }
-    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "user_123" // Get actual user ID
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "user_123"
+    val coroutineScope = rememberCoroutineScope()
 
     // Firestore listener
     LaunchedEffect(Unit) {
@@ -428,44 +672,102 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Community Feed", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Groups,
+                    contentDescription = null,
+                    tint = Color(0xFF0DA54B),
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "Community Feed",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = Color(0xFF0DA54B)
+                )
+            }
+        },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Posts List
-                LazyColumn(
-                    modifier = Modifier.height(300.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(posts) { post ->
-                        PostItem(post, postsCollection, userId)
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
                 // New Post Input
                 OutlinedTextField(
                     value = newPost,
                     onValueChange = { newPost = it },
-                    label = { Text("Write something...") },
-                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Share your thoughts...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    )
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedIndicatorColor = Color(0xFF0DA54B),
+                        unfocusedIndicatorColor = Color.LightGray
+                    ),
+                    maxLines = 3
                 )
+
+                // Post button
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            if (newPost.isNotBlank()) {
+                                addPost(postsCollection, newPost, userId)
+                                newPost = ""
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(bottom = 16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
+                ) {
+                    Text("Post")
+                }
+
+                Divider(thickness = 1.dp, color = Color.LightGray)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Posts List with header
+                Text(
+                    "Recent Posts",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                if (posts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No posts yet. Be the first to share!",
+                            color = Color.Gray
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.height(300.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(posts) { post ->
+                            PostItem(post, postsCollection, userId)
+                        }
+                    }
+                }
             }
         },
-        confirmButton = {
-            Button(
-                onClick = { addPost(postsCollection, newPost, userId); newPost = "" },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
-            ) {
-                Text("Post")
-            }
-        },
+        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = Color.Gray)
+                Text("Close", color = Color(0xFF0DA54B))
             }
         }
     )
@@ -473,54 +775,92 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
 
 @Composable
 fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
+    val isCurrentUserPost = post.userId == userId
+    val backgroundColor = if (isCurrentUserPost) Color(0xFFE3F2FD) else Color.White
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 8.dp),
+            .padding(vertical = 4.dp),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(Color.White),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(12.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "User Icon",
-                tint = Color(0xFF0DA54B),
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = post.content, fontSize = 14.sp)
-                Text(
-                    text = post.timestamp?.toDate()?.toString() ?: "Unknown time", // Converts to readable date
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-            }
-            if (post.userId == userId) {
-                IconButton(onClick = { deletePost(postsCollection, post.id) }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Post", tint = Color.Red)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // User icon/avatar
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(if (isCurrentUserPost) Color(0xFF0DA54B) else Color.Gray),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "User Icon",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // User identification and timestamp
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isCurrentUserPost) "You" else "Community Member",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = post.timestamp?.toDate()?.toString() ?: "Unknown time",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                // Delete button (only for user's own posts)
+                if (isCurrentUserPost) {
+                    IconButton(onClick = { deletePost(postsCollection, post.id) }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete Post",
+                            tint = Color.Red,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
+
+            // Post content
+            Text(
+                text = post.content,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp, start = 40.dp)
+            )
         }
     }
 }
 
-
-
 fun addPost(postsCollection: CollectionReference, content: String, userId: String) {
     if (content.isBlank()) return
 
+    val postId = postsCollection.document().id // Generate ID first
+
     val newPost = hashMapOf(
+        "id" to postId, // Store ID in the document itself
         "userId" to userId,
         "content" to content,
-        "timestamp" to FieldValue.serverTimestamp() // This ensures Firestore saves a proper timestamp
+        "timestamp" to FieldValue.serverTimestamp()
     )
 
-    postsCollection.add(newPost)
+    postsCollection.document(postId).set(newPost)
         .addOnSuccessListener { Log.d("Firestore", "Post added successfully") }
         .addOnFailureListener { e -> Log.e("Firestore", "Error adding post", e) }
 }
@@ -529,77 +869,6 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
     postsCollection.document(postId).delete()
         .addOnSuccessListener { Log.d("Firestore", "Post deleted successfully") }
         .addOnFailureListener { e -> Log.e("Firestore", "Error deleting post", e) }
-}
-
-@Composable
-fun ProductCard(product: Product, navController: NavController, firestore: FirebaseFirestore, storage: FirebaseStorage) {
-    val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
-    val formattedPrice = currencyFormatter.format(product.price)
-
-    Card(
-        modifier = Modifier
-            .padding(end = 8.dp)
-            .width(150.dp)
-            .height(220.dp),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp).fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            AsyncImage(
-                model = product.imageUrl,
-                contentDescription = product.name,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(4.dp))
-            )
-            Text(
-                text = product.name,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = product.category,
-                fontSize = 12.sp,
-                color = Color.Gray,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            Text(
-                text = "Quantity: ${product.quantity.toInt()} ${product.quantityUnit}",
-                fontSize = 12.sp,
-                color = Color.DarkGray,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-            Text(
-                text = "$formattedPrice",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Black
-            )
-            Button(
-                onClick = {
-                    if (!product.prodId.isNullOrEmpty()) {
-                        navController.navigate("productDetails/${product.prodId}")
-                    } else {
-                        Log.e("Navigation", "Invalid productId: ${product.prodId}")
-                    }
-                },
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
-            ) {
-                Text("View here")
-            }
-        }
-    }
 }
 
 

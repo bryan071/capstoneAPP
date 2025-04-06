@@ -50,6 +50,7 @@ fun TopBar(navController: NavController, cartViewModel: CartViewModel, userType:
             modifier = Modifier.size(150.dp)
         )
 
+        // Show cart icon only if userType is "market"
         if (userType == "market") {
             Row(modifier = Modifier, horizontalArrangement = Arrangement.End) {
                 Box(modifier = Modifier.wrapContentSize()) {
@@ -75,8 +76,7 @@ fun TopBar(navController: NavController, cartViewModel: CartViewModel, userType:
                     }
                 }
             }
-        } else {
-            Spacer(modifier = Modifier.size(28.dp))
         }
     }
 }
+

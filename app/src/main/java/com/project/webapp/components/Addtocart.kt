@@ -26,7 +26,8 @@ import com.project.webapp.R
 @Composable
 fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
     val cartItems by cartViewModel.cartItems.collectAsStateWithLifecycle()
-    val totalPrice by cartViewModel.totalPrice.collectAsStateWithLifecycle()
+    val totalPrice by cartViewModel.totalCartPrice.collectAsStateWithLifecycle()
+
 
     var showDialog by remember { mutableStateOf(false) } // Controls the success dialog
     var isLoading by remember { mutableStateOf(false) }  // Controls button loading state
@@ -68,19 +69,21 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
             }
 
             Text(
-                text = "Total: ₱${totalPrice}0",
+                text = "Total: ₱${"%.2f".format(totalPrice)}",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(16.dp)
             )
 
             Button(
-                onClick = { navController.navigate("payment/null") },
+                onClick = {
+                    navController.navigate("paymentScreen") // ✅ Navigate only for cart checkout
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                enabled = cartItems.isNotEmpty() && !isLoading,
-                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF0DA54B))
+                enabled = cartItems.isNotEmpty(), // ✅ Enable only if cart is not empty
+                colors = ButtonDefaults.buttonColors(backgroundColor  = Color(0xFF0DA54B)) // ✅ Use correct color parameter
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
@@ -92,19 +95,12 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
                 }
             }
         }
-
-        if (showDialog) {
-            OrderSuccessDialog(
-                onDismiss = { showDialog = false },
-                navController = navController
-            )
-        }
     }
 }
 
 
 @Composable
-fun CartItemRow(cartItem: CartItem, cartViewModel: CartViewModel) {
+fun CartItemRow(cartItem: CartItem, cartViewModel: CartViewModel? = null) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -127,10 +123,11 @@ fun CartItemRow(cartItem: CartItem, cartViewModel: CartViewModel) {
             ) {
                 Text(text = cartItem.name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(text = "Price: ₱${cartItem.price}0")
+                Text(text = "Unit Weight: ${cartItem.weight.toInt()} ${cartItem.unit}")
                 Text(text = "Quantity: ${cartItem.quantity}")
             }
             IconButton(
-                onClick = { cartViewModel.removeFromCart(cartItem.productId) }
+                onClick = { cartViewModel?.removeFromCart(cartItem.productId) }
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,

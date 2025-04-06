@@ -41,7 +41,7 @@ fun ProductDetailsScreen(
     var isLoading by remember { mutableStateOf(true) }
     val authState by authViewModel.authState.observeAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val productPrice = remember { mutableStateOf(0.0) }
+
 
     LaunchedEffect(productId) {
         if (productId.isNullOrEmpty()) {
@@ -201,7 +201,7 @@ fun ProductDetailsScreen(
                         } else if (userType == "market") {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Button(
-                                    onClick = { cartViewModel.addToCart(prod) },
+                                    onClick = { cartViewModel.addToCart(prod, userType, navController) },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Blue)
                                 ) {
@@ -212,15 +212,16 @@ fun ProductDetailsScreen(
 
                                 Button(
                                     onClick = {
-                                        val productData = product ?: return@Button
-                                        val productPrice = productData.price.toString()
-                                        navController.navigate("payment/$productPrice")
+                                        product?.let { prod ->
+                                            navController.navigate("paymentScreen/${prod.prodId}/${prod.price}")
+                                        }
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
                                 ) {
                                     Text("Buy Now")
                                 }
+
                             }
                         } else if (userType == "organization") {
                             Text("Organizations cannot buy or sell products.", fontSize = 16.sp, color = Color.Gray)
@@ -234,30 +235,14 @@ fun ProductDetailsScreen(
         } ?: Text("Product not found", fontSize = 18.sp, modifier = Modifier.padding(16.dp))
     }
 
-    LaunchedEffect(cartViewModel.snackbarMessage.collectAsState().value) {
-        cartViewModel.snackbarMessage.value?.let {
+    val snackbarMessage by cartViewModel.snackbarMessage.collectAsState()
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let {
             snackbarHostState.showSnackbar(it)
             cartViewModel.clearSnackbarMessage()
         }
     }
-
     SnackbarHost(hostState = snackbarHostState)
-}
-
-
-
-
-fun fetchOwnerName(firestore: FirebaseFirestore, ownerId: String, onResult: (String) -> Unit) {
-    firestore.collection("users").document(ownerId)
-        .get()
-        .addOnSuccessListener { document ->
-            val name = document.getString("name")
-            val email = document.getString("email")
-            onResult(name ?: email ?: "Unknown") // Prioritize name, fallback to email
-        }
-        .addOnFailureListener {
-            onResult("Unknown")
-        }
 }
 
 fun deleteProduct(firestore: FirebaseFirestore, productId: String, navController: NavController) {

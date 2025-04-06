@@ -54,7 +54,7 @@ fun MarketDashboard(modifier: Modifier = Modifier, navController: NavController,
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { SearchBar() }
+            item { SearchBar(modifier) }
             item { HeroBanner() }
             item { FeaturedProductsSection(authViewModel, navController) }
             item { DiscountsBanner() }

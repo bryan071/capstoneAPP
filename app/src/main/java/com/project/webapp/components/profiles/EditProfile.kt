@@ -33,6 +33,8 @@ fun FarmerEditProfileScreen(navController: NavController) {
     val auth = FirebaseAuth.getInstance()
     val storage = FirebaseStorage.getInstance()
     val userData = remember { mutableStateOf<UserData?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
@@ -40,203 +42,129 @@ fun FarmerEditProfileScreen(navController: NavController) {
     var address by remember { mutableStateOf("") }
     var contactNumber by remember { mutableStateOf("") }
     var profilePicture by remember { mutableStateOf("") }
-    var userType by remember { mutableStateOf("") }  // userType added here
+    var userType by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
-    var isSubmitting by remember { mutableStateOf(false) }
-
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedImageUri = it }
     }
 
-    // Fetch user data
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { userId ->
             firestore.collection("users").document(userId).get()
                 .addOnSuccessListener { document ->
                     if (document.exists()) {
-                        val user = document.toObject(UserData::class.java)
-                        userData.value = user
-
-                        user?.let {
+                        document.toObject(UserData::class.java)?.let {
+                            userData.value = it
                             firstName = it.firstname ?: ""
                             lastName = it.lastname ?: ""
                             email = it.email ?: ""
                             address = it.address ?: ""
                             contactNumber = it.phoneNumber ?: ""
                             profilePicture = it.profilePicture ?: ""
-                            userType = it.userType ?: ""  // Populate userType here
+                            userType = it.userType ?: ""
                         }
                     }
+                    isLoading = false
                 }
-        }
+                .addOnFailureListener { isLoading = false }
+        } ?: run { isLoading = false }
     }
 
     val primaryColor = Color(0xFF0DA54B)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Back Button
-        IconButton(
-            onClick = { navController.popBackStack() },
-            modifier = Modifier.align(Alignment.Start)
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = primaryColor)
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.backbtn),
-                contentDescription = "Back",
-                tint = Color.Unspecified
-            )
-        }
-
-        Text(
-            text = "Edit Profile",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(vertical = 12.dp)
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Profile Image
-        Box(contentAlignment = Alignment.BottomEnd) {
-            Image(
-                painter = if (selectedImageUri != null) {
-                    rememberAsyncImagePainter(selectedImageUri)
-                } else if (profilePicture.isNotEmpty()) {
-                    rememberAsyncImagePainter(profilePicture)
-                } else {
-                    painterResource(id = R.drawable.profile_icon)
-                },
-                contentDescription = "Profile Image",
-                modifier = Modifier
-                    .size(110.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, primaryColor, CircleShape)
-                    .background(Color.LightGray)
-            )
-            IconButton(
-                onClick = { imagePickerLauncher.launch("image/*") },
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(primaryColor)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.addphoto),
-                    contentDescription = "Change Avatar",
-                    tint = Color.White
-                )
+            IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.align(Alignment.Start)) {
+                Icon(painter = painterResource(id = R.drawable.backbtn), contentDescription = "Back", tint = Color.Unspecified)
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Text("Edit Profile", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-        // Editable Fields
-        ProfileTextField("First Name", firstName) { firstName = it }
-        ProfileTextField("Last Name", lastName) { lastName = it }
-        ProfileTextField("Email", email, readOnly = true) { }
-        ProfileTextField("Address", address) { address = it }
-        ProfileTextField("Contact Number", contactNumber) { contactNumber = it }
+            Box(contentAlignment = Alignment.BottomEnd) {
+                Image(
+                    painter = rememberAsyncImagePainter(selectedImageUri ?: profilePicture.takeIf { it.isNotEmpty() } ?: R.drawable.profile_icon),
+                    contentDescription = "Profile Image",
+                    modifier = Modifier.size(110.dp).clip(CircleShape).border(2.dp, primaryColor, CircleShape).background(Color.LightGray)
+                )
+                IconButton(
+                    onClick = { imagePickerLauncher.launch("image/*") },
+                    modifier = Modifier.size(32.dp).clip(CircleShape).background(primaryColor)
+                ) {
+                    Icon(painter = painterResource(id = R.drawable.addphoto), contentDescription = "Change Avatar", tint = Color.White)
+                }
+            }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            ProfileTextField("First Name", firstName) { firstName = it }
+            ProfileTextField("Last Name", lastName) { lastName = it }
+            ProfileTextField("Email", email, readOnly = true) {}
+            ProfileTextField("Address", address) { address = it }
+            ProfileTextField("Contact Number", contactNumber) { contactNumber = it }
 
-        // Display userType (not editable)
-        Text(
-            text = "User Type: $userType",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 6.dp),
-            color = Color.Gray
-        )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("User Type: $userType", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Spacer(modifier = Modifier.height(24.dp))
 
-        Spacer(modifier = Modifier.height(24.dp))
+            ElevatedButton(
+                onClick = {
+                    isSubmitting = true
+                    val userId = auth.currentUser?.uid ?: return@ElevatedButton
 
-        // Save Changes Button
-        ElevatedButton(
-            onClick = {
-                isSubmitting = true
-                val userId = auth.currentUser?.uid ?: return@ElevatedButton
-
-                if (selectedImageUri != null) {
-                    uploadImageToFirebaseStorage(userId, selectedImageUri!!) { downloadUrl ->
-                        profilePicture = downloadUrl
-                        updateProfile(
-                            userId,
-                            firstName,
-                            lastName,
-                            address,
-                            contactNumber,
-                            profilePicture,
-                            userType  // userType remains unchanged
-                        ) {
+                    if (selectedImageUri != null) {
+                        uploadImageToFirebaseStorage(userId, selectedImageUri!!) { downloadUrl ->
+                            profilePicture = downloadUrl
+                            updateProfile(userId, firstName, lastName, address, contactNumber, profilePicture, userType) {
+                                isSubmitting = false
+                                showDialog = true
+                            }
+                        }
+                    } else {
+                        updateProfile(userId, firstName, lastName, address, contactNumber, profilePicture, userType) {
                             isSubmitting = false
                             showDialog = true
                         }
                     }
-                } else {
-                    updateProfile(
-                        userId,
-                        firstName,
-                        lastName,
-                        address,
-                        contactNumber,
-                        profilePicture,
-                        userType  // userType remains unchanged
-                    ) {
-                        isSubmitting = false
-                        showDialog = true
-                    }
+                },
+                enabled = !isSubmitting,
+                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
-            },
-            enabled = !isSubmitting,
-            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-        ) {
-            if (isSubmitting) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
+                Text("Save Changes", style = MaterialTheme.typography.labelLarge)
             }
-            Text("Save Changes", style = MaterialTheme.typography.labelLarge)
-        }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Cancel Button
-        OutlinedButton(
-            onClick = { navController.popBackStack() },
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
-            border = BorderStroke(1.dp, primaryColor),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-        ) {
-            Text("Cancel", style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { navController.popBackStack() },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
+                border = BorderStroke(1.dp, primaryColor),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Cancel", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 
-    // Success Dialog
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = { Text("Success") },
             text = { Text("Profile updated successfully!") },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showDialog = false
-                        navController.popBackStack()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
-                ) {
+                Button(onClick = { showDialog = false; navController.popBackStack() }, colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) {
                     Text("OK")
                 }
             }

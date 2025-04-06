@@ -16,9 +16,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.farmaid.ui.notifications.FarmerNotificationScreen
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.Viewmodel.AuthState
@@ -114,38 +116,50 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             composable("productDetails/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId") ?: ""
 
+                // You can get ViewModels either this way or via hiltViewModel() if using Hilt
+                val cartViewModel: CartViewModel = viewModel()
+                val authViewModel: AuthViewModel = viewModel()
+
                 ProductDetailsScreen(
                     navController = navController,
                     productId = productId,
-                    firestore = FirebaseFirestore.getInstance()
-                )
-            }
-
-            composable("checkout/{productId}/{productName}/{productPrice}/{productImageUrl}") { backStackEntry ->
-                val productId = backStackEntry.arguments?.getString("productId")
-                val productName = backStackEntry.arguments?.getString("productName")
-                val productPrice = backStackEntry.arguments?.getString("productPrice")
-                val productImageUrl = backStackEntry.arguments?.getString("productImageUrl")
-
-                val cartViewModel: CartViewModel = viewModel()
-
-                CheckoutScreen(
-                    navController = navController,
+                    firestore = FirebaseFirestore.getInstance(),
+                    authViewModel = authViewModel,
                     cartViewModel = cartViewModel
                 )
             }
+
+
+            composable(
+                route = "checkoutScreen/{userType}/{totalPrice}",
+                arguments = listOf(
+                    navArgument("userType") { type = NavType.StringType },
+                    navArgument("totalPrice") { type = NavType.FloatType } // Use FloatType for now
+                )
+            ) { backStackEntry ->
+                val userType = backStackEntry.arguments?.getString("userType") ?: "cart_checkout"
+                val totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble() ?: 0.0 // Convert to Double here
+
+                CheckoutScreen(navController, cartViewModel, totalPrice, cartItems = emptyList())
+            }
+
+
+
+
             composable("editProduct/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
                 EditProductScreen(navController, productId, FirebaseFirestore.getInstance())
             }
             composable("cart") { CartScreen(cartViewModel, navController)
             }
-            composable("payment/{totalPrice}") { backStackEntry ->
-                val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0"
+            composable("paymentScreen/{productId}/{totalPrice}") { backStackEntry ->
+                val productId = backStackEntry.arguments?.getString("productId")
+                val totalPrice = backStackEntry.arguments?.getString("totalPrice")
 
-                PaymentScreen(navController, totalPrice, cartViewModel
-                )
+                PaymentScreen(navController, cartViewModel, productId, totalPrice)
             }
+
+
             composable("gcashScreen/{totalPrice}") { backStackEntry ->
                 val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
 

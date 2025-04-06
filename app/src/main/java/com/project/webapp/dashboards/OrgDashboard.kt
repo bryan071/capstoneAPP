@@ -31,7 +31,7 @@ fun OrganizationDashboard(modifier: Modifier = Modifier, navController: NavContr
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { SearchBar() }
+            item { SearchBar(modifier)}
             item { HeroBanner() }
             item { FeaturedProductsSection(authViewModel, navController) } // Organization-Specific Products
             item { DiscountsBanner() }

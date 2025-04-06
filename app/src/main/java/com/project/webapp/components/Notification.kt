@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,8 @@ import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
+import com.project.webapp.components.fetchOwnerName
+import com.project.webapp.datas.Product
 
 
 @Composable
@@ -110,10 +113,25 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
     val imageUrl = notification["imageUrl"] as? String ?: ""
     val category = notification["category"] as? String ?: "Unknown"
     val name = notification["name"] as? String ?: "Unnamed"
-    val price = notification["price"] as? Double ?: 0.0
+    val price = (notification["price"] as? Number)?.toDouble() ?: 0.0
+    val quantity = (notification["quantity"] as? Number)?.toInt() ?: 0
+    val quantityUnit = notification["quantityUnit"] as? String ?: "Unknown"
     val timestamp = notification["timestamp"] as? Long ?: 0L
+    val userId = notification["userId"] as? String
     val notificationId = notification["id"] as? String
     val formattedTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+
+    var ownerName by remember { mutableStateOf("Loading...") }
+
+    LaunchedEffect(userId) {
+        if (!userId.isNullOrEmpty()) {
+            fetchOwnerName(firestore, userId) { name ->
+                ownerName = name
+            }
+        } else {
+            ownerName = "Unknown"
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -148,8 +166,10 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
                 Text(message, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text("Category: $category", fontSize = 14.sp, color = Color.Gray)
                 Text("Name: $name", fontSize = 14.sp)
-                Text("Price: ₱$price", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Price: ₱${String.format("%.2f", price)}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Quantity: $quantity $quantityUnit", fontSize = 14.sp, color = Color(0xFF0DA54B))
                 Text("Added on: $formattedTime", fontSize = 12.sp, color = Color.Gray)
+                Text("Posted by: $ownerName", fontSize = 12.sp, color = Color.DarkGray)
             }
 
             if (notificationId != null) {
@@ -162,17 +182,34 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
 }
 
 
+
+
 @Composable
-fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> Unit) {
+fun NotificationDetailsDialog(
+    notification: Map<String, Any>,
+    onDismiss: () -> Unit
+) {
+    val firestore = FirebaseFirestore.getInstance()
+
     val category = notification["category"] as? String ?: "Unknown"
     val imageUrl = notification["imageUrl"] as? String ?: ""
     val name = notification["name"] as? String ?: "Unnamed"
-    val price = notification["price"] as? Int ?: 0
-    val quantity = notification["quantity"] as? Int ?: 0 // Fetch quantity
-    val quantityUnit = notification["quantityUnit"] as? String ?: "Unknown" // Fetch quantity unit
+    val price = (notification["price"] as? Number)?.toDouble() ?: 0.0
+    val quantity = (notification["quantity"] as? Number)?.toInt()
+    val quantityUnit = notification["quantityUnit"] as? String
     val location = notification["location"] as? String ?: "Location not available"
+    val userId = notification["userId"] as? String ?: "Unknown"
     val timestamp = notification["timestamp"] as? Long ?: 0L
+
     val formattedTime = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
+    var ownerName by remember { mutableStateOf("Loading...") }
+
+
+    LaunchedEffect(userId) {
+        fetchOwnerName(firestore, userId) { name ->
+            ownerName = name
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -183,7 +220,9 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
                     AsyncImage(
                         model = imageUrl,
                         contentDescription = "Product Image",
-                        modifier = Modifier.fillMaxWidth().height(200.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
                     )
                 } else {
                     Icon(
@@ -193,12 +232,23 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
                         tint = Color.Unspecified
                     )
                 }
+
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Category: $category", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("Name: $name", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("Price: ₱$price", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("Quantity: $quantity $quantityUnit", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0DA54B)) // Display Quantity
-                Text("Location: $location", fontSize = 14.sp)
+                Text("Category: $category", fontWeight = FontWeight.Bold)
+                Text("Name: $name", fontWeight = FontWeight.Bold)
+                Text("Price: ₱${String.format("%.2f", price)}", fontWeight = FontWeight.Bold)
+
+                if (quantity != null && quantityUnit != null) {
+                    Text(
+                        "Quantity: $quantity $quantityUnit",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0DA54B)
+                    )
+                }
+
+
+                Text("Location: $location")
+                Text("Posted by: $ownerName", fontWeight = FontWeight.Medium)
                 Text("Added on: $formattedTime", fontSize = 12.sp, color = Color.Gray)
             }
         },
@@ -209,6 +259,8 @@ fun NotificationDetailsDialog(notification: Map<String, Any>, onDismiss: () -> U
         }
     )
 }
+
+
 
 
 @Composable

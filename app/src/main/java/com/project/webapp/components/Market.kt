@@ -9,24 +9,37 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
 import androidx.compose.material.Icon
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
@@ -61,6 +75,14 @@ import com.project.webapp.dashboards.fetchProducts
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+// Define a consistent color scheme
+private val primaryColor = Color(0xFF0DA54B)
+private val secondaryColor = Color(0xFF81C784)
+private val lightGreen = Color(0xFFE4F7ED)
+private val textPrimaryColor = Color(0xFF212121)
+private val textSecondaryColor = Color(0xFF757575)
+private val surfaceColor = Color.White
+private val dividerColor = Color(0xFFDDDDDD)
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -72,35 +94,35 @@ fun FarmerMarketScreen(
 ) {
     val firestore = FirebaseFirestore.getInstance()
     val storage = FirebaseStorage.getInstance()
+
     var products by remember { mutableStateOf<List<Product>>(emptyList()) }
     var filteredProducts by remember { mutableStateOf<List<Product>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isAscending by remember { mutableStateOf(true) }
+    var showDialog by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+
     val categories = listOf("All", "vegetable", "fruits", "rootcrops", "grains", "spices")
     val coroutineScope = rememberCoroutineScope()
-    var showDialog by remember { mutableStateOf(false) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(navController.context) }
     val permissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
     val context = LocalContext.current
+
     var minPrice by remember { mutableStateOf("") }
     var maxPrice by remember { mutableStateOf("") }
-    val authState by authViewModel.authState.observeAsState()
     var userType by remember { mutableStateOf<String?>(null) }
+    val authState by authViewModel.authState.observeAsState()
 
-    // ✅ Fetch user type only once
+    // ✅ Fetch userType before rendering the UI
     LaunchedEffect(Unit) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid
-        Log.d("FarmerMarketScreen", "Fetching userType for userId: $userId")
-
         userId?.let {
             firestore.collection("users")
                 .document(it)
                 .get()
                 .addOnSuccessListener { document ->
-                    val fetchedUserType = document.getString("userType")?.trim()?.lowercase()
-                    userType = fetchedUserType
-                    Log.d("FarmerMarketScreen", "Fetched userType: $userType")
+                    userType = document.getString("userType")?.trim()?.lowercase()
                 }
                 .addOnFailureListener { e ->
                     Log.e("FarmerMarketScreen", "Error fetching userType", e)
@@ -110,7 +132,7 @@ fun FarmerMarketScreen(
 
     val isFarmer = userType == "farmer"
 
-    // ✅ Fetch products on first load using Firestore listener
+    // ✅ Fetch products only once with Firestore listener
     DisposableEffect(Unit) {
         val listenerRegistration = fetchProducts(firestore) { fetchedProducts ->
             products = fetchedProducts
@@ -119,107 +141,244 @@ fun FarmerMarketScreen(
         }
 
         onDispose {
-            listenerRegistration.remove()  // 🔥 Properly remove the Firestore listener when screen is destroyed
+            listenerRegistration.remove()  // 🔥 Cleanup listener when screen is destroyed
         }
     }
 
-
-    // Apply category filtering and price sorting
+    // ✅ Smooth Filtering & Sorting
     LaunchedEffect(selectedCategory, minPrice, maxPrice, isAscending, products) {
         val category = selectedCategory?.trim()?.lowercase()
         val min = minPrice.toDoubleOrNull() ?: 0.0
         val max = maxPrice.toDoubleOrNull() ?: Double.MAX_VALUE
 
         filteredProducts = products.filter { product ->
-            val productPrice = product.price
-            val isCategoryMatch = category == null || category == "all" || product.category.trim()
-                .lowercase() == category
-            val isPriceInRange = productPrice in min..max
+            val isCategoryMatch = category == null || category == "all" || product.category.trim().lowercase() == category
+            val isPriceInRange = product.price in min..max
 
             isCategoryMatch && isPriceInRange
         }.sortedBy { if (isAscending) it.price else -it.price }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp)
-        ) {
-            userType?.let { type -> TopBar(navController, cartViewModel, userType = type) }
-            SearchBar()
-            Text("Market", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
-            LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
-                items(categories) { category ->
-                    Button(
-                        onClick = { selectedCategory = if (category == "All") null else category },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selectedCategory == category) Color(0xFF0DA54B) else Color.LightGray
-                        ),
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Text(category)
-                    }
-                }
-            }
-
-            // Price Filtering Inputs
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                PriceFilterSection(
-                    minPrice = minPrice,
-                    maxPrice = maxPrice,
-                    onMinPriceChange = { minPrice = it },
-                    onMaxPriceChange = { maxPrice = it },
-                    isAscending = isAscending,
-                    onSortToggle = { isAscending = !isAscending }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxSize().padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filteredProducts.size) { index ->
-                        val product = filteredProducts[index]
-                        ProductCard(product, navController, firestore, storage)
-                    }
-                }
+    // ✅ Full-Screen Loading while fetching data
+    if (isLoading || userType == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = primaryColor)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Loading Market...", style = MaterialTheme.typography.bodyLarge, color = Color(0xFF0DA54B))
             }
         }
-
-        if (isFarmer) {
-            Log.d("FarmerMarketScreen", "Displaying FloatingActionButton for farmer userType")
-
-            FloatingActionButton(
-                onClick = { showDialog = true },
-                containerColor = Color(0xFF0DA54B),
-                contentColor = Color.White,
+    } else {
+        Box(modifier = Modifier.fillMaxSize().background(surfaceColor)) {
+            Column(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .fillMaxSize()
                     .padding(16.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Product")
+                TopBar(navController, cartViewModel, userType = userType ?: "market")
+
+                // Enhanced header section
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Marketplace",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textPrimaryColor
+                    )
+
+                    // Filter toggle button
+                    IconButton(
+                        onClick = { showFilters = !showFilters },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (showFilters) primaryColor else lightGreen)
+                    ) {
+                        Icon(
+                            Icons.Default.FilterList,
+                            contentDescription = "Filter Options",
+                            tint = if (showFilters) Color.White else primaryColor
+                        )
+                    }
+                }
+
+                // Improved search bar
+                SearchBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .shadow(4.dp, RoundedCornerShape(12.dp))
+                )
+
+                // Categories section
+                Text(
+                    "Categories",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textPrimaryColor,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                LazyRow(modifier = Modifier.padding(bottom = 16.dp)) {
+                    items(categories) { category ->
+                        val isSelected = (selectedCategory == category) ||
+                                (category == "All" && selectedCategory == null)
+
+                        Card(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .height(40.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) primaryColor else lightGreen
+                            ),
+                            elevation = CardDefaults.cardElevation(
+                                defaultElevation = if (isSelected) 4.dp else 0.dp
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clickable { selectedCategory = if (category == "All") null else category }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    category,
+                                    color = if (isSelected) Color.White else primaryColor,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Animated filter section
+                AnimatedVisibility(
+                    visible = showFilters,
+                    enter = fadeIn(animationSpec = tween(300)),
+                    exit = fadeOut(animationSpec = tween(300))
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = lightGreen),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "Filter by Price",
+                                fontWeight = FontWeight.SemiBold,
+                                color = textPrimaryColor,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+
+                            PriceFilterSection(
+                                minPrice = minPrice,
+                                maxPrice = maxPrice,
+                                onMinPriceChange = { minPrice = it },
+                                onMaxPriceChange = { maxPrice = it },
+                                isAscending = isAscending,
+                                onSortToggle = { isAscending = !isAscending }
+                            )
+                        }
+                    }
+                }
+
+                // Products grid header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Available Products",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = textPrimaryColor
+                    )
+
+                    Text(
+                        "${filteredProducts.size} items",
+                        fontSize = 14.sp,
+                        color = textSecondaryColor
+                    )
+                }
+
+                if (filteredProducts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.arrowup), // Replace with appropriate icon
+                                contentDescription = "No Products",
+                                tint = textSecondaryColor,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "No products available",
+                                fontSize = 18.sp,
+                                color = textSecondaryColor,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(filteredProducts.size) { index ->
+                            val product = filteredProducts[index]
+                            ProductCard(product, navController, firestore, storage)
+                        }
+                    }
+                }
+            }
+
+            // ✅ Enhanced FloatingActionButton for Farmers
+            if (isFarmer) {
+                FloatingActionButton(
+                    onClick = { showDialog = true },
+                    containerColor = primaryColor,
+                    contentColor = Color.White,
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 6.dp,
+                        pressedElevation = 8.dp
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(24.dp)
+                        .size(60.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Add Product",
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
             }
         }
     }
 
-    // Add Product Dialog
+    // ✅ Enhanced Add Product Dialog
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
@@ -230,8 +389,8 @@ fun FarmerMarketScreen(
                         description = description,
                         category = category,
                         price = price,
-                        quantity = quantity,  // ✅ Now passed as a separate numeric value
-                        unit = unit,  // ✅ Now passed as a separate string
+                        quantity = quantity,
+                        unit = unit,
                         imageUri = imageUri,
                         firestore = firestore,
                         storage = storage,
@@ -250,7 +409,10 @@ fun FarmerMarketScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, String, Double, String, Double, Uri?) -> Unit) {
+fun AddProductDialog(
+    onDismiss: () -> Unit,
+    onAddProduct: (String, String, String, Double, String, Double, Uri?) -> Unit
+) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("") }
@@ -263,21 +425,41 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
     }
 
     val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
+    val unitOptions = listOf("kg", "grams")
+    var selectedUnit by remember { mutableStateOf(unitOptions[0]) }
     var expandedCategory by remember { mutableStateOf(false) }
+    var expandedUnit by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
 
-    // Unit Selection
-    val unitOptions = listOf("kg", "grams")  // ✅ Updated with more common units
-    var selectedUnit by remember { mutableStateOf(unitOptions[0]) }
-    var expandedUnit by remember { mutableStateOf(false) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = surfaceColor,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(20.dp)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()) // ⬅️ make it scrollable
+        )  {
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Add Product", style = MaterialTheme.typography.headlineSmall)
-            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Add New Product",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = textPrimaryColor
+                ),
+                modifier = Modifier.padding(bottom = 20.dp)
+            )
 
             // Category Dropdown
-            Text("Category", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Category",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = textPrimaryColor,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
             ExposedDropdownMenuBox(
                 expanded = expandedCategory,
                 onExpandedChange = { expandedCategory = !expandedCategory }
@@ -286,13 +468,24 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                     value = selectedCategory,
                     onValueChange = {},
                     readOnly = true,
+                    placeholder = { Text("Select category") },
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = primaryColor,
+                        unfocusedBorderColor = dividerColor,
+                        cursorColor = primaryColor
+                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .menuAnchor()
                         .onGloballyPositioned { coordinates -> textFieldSize = coordinates.size.toSize() },
                     trailingIcon = {
                         IconButton(onClick = { expandedCategory = !expandedCategory }) {
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Dropdown",
+                                tint = primaryColor
+                            )
                         }
                     }
                 )
@@ -314,60 +507,140 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Product Name
+            Text(
+                "Product Name",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = textPrimaryColor,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name") },
+                placeholder = { Text("Enter product name") },
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = primaryColor,
+                    unfocusedBorderColor = dividerColor,
+                    cursorColor = primaryColor
+                ),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Description Input
+            Text(
+                "Description",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = textPrimaryColor,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Description") },
+                placeholder = { Text("Enter product description") },
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = primaryColor,
+                    unfocusedBorderColor = dividerColor,
+                    cursorColor = primaryColor
+                ),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
-                maxLines = 3
+                minLines = 3,
+                maxLines = 5
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Price Input
+            Text(
+                "Price",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = textPrimaryColor,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             OutlinedTextField(
                 value = price,
                 onValueChange = { price = it.filter { char -> char.isDigit() || char == '.' } },
-                label = { Text("Price (₱)") },
+                placeholder = { Text("Enter price here...") },
+                leadingIcon = {
+                    Text("₱", fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 12.dp))
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = primaryColor,
+                    unfocusedBorderColor = dividerColor,
+                    cursorColor = primaryColor
+                ),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Quantity and Unit Row
-            Row(modifier = Modifier.fillMaxWidth()) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Quantity and Unit Row with labels
+            Text(
+                "Quantity & Unit",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = textPrimaryColor,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp), // Adds bottom spacing for visibility
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 // Quantity Input
                 OutlinedTextField(
                     value = quantity,
                     onValueChange = { quantity = it.filter { char -> char.isDigit() || char == '.' } },
-                    label = { Text("Quantity") },
+                    placeholder = { Text("Amount") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.width(190.dp)
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = primaryColor,
+                        unfocusedBorderColor = dividerColor,
+                        cursorColor = primaryColor
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(0.65f)
+                        .height(56.dp) // Match height with dropdown
                 )
-                Spacer(modifier = Modifier.width(8.dp))
 
                 // Unit Dropdown
                 ExposedDropdownMenuBox(
                     expanded = expandedUnit,
-                    onExpandedChange = { expandedUnit = it } // Correctly toggling state
+                    onExpandedChange = { expandedUnit = it },
+                    modifier = Modifier
+                        .weight(0.35f)
                 ) {
                     OutlinedTextField(
                         value = selectedUnit,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Unit") },
+                        placeholder = { Text("Unit") },
+                        colors = TextFieldDefaults.outlinedTextFieldColors(
+                            focusedBorderColor = primaryColor,
+                            unfocusedBorderColor = dividerColor,
+                            cursorColor = primaryColor
+                        ),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
-                            .width(130.dp)
-                            .menuAnchor(),
+                            .menuAnchor()
+                            .fillMaxWidth()
+                            .height(56.dp), // Match height with quantity input
                         trailingIcon = {
                             IconButton(onClick = { expandedUnit = !expandedUnit }) {
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = "Dropdown",
+                                    tint = primaryColor
+                                )
                             }
                         }
                     )
@@ -381,7 +654,7 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                                 text = { Text(unit) },
                                 onClick = {
                                     selectedUnit = unit
-                                    expandedUnit = false // Correctly closing dropdown
+                                    expandedUnit = false
                                 }
                             )
                         }
@@ -389,56 +662,104 @@ fun AddProductDialog(onDismiss: () -> Unit, onAddProduct: (String, String, Strin
                 }
             }
 
-            // Image Preview
-            imageUri?.let {
-                AsyncImage(
-                    model = it,
-                    contentDescription = "Product Image",
-                    modifier = Modifier
-                        .height(150.dp)
-                        .fillMaxWidth()
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
 
-            // Image Picker Button
-            Button(
-                onClick = { imagePickerLauncher.launch("image/*") },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Select Image")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Form Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+            // Image Section
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clickable { imagePickerLauncher.launch("image/*") },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = lightGreen),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                TextButton(onClick = onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = Color.Black)) {
-                    Text("Cancel")
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (imageUri != null) {
+                        AsyncImage(
+                            model = imageUri,
+                            contentDescription = "Product Image",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.arrowup),
+                                contentDescription = "Upload Image",
+                                tint = primaryColor,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                "Tap to upload product image",
+                                color = primaryColor,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ✅ Form Buttons Row (Cancel / Add)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimaryColor),
+                    border = BorderStroke(1.dp, dividerColor),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        "Cancel",
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+
                 Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f),
                     onClick = {
                         val priceDouble = price.toDoubleOrNull() ?: 0.0
-                        val finalQuantity = quantity.toDoubleOrNull() ?: 1.0  // ✅ Convert quantity to Double safely
-                        onAddProduct(selectedCategory, name, description, finalQuantity, selectedUnit, priceDouble, imageUri)
-                        onDismiss()
+                        val finalQuantity = quantity.toDoubleOrNull() ?: 1.0
+                        onAddProduct(
+                            selectedCategory,
+                            name,
+                            description,
+                            finalQuantity,
+                            selectedUnit,
+                            priceDouble,
+                            imageUri
+                        )
                     }
                 ) {
-                    Text("Add Product")
+                    Text(
+                        "Add Product",
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
-
-
-
-
 
 fun uploadProduct(
     name: String,
@@ -558,6 +879,8 @@ fun addNotification(firestore: FirebaseFirestore, product: Product, userId: Stri
         "name" to product.name,
         "category" to product.category,
         "price" to product.price,
+        "quantity" to product.quantity,
+        "quantityUnit" to product.quantityUnit,
         "imageUrl" to product.imageUrl,
         "location" to location,
         "isRead" to false

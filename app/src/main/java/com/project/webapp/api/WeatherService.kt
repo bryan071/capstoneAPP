@@ -94,7 +94,7 @@ fun WeatherSection(context: Context) {
                 nearbyCities = cities.filter { it != cityName }
 
                 fetchWeather(cityName, apiKey) { temp, condition, icon, _ ->
-                    temperature = "$temp°C"
+                    temperature = "$temp"
                     weatherCondition = condition
                     weatherIcon = icon
                 }
