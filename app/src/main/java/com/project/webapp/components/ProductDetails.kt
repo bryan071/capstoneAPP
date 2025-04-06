@@ -221,7 +221,6 @@ fun ProductDetailsScreen(
                                 ) {
                                     Text("Buy Now")
                                 }
-
                             }
                         } else if (userType == "organization") {
                             Text("Organizations cannot buy or sell products.", fontSize = 16.sp, color = Color.Gray)

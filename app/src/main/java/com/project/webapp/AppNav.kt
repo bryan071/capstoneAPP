@@ -138,27 +138,37 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 )
             ) { backStackEntry ->
                 val userType = backStackEntry.arguments?.getString("userType") ?: "cart_checkout"
-                val totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble() ?: 0.0 // Convert to Double here
+                val totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble()
+                    ?: 0.0 // Convert to Double here
 
-                CheckoutScreen(navController, cartViewModel, totalPrice, cartItems = emptyList())
+                CheckoutScreen(
+                    navController = navController,
+                    cartViewModel = cartViewModel,
+                    totalPrice = totalPrice,
+                    cartItems = cartViewModel.checkoutItems,
+                    userType = userType
+                )
             }
-
-
-
 
             composable("editProduct/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
                 EditProductScreen(navController, productId, FirebaseFirestore.getInstance())
             }
+
             composable("cart") { CartScreen(cartViewModel, navController)
             }
+
             composable("paymentScreen/{productId}/{totalPrice}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
                 val totalPrice = backStackEntry.arguments?.getString("totalPrice")
 
-                PaymentScreen(navController, cartViewModel, productId, totalPrice)
+                PaymentScreen(
+                    navController = navController,
+                    cartViewModel = cartViewModel,
+                    directBuyProductId = productId,
+                    directBuyPrice = totalPrice
+                )
             }
-
 
             composable("gcashScreen/{totalPrice}") { backStackEntry ->
                 val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
@@ -176,10 +186,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 val chatViewModel = viewModel<ChatViewModel>()  // Ensure ViewModel is provided
                 ChatScreen(navController = navController, viewModel = chatViewModel, chatRoomId = chatRoomId, isAdmin = false)
             }
-
-
         }
-
     }
 }
 

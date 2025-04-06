@@ -1,4 +1,5 @@
 import android.util.Log
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
@@ -28,6 +29,9 @@ class CartViewModel : ViewModel() {
 
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage
+
+    private val _checkoutItems = mutableStateListOf<CartItem>()
+    val checkoutItems: List<CartItem> get() = _checkoutItems
 
     val totalCartPrice: StateFlow<Double> = _cartItems.map { items ->
         items.sumOf { it.price * it.quantity }
@@ -205,6 +209,13 @@ class CartViewModel : ViewModel() {
     fun getTotalCartPrice(): Double {
         return totalCartPrice.value
     }
+
+    fun setCheckoutItems(items: List<CartItem>) {
+        _checkoutItems.clear()
+        _checkoutItems.addAll(items)
+    }
+
+
 }
 
 

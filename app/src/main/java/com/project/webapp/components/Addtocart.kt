@@ -77,7 +77,7 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
 
             Button(
                 onClick = {
-                    navController.navigate("paymentScreen") // ✅ Navigate only for cart checkout
+                    navController.navigate("paymentScreen/null/{totalPrice}") // ✅ Navigate only for cart checkout
                 },
                 modifier = Modifier
                     .fillMaxWidth()
