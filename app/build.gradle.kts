@@ -101,7 +101,7 @@ dependencies {
     implementation ("com.google.accompanist:accompanist-permissions:0.33.1-alpha")
     implementation ("com.google.accompanist:accompanist-permissions:0.32.0")
 
-
+    implementation ("com.google.zxing:core:3.4.1") // ZXing dependency for GCASH
 
 
 

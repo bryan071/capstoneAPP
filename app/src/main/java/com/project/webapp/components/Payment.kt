@@ -1,5 +1,6 @@
 package com.project.webapp.components
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -36,9 +38,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.R
 import com.project.webapp.datas.CartItem
 import com.project.webapp.datas.Organization
@@ -252,55 +256,48 @@ fun PaymentScreen(
                     }
                 }
 
-                // Section: Payment Summary
-                SectionTitle(title = "Payment Summary")
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        val subtotalText = directBuyPrice?.toDoubleOrNull()?.let { "₱%.2f".format(it) }
-                            ?: "₱%.2f".format(cartTotalState)
-
-                        PriceLine(
-                            title = "Subtotal (Items)",
-                            value = subtotalText,
-                            themeColor = themeColor
-                        )
-
-                        PriceLine(
-                            title = "Shipping Fee",
-                            value = "₱${"%.2f".format(shippingFee)}",
-                            themeColor = themeColor
-                        )
-
-                        Divider(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            color = Color(0xFFEEEEEE)
-                        )
-
-                        PriceLine(
-                            title = "Total Amount",
-                            value = "₱$formattedAmount",
-                            isBold = true,
-                            themeColor = themeColor
-                        )
-                    }
-                }
-
                 // Section: Payment Methods
                 SectionTitle(title = "Payment Methods")
 
+                var ownerId by remember { mutableStateOf<String?>(null) }
+
+                LaunchedEffect(directBuyProduct, displayItems) {
+                    if (directBuyProduct != null) {
+                        ownerId = directBuyProduct?.ownerId
+                    } else if (displayItems.isNotEmpty()) {
+                        // For cart: we need to get the product first to access its ownerId
+                        cartViewModel.getProductById(displayItems.first().productId) { product ->
+                            product?.let {
+                                ownerId = product.ownerId
+                            }
+                        }
+                    }
+                }
+
+                var ownerName by remember { mutableStateOf("Loading...") }
+
+                LaunchedEffect(ownerId) {
+                    ownerId?.let {
+                        fetchOwnerName(FirebaseFirestore.getInstance(), it) { name ->
+                            ownerName = name
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Pay to: $ownerName",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.DarkGray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
                 Button(
-                    onClick = { navController.navigate("gcashScreen/$formattedAmount") },
+                    onClick = {
+                        ownerId?.let { id ->
+                            navController.navigate("gcashScreen/$formattedAmount/$id")
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -324,6 +321,8 @@ fun PaymentScreen(
                         )
                     }
                 }
+
+
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -1504,12 +1503,18 @@ fun DonationScreen(
 
                     Button(
                         onClick = {
-                            if (selectedOrganization != null) {
-                                navController.navigate("gcashDonationScreen/${directBuyPrice ?: cartTotalState}")
-                            } else {
-                                // Show error or dialog that organization must be selected
+                            if (selectedOrganization != null && displayItems.isNotEmpty()) {
+                                val firstItem = displayItems[0]
+                                cartViewModel.getProductById(firstItem.productId) { product ->
+                                    product?.let {
+                                        val sellerId = it.ownerId
+                                        val priceToPay = directBuyPrice ?: cartTotalState
+                                        navController.navigate("gcashScreen/$priceToPay/$sellerId")
+                                    }
+                                }
                             }
                         },
+
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
@@ -1926,7 +1931,39 @@ fun DonationReceiptScreen(
 
 
 @Composable
-fun GcashScreen(navController: NavController, totalPrice: String) {
+fun GcashScreen(
+    navController: NavController,
+    totalPrice: String,
+    firestore: FirebaseFirestore,
+    ownerId: String,
+    cartViewModel: CartViewModel = viewModel()
+) {
+    // State to hold the owner's name and QR code
+    var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Use mutableStateMapOf to store seller names by their IDs (same approach as in ProductDetailsScreen)
+    val sellerNames = remember { mutableStateMapOf<String, String>() }
+
+    // Fetch the owner's name and generate QR code when the screen is first composed
+    LaunchedEffect(ownerId, totalPrice) {
+        // Use the existing method from CartViewModel to get user info
+        cartViewModel.getUserById(ownerId) { user ->
+            user?.let {
+                sellerNames[ownerId] = "${it.firstname} ${it.lastname}"
+
+                // Generate dynamic QR code with payment details
+                val content = "GCash Payment\nName: ${sellerNames[ownerId]}\nAmount: ₱$totalPrice"
+                qrCodeBitmap = generateQRCode(content)
+            } ?: run {
+                sellerNames[ownerId] = "Unknown Seller"
+
+                // Generate QR code even if seller name isn't found
+                val content = "GCash Payment\nName: Unknown Seller\nAmount: ₱$totalPrice"
+                qrCodeBitmap = generateQRCode(content)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1952,8 +1989,33 @@ fun GcashScreen(navController: NavController, totalPrice: String) {
             fontWeight = FontWeight.SemiBold
         )
 
+        // Display the Owner's Name (using the same approach as in ProductDetailsScreen)
+        Text(
+            text = "Pay to: ${ownerId.let { sellerNames[it] ?: "Loading..." }}",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.Black
+        )
+
+        // Display the dynamic QR Code if available
+        qrCodeBitmap?.let {
+            Image(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "GCash QR Code",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Fit
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         Button(
-            onClick = { /* Implement GCash Payment Logic */ },
+            onClick = {
+                // Implement GCash Payment Logic or navigate to GCash App
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
         ) {
@@ -1967,4 +2029,5 @@ fun GcashScreen(navController: NavController, totalPrice: String) {
         }
     }
 }
+
 

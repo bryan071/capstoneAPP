@@ -187,11 +187,19 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     directBuyPrice = price
                 )
             }
-            composable("gcashScreen/{totalPrice}") { backStackEntry ->
+            composable(
+                "gcashScreen/{totalPrice}/{ownerId}",
+                arguments = listOf(
+                    navArgument("totalPrice") { type = NavType.StringType },
+                    navArgument("ownerId") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
                 val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
-
-                GcashScreen(navController, totalPrice)
+                val ownerId = backStackEntry.arguments?.getString("ownerId") ?: ""
+                GcashScreen(navController, totalPrice, FirebaseFirestore.getInstance(), ownerId)
             }
+
+
             composable("chat") {
                 val chatViewModel = viewModel<ChatViewModel>()
                 val defaultChatRoomId = "default_room" // Define a default chat room
