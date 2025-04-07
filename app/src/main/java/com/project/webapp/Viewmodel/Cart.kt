@@ -176,7 +176,7 @@ class CartViewModel : ViewModel() {
                 )
             },
             "totalPrice" to itemsToPurchase.sumOf { it.price * it.quantity },
-            "paymentMethod" to paymentMethod,
+            "paymentMethod" to if (paymentMethod.isNullOrBlank() || paymentMethod != "GCash") "COD" else "GCash",
             "gcashReference" to if (paymentMethod == "GCash") gcashRef else null,
             "status" to "Pending",
             "timestamp" to System.currentTimeMillis()
