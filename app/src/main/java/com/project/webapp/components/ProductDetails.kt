@@ -331,6 +331,29 @@ fun ProductDetailsScreen(
                                                 color = primaryColor
                                             )
                                         }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // 💚 Donate Now button
+                                        Button(
+                                            onClick = {
+                                                product?.let { p ->
+                                                    navController.navigate("donationScreen/${p.prodId}/${p.price}")
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(56.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF)),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                "Donate Now",
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
                                 } else if (userType == "organization") {
                                     Card(

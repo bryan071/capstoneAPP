@@ -29,6 +29,7 @@ import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.components.CartScreen
 import com.project.webapp.components.ChatScreen
 import com.project.webapp.components.CheckoutScreen
+import com.project.webapp.components.DonationScreen
 import com.project.webapp.components.EditProductScreen
 import com.project.webapp.dashboards.BottomNavigationBar
 import com.project.webapp.dashboards.FarmerDashboard
@@ -169,7 +170,23 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     directBuyPrice = totalPrice
                 )
             }
+            composable(
+                route = "donationScreen/{productId}/{price}",
+                arguments = listOf(
+                    navArgument("productId") { type = NavType.StringType },
+                    navArgument("price") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val productId = backStackEntry.arguments?.getString("productId")
+                val price = backStackEntry.arguments?.getString("price")
 
+                DonationScreen(
+                    navController = navController,
+                    cartViewModel = cartViewModel,
+                    directBuyProductId = productId,
+                    directBuyPrice = price
+                )
+            }
             composable("gcashScreen/{totalPrice}") { backStackEntry ->
                 val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
 
