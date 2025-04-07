@@ -45,13 +45,15 @@ fun ProductDetailsScreen(
     cartViewModel: CartViewModel = viewModel()
 ) {
     var product by remember { mutableStateOf<Product?>(null) }
-    var ownerName by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     val authState by authViewModel.authState.observeAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF5F9F6)
     val cardColor = Color(0xFFE8F5E9)
+
+    // Use mutableStateMapOf to store seller names by their IDs
+    val sellerNames = remember { mutableStateMapOf<String, String>() }
 
     LaunchedEffect(productId) {
         if (productId.isNullOrEmpty()) {
@@ -64,11 +66,20 @@ fun ProductDetailsScreen(
             .addOnSuccessListener { document ->
                 product = document.toObject(Product::class.java)
                 product?.ownerId?.let { ownerId ->
-                    fetchOwnerName(firestore, ownerId) { name -> ownerName = name }
+                    // Fetch seller info and store in the map
+                    cartViewModel.getUserById(ownerId) { user ->
+                        user?.let {
+                            sellerNames[ownerId] = "${it.firstname} ${it.lastname}"
+                        } ?: run {
+                            sellerNames[ownerId] = "Unknown Seller"
+                        }
+                    }
                 }
                 isLoading = false
             }
-            .addOnFailureListener { isLoading = false }
+            .addOnFailureListener {
+                isLoading = false
+            }
     }
 
     var userType by remember { mutableStateOf<String?>(null) }
@@ -94,40 +105,48 @@ fun ProductDetailsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // 🔙 Back Button — always on top
-            IconButton(
-                onClick = { navController.popBackStack() },
-                modifier = Modifier
-                    .padding(start = 16.dp, top = 16.dp)
-                    .size(40.dp)
-                    .shadow(2.dp, CircleShape)
-                    .background(Color.White, CircleShape)
-                    .align(Alignment.TopStart)
-                    .zIndex(2f) // ✅ This pushes it above other layers
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.backbtn),
-                    contentDescription = "Back",
-                    tint = Color.Unspecified
-                )
-            }
-
-            Text(fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 32.sp,
-                text = "Product Details",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier
-                    .padding(top = 70.dp, start = 16.dp)
-                    .align(Alignment.TopStart)
-            )
-            // 🧱 Main Content
+            // Main Content Column with proper spacing
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(top = 120.dp, start = 16.dp, end = 16.dp, bottom = 16.dp) // adjust to avoid overlap
+                    .padding(16.dp) // Consistent padding
             ) {
+                // Top Row for Back Button and Title
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Back Button
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier
+                            .shadow(2.dp, CircleShape)
+                            .background(Color.White, CircleShape)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.backbtn),
+                            contentDescription = "Back",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // Title properly aligned with back button
+                    Text(
+                        text = "Product Details",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 32.sp,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                // Loading state
                 if (isLoading) {
                     Box(
                         modifier = Modifier
@@ -138,7 +157,7 @@ fun ProductDetailsScreen(
                     }
                 } else {
                     product?.let { prod ->
-                        // 🖼 Product Card
+                        // Product Card
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -223,9 +242,10 @@ fun ProductDetailsScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
+                        // Enhanced Seller Card with better error handling
                         InfoCard(
                             title = "Seller",
-                            value = ownerName ?: "Unknown",
+                            value = product?.ownerId?.let { sellerNames[it] ?: "Loading..." } ?: "Unknown",
                             modifier = Modifier.fillMaxWidth(),
                             color = cardColor
                         )

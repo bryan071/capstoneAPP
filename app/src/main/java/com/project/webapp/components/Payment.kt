@@ -1366,7 +1366,7 @@ fun DonationScreen(
                             Icon(
                                 imageVector = Icons.Default.Favorite,
                                 contentDescription = null,
-                                tint = themeColor,
+                                tint = Color.Red,
                                 modifier = Modifier.size(40.dp)
                             )
 
