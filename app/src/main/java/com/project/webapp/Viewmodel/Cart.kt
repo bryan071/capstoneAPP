@@ -222,6 +222,19 @@ class CartViewModel : ViewModel() {
             }
     }
 
+    fun updateCartItemQuantity(productId: String, newQuantity: Int) {
+        viewModelScope.launch {
+            val currentCart = _cartItems.value.toMutableList()
+            val index = currentCart.indexOfFirst { it.productId == productId }
+            if (index != -1) {
+                val updatedItem = currentCart[index].copy(quantity = newQuantity)
+                currentCart[index] = updatedItem
+                _cartItems.value = currentCart
+                // Optionally update Firestore or local db if needed
+            }
+        }
+    }
+
 
     fun clearSnackbarMessage() {
         _snackbarMessage.value = null

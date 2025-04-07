@@ -1,9 +1,13 @@
 package com.project.webapp.components
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -12,12 +16,15 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -28,6 +35,7 @@ import com.project.webapp.Viewmodel.AuthState
 import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.datas.Product
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductDetailsScreen(
     navController: NavController,
@@ -41,7 +49,9 @@ fun ProductDetailsScreen(
     var isLoading by remember { mutableStateOf(true) }
     val authState by authViewModel.authState.observeAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-
+    val primaryColor = Color(0xFF0DA54B)
+    val backgroundColor = Color(0xFFF5F9F6)
+    val cardColor = Color(0xFFE8F5E9)
 
     LaunchedEffect(productId) {
         if (productId.isNullOrEmpty()) {
@@ -75,163 +85,332 @@ fun ProductDetailsScreen(
         }
     }
 
-    if (isLoading) {
+    Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
+                .padding(innerPadding)
         ) {
-            CircularProgressIndicator()
-        }
-    } else {
-        product?.let { prod ->
+            // 🔙 Back Button — always on top
+            IconButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier
+                    .padding(start = 16.dp, top = 16.dp)
+                    .size(40.dp)
+                    .shadow(2.dp, CircleShape)
+                    .background(Color.White, CircleShape)
+                    .align(Alignment.TopStart)
+                    .zIndex(2f) // ✅ This pushes it above other layers
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.backbtn),
+                    contentDescription = "Back",
+                    tint = Color.Unspecified
+                )
+            }
+
+            Text(fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 32.sp,
+                text = "Product Details",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier
+                    .padding(top = 70.dp, start = 16.dp)
+                    .align(Alignment.TopStart)
+            )
+            // 🧱 Main Content
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()) // Enables scrolling
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 120.dp, start = 16.dp, end = 16.dp, bottom = 16.dp) // adjust to avoid overlap
             ) {
-                IconButton(
-                    onClick = { navController.popBackStack() },
-                    modifier = Modifier.align(Alignment.Start)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.backbtn),
-                        contentDescription = "Back",
-                        tint = Color.Unspecified
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                userType?.let { type ->
-                    TopBar(navController, cartViewModel, userType = type)
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFC8E6C9), RoundedCornerShape(12.dp))
-                        .padding(16.dp)
-                ) {
-                    AsyncImage(
-                        model = prod.imageUrl,
-                        contentDescription = "Product Image",
+                if (isLoading) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.8f)
-                            .height(220.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .align(Alignment.Center),
-                        contentScale = ContentScale.Fit
-                    )
-                }
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = primaryColor)
+                    }
+                } else {
+                    product?.let { prod ->
+                        // 🖼 Product Card
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(280.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.White)
+                            ) {
+                                AsyncImage(
+                                    model = prod.imageUrl,
+                                    contentDescription = "Product Image",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp),
+                                    contentScale = ContentScale.Fit
+                                )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(12.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(primaryColor.copy(alpha = 0.8f))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        prod.category,
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
 
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(prod.name, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                        Text("Category: ${prod.category}", fontSize = 16.sp, color = Color.Gray)
-                        Text("Location: ${prod.cityName}", fontSize = 16.sp, color = Color.Gray)
-                        Text("Owner: ${ownerName ?: "Unknown"}", fontSize = 16.sp, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Product Info - Title and Price
+                        Text(
+                            prod.name,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 32.sp
+                        )
+
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
                             "₱${String.format("%,d", prod.price.toInt())}.00",
-                            fontSize = 22.sp,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0DA54B)
+                            color = primaryColor
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Info Cards
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            InfoCard(
+                                title = "Location",
+                                value = prod.cityName,
+                                modifier = Modifier.weight(1f),
+                                color = cardColor
+                            )
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            InfoCard(
+                                title = "Quantity",
+                                value = "${prod.quantity.toInt()} ${prod.quantityUnit}",
+                                modifier = Modifier.weight(1f),
+                                color = cardColor
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        InfoCard(
+                            title = "Seller",
+                            value = ownerName ?: "Unknown",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = cardColor
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Description Section
+                        Text(
+                            "Description",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // ✅ Display the Quantity
-                        Text(
-                            "Quantity: ${prod.quantity.toInt()} ${prod.quantityUnit}",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF0DA54B)
-                        )
-                    }
-                }
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = cardColor),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                prod.description,
+                                fontSize = 16.sp,
+                                lineHeight = 24.sp,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
 
-                Card(
-                    shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFC8E6C9)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Description:", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text(prod.description, fontSize = 16.sp)
-                    }
-                }
+                        // Action Buttons
+                        when (val state = authState) {
+                            is AuthState.Authenticated -> {
+                                val userId = state.userId
+                                val userType = state.userType.lowercase()
 
-                Spacer(modifier = Modifier.height(16.dp))
+                                if (userId == prod.ownerId) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { navController.navigate("editProduct/${prod.prodId}") },
+                                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                "Edit Product",
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(vertical = 4.dp)
+                                            )
+                                        }
 
-                when (val state = authState) {
-                    is AuthState.Authenticated -> {
-                        val userId = state.userId
-                        val userType = state.userType.lowercase()
+                                        Button(
+                                            onClick = { deleteProduct(firestore, productId!!, navController) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                "Delete Product",
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                } else if (userType == "market") {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Button(
+                                            onClick = {
+                                                product?.let { p ->
+                                                    navController.navigate("paymentScreen/${p.prodId}/${p.price}")
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(56.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                "Buy Now",
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
 
-                        if (userId == prod.ownerId) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                Button(
-                                    onClick = { navController.navigate("editProduct/${prod.prodId}") },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
-                                ) {
-                                    Text("Edit Product")
-                                }
-                                Button(
-                                    onClick = { deleteProduct(firestore, productId!!, navController) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                                ) {
-                                    Text("Delete Product")
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        OutlinedButton(
+                                            onClick = { cartViewModel.addToCart(prod, userType, navController) },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(56.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = ButtonDefaults.outlinedButtonBorder.copy(width = 2.dp)
+                                        ) {
+                                            Text(
+                                                "Add to Cart",
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = primaryColor
+                                            )
+                                        }
+                                    }
+                                } else if (userType == "organization") {
+                                    Card(
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFECB3)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            "Organizations cannot buy or sell products.",
+                                            fontSize = 16.sp,
+                                            color = Color(0xFF7D6608),
+                                            modifier = Modifier.padding(16.dp),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
-                        } else if (userType == "market") {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Button(
-                                    onClick = { cartViewModel.addToCart(prod, userType, navController) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Blue)
+                            else -> {
+                                Card(
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFCDD2)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(text = "Add to Cart")
+                                    Text(
+                                        "You must be logged in to interact with products.",
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF832729),
+                                        modifier = Modifier.padding(16.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
                                 }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                } ?: run {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFCDD2)),
+                            modifier = Modifier.width(300.dp)
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(24.dp)
+                            ) {
+                                Text(
+                                    "Product Not Found",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF832729)
+                                )
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
+                                Text(
+                                    "The product you're looking for might have been removed or is no longer available.",
+                                    fontSize = 16.sp,
+                                    color = Color(0xFF832729),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
                                 Button(
-                                    onClick = {
-                                        product?.let { prod ->
-                                            navController.navigate("paymentScreen/${prod.prodId}/${prod.price}")
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
+                                    onClick = { navController.popBackStack() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                                 ) {
-                                    Text("Buy Now")
+                                    Text("Go Back")
                                 }
                             }
-                        } else if (userType == "organization") {
-                            Text("Organizations cannot buy or sell products.", fontSize = 16.sp, color = Color.Gray)
                         }
-                    }
-                    else -> {
-                        Text("You must be logged in to interact with products.", fontSize = 16.sp, color = Color.Red)
                     }
                 }
             }
-        } ?: Text("Product not found", fontSize = 18.sp, modifier = Modifier.padding(16.dp))
+        }
     }
 
     val snackbarMessage by cartViewModel.snackbarMessage.collectAsState()
@@ -241,7 +420,41 @@ fun ProductDetailsScreen(
             cartViewModel.clearSnackbarMessage()
         }
     }
-    SnackbarHost(hostState = snackbarHostState)
+}
+
+@Composable
+fun InfoCard(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    color: Color
+) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = color),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Text(
+                title,
+                fontSize = 14.sp,
+                color = Color.Gray,
+                fontWeight = FontWeight.Medium
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                value,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 fun deleteProduct(firestore: FirebaseFirestore, productId: String, navController: NavController) {
@@ -249,5 +462,3 @@ fun deleteProduct(firestore: FirebaseFirestore, productId: String, navController
         .delete()
         .addOnSuccessListener { navController.popBackStack() }
 }
-
-
