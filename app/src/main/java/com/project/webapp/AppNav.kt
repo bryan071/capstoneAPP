@@ -1,8 +1,6 @@
 package com.project.webapp
 
 import FarmerEditProfileScreen
-import MarketDashboard
-import OrganizationDashboard
 import SplashScreen
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -108,12 +106,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             composable(Route.EDIT_PROFILE) {
                 FarmerEditProfileScreen(navController)
             }
-            composable(Route.MARKET_DASHBOARD) {
-                MarketDashboard(modifier, navController, authViewModel, cartViewModel)
-            }
-            composable(Route.ORG_DASHBOARD) {
-                OrganizationDashboard(modifier, navController, authViewModel, cartViewModel)
-            }
+
             composable("productDetails/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId") ?: ""
 

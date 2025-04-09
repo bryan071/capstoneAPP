@@ -118,18 +118,17 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.Top,
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Logo and Tagline
             Image(
                 painter = painterResource(id = R.drawable.logo),
-                contentDescription = "App Logo",
+                contentDescription = "login image",
                 modifier = Modifier
-                    .size(200.dp)
-                    .fillMaxWidth().size(80.dp)
+                    .fillMaxWidth()
+                    .size(80.dp)
             )
 
             Text(

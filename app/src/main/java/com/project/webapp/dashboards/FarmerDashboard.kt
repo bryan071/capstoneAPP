@@ -54,9 +54,13 @@ import com.project.webapp.api.AutoImageSlider
 import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
+import com.project.webapp.components.SearchBar
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FarmerDashboard(
     modifier: Modifier = Modifier,
@@ -71,6 +75,7 @@ fun FarmerDashboard(
     val unreadCount by chatViewModel.unreadMessagesCount.collectAsState(initial = 0)
     var loading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
+    val firestore = FirebaseFirestore.getInstance()
 
     // Animated loading scale
     val loadingScale by animateFloatAsState(
@@ -141,7 +146,9 @@ fun FarmerDashboard(
                         .padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    item { SearchBar(modifier) }
+                    item { SearchBar(modifier = Modifier.fillMaxWidth(),
+                        navController = navController,
+                        firestore = firestore) }
                     item { HeroBanner() }
                     item { FeaturedProductsSection(authViewModel, navController) }
                     item { DiscountsBanner() }
@@ -226,36 +233,6 @@ fun ChatFab(
     }
 }
 
-@Composable
-fun SearchBar(modifier: Modifier) {
-    var query by remember { mutableStateOf("") }
-
-    OutlinedTextField(
-        value = query,
-        onValueChange = { query = it },
-        placeholder = { Text("What are you looking for?") },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search Icon",
-                tint = Color(0xFF0DA54B)
-            )
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-            .height(56.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = Color.White,
-            unfocusedContainerColor = Color.White,
-            focusedIndicatorColor = Color(0xFF0DA54B),
-            unfocusedIndicatorColor = Color.LightGray,
-            cursorColor = Color(0xFF0DA54B)
-        ),
-        singleLine = true
-    )
-}
 
 @Composable
 fun HeroBanner() {
@@ -818,8 +795,9 @@ fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+
                     Text(
-                        text = post.timestamp?.toDate()?.toString() ?: "Unknown time",
+                        text = formatTimestamp(post.timestamp), //
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
@@ -827,7 +805,7 @@ fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
 
                 // Delete button (only for user's own posts)
                 if (isCurrentUserPost) {
-                    IconButton(onClick = { deletePost(postsCollection, post.id) }) {
+                    IconButton(onClick = { deletePost(postsCollection, post.postId) }) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "Delete Post",
@@ -910,6 +888,16 @@ fun fetchProducts(firestore: FirebaseFirestore, onProductsFetched: (List<Product
             onProductsFetched(fetchedProducts)
             Log.d("FirestoreDebug", "Updated UI with ${fetchedProducts.size} products")
         }
+}
+
+
+fun formatTimestamp(timestamp: Long): String {
+    return try {
+        val sdf = SimpleDateFormat("MMM dd, yyyy • h:mm a", Locale.getDefault())
+        sdf.format(Date(timestamp))
+    } catch (e: Exception) {
+        "Unknown time"
+    }
 }
 
 

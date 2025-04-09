@@ -70,9 +70,7 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.firebase.auth.FirebaseAuth
 import com.project.webapp.dashboards.ProductCard
-import com.project.webapp.dashboards.SearchBar
 import com.project.webapp.dashboards.fetchProducts
-import kotlinx.coroutines.launch
 import java.util.Locale
 
 // Define a consistent color scheme
@@ -209,12 +207,9 @@ fun FarmerMarketScreen(
                 }
 
                 // Improved search bar
-                SearchBar(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                        .shadow(4.dp, RoundedCornerShape(12.dp))
-                )
+                SearchBar(modifier = Modifier.fillMaxWidth(),
+                    navController = navController,
+                    firestore = firestore)
 
                 // Categories section
                 Text(
