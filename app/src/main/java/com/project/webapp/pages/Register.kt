@@ -92,7 +92,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             } else {
                                 when (userType) {
                                     "Farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
-                                    "Market" -> navController.navigate(Route.MARKET_DASHBOARD)
+                                    "Market" -> navController.navigate(Route.FARMER_DASHBOARD)
                                     else -> Toast.makeText(context, "Invalid user type", Toast.LENGTH_SHORT).show()
                                 }
                             }

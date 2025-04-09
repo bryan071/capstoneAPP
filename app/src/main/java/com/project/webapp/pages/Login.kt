@@ -1,5 +1,6 @@
 package com.project.webapp.pages
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -49,14 +50,25 @@ fun Login(
     val context = LocalContext.current
 
     LaunchedEffect(authState.value) {
-        when (val state = authState.value) {
+        val state = authState.value ?: return@LaunchedEffect
+        when (state) {
             is AuthState.Authenticated -> {
-                val normalizedUserType = state.userType.trim().lowercase()
-                when (normalizedUserType) {
-                    "farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
-                    "market" -> navController.navigate(Route.MARKET_DASHBOARD)
-                    "organization" -> navController.navigate(Route.ORG_DASHBOARD)
-                    else -> Toast.makeText(context, "User type not found: $normalizedUserType", Toast.LENGTH_SHORT).show()
+                try {
+                    val normalizedUserType = state.userType.trim().lowercase()
+                    when (normalizedUserType) {
+                        "farmer" -> navController.navigate(Route.FARMER_DASHBOARD) {
+                            popUpTo(Route.LOGIN) { inclusive = true }
+                        }
+                        "market" -> navController.navigate(Route.FARMER_DASHBOARD) {
+                            popUpTo(Route.LOGIN) { inclusive = true }
+                        }
+                        else -> Toast.makeText(
+                            context, "User type not found: $normalizedUserType", Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } catch (e: Exception) {
+                    Log.e("Login", "Navigation error", e)
+                    Toast.makeText(context, "Login error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
             is AuthState.Error -> Toast.makeText(
@@ -65,8 +77,6 @@ fun Login(
             else -> Unit
         }
     }
-
-
 
     Column(
         modifier = Modifier.fillMaxSize(),

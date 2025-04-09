@@ -23,7 +23,6 @@ class AuthViewModel : ViewModel() {
     val authState: LiveData<AuthState> get() = _authState
 
 
-
     init {
         checkAuthStatus()
     }
@@ -70,7 +69,16 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun signup(email: String, password: String, firstname: String, lastname: String, address: String, phoneNumber: String, userType: String, confirmpass: String) {
+    fun signup(
+        email: String,
+        password: String,
+        firstname: String,
+        lastname: String,
+        address: String,
+        phoneNumber: String,
+        userType: String,
+        confirmpass: String
+    ) {
         if (password != confirmpass) {
             _authState.postValue(AuthState.Error("Passwords do not match"))
             return
@@ -97,17 +105,25 @@ class AuthViewModel : ViewModel() {
                             _authState.postValue(AuthState.Error("Firestore error: ${it.message}"))
                         }
                 } else {
-                    _authState.postValue(AuthState.Error(task.exception?.message ?: "Signup failed"))
+                    _authState.postValue(
+                        AuthState.Error(
+                            task.exception?.message ?: "Signup failed"
+                        )
+                    )
                 }
             }
     }
 
     fun logout() {
-        auth.signOut()
-        _authState.value = AuthState.UnAuthenticated
+        try {
+            FirebaseAuth.getInstance().signOut()
+            _authState.value = AuthState.UnAuthenticated
+        } catch (e: Exception) {
+            Log.e("AuthViewModel", "Logout error", e)
+            _authState.value = AuthState.Error("Logout failed: ${e.message}")
+        }
     }
 }
-
 sealed class AuthState {
     data class Authenticated(val userId: String, val userType: String) : AuthState()
     object UnAuthenticated : AuthState()

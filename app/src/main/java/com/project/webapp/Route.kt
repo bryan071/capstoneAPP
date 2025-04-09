@@ -15,9 +15,6 @@ object Route {
     const val NOTIFICATION = "notification"
     const val EDIT_PRODUCT = "editProduct/{productId}"
 
-    // Market Routes
-    const val MARKET_DASHBOARD = "marketdashboard"
-
     // Organization Routes
     const val ORG_DASHBOARD = "orgdashboard"
 
