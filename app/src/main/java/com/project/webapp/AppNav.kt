@@ -19,7 +19,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.farmaid.ui.notifications.FarmerNotificationScreen
+import com.project.webapp.components.FarmerNotificationScreen
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.Viewmodel.AuthState
 import com.project.webapp.Viewmodel.AuthViewModel

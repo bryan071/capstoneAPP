@@ -1,41 +1,100 @@
-package com.farmaid.ui.notifications
+package com.project.webapp.components
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.ShoppingBasket
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallTopAppBar
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.google.firebase.firestore.FirebaseFirestore
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.Date
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.project.webapp.Viewmodel.AuthViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.project.webapp.R
-import com.project.webapp.components.fetchOwnerName
-import com.project.webapp.datas.Product
-
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.rememberLottieComposition
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,10 +109,11 @@ fun FarmerNotificationScreen(
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     val primaryColor = Color(0xFF0DA54B)
+    val backgroundColor = Color(0xFFF7FAF9)
 
     LaunchedEffect(Unit) {
         firestore.collection("notifications")
-            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, _ ->
                 isLoading = false
                 if (snapshot != null) {
@@ -68,7 +128,7 @@ fun FarmerNotificationScreen(
     val context = LocalContext.current
     var userType by remember { mutableStateOf<String?>(null) }
 
-    // Simulate fetching userType from Firebase or ViewModel
+    // Fetch userType from Firebase
     LaunchedEffect(Unit) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid
         userId?.let {
@@ -76,7 +136,7 @@ fun FarmerNotificationScreen(
                 .document(it)
                 .get()
                 .addOnSuccessListener { document ->
-                    userType = document.getString("userType") // Ensure field exists in Firestore
+                    userType = document.getString("userType")
                 }
         }
     }
@@ -85,7 +145,10 @@ fun FarmerNotificationScreen(
         topBar = {
             SmallTopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Notifications,
                             contentDescription = "Notifications",
@@ -96,38 +159,45 @@ fun FarmerNotificationScreen(
                         Text(
                             text = "Notifications",
                             fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = Color.DarkGray
                         )
                     }
                 },
                 colors = TopAppBarDefaults.smallTopAppBarColors(
-                    containerColor = Color.White
-                )
+                    containerColor = Color.White,
+                    titleContentColor = Color.DarkGray,
+                ),
+                modifier = Modifier.shadow(elevation = 4.dp)
             )
-        }
+        },
+        containerColor = backgroundColor
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
         ) {
             if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = primaryColor)
-                }
+                LoadingAnimation(primaryColor = primaryColor)
             } else if (notifications.isEmpty()) {
                 EmptyNotificationScreen()
             } else {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
                     items(notifications.size) { index ->
                         val notification = notifications[index]
-                        NotificationItem(notification, firestore) { selectedNotification = notification }
+                        NotificationItem(
+                            notification = notification,
+                            firestore = firestore,
+                            onClick = { selectedNotification = notification },
+                            primaryColor = primaryColor
+                        )
                     }
                 }
             }
@@ -135,12 +205,78 @@ fun FarmerNotificationScreen(
     }
 
     selectedNotification?.let { notification ->
-        NotificationDetailsDialog(notification, onDismiss = { selectedNotification = null })
+        NotificationDetailsDialog(
+            notification = notification,
+            onDismiss = { selectedNotification = null },
+            primaryColor = primaryColor
+        )
     }
 }
 
 @Composable
-fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestore, onClick: () -> Unit) {
+fun LoadingAnimation(primaryColor: Color) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val infiniteTransition = rememberInfiniteTransition(label = "loading_transition")
+            val angle by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "rotation_animation"
+            )
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 0.8f,
+                targetValue = 1.2f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(800, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "scale_animation"
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .graphicsLayer {
+                        rotationZ = angle
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.fillMaxSize(),
+                    color = primaryColor,
+                    strokeWidth = 6.dp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Loading notifications...",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = primaryColor
+            )
+        }
+    }
+}
+
+@Composable
+fun NotificationItem(
+    notification: Map<String, Any>,
+    firestore: FirebaseFirestore,
+    onClick: () -> Unit,
+    primaryColor: Color
+) {
     val message = notification["message"] as? String ?: "New product added"
     val imageUrl = notification["imageUrl"] as? String ?: ""
     val category = notification["category"] as? String ?: "Unknown"
@@ -155,8 +291,7 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
     val formattedTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 
     var ownerName by remember { mutableStateOf("Loading...") }
-    val primaryColor = Color(0xFF0DA54B)
-
+    var isPressed by remember { mutableStateOf(false) }
 
     LaunchedEffect(userId) {
         userId?.let { id ->
@@ -180,43 +315,73 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
                     ownerName = "Unknown"
                 }
         } ?: run {
-            ownerName = "Unknown"  // Set to Unknown if userId is null
+            ownerName = "Unknown"
         }
     }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        isPressed = true
+                        tryAwaitRelease()
+                        isPressed = false
+                    },
+                    onTap = { onClick() }
+                )
+            }
+            .graphicsLayer {
+                scaleX = if (isPressed) 0.98f else 1f
+                scaleY = if (isPressed) 0.98f else 1f
+            }
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 2.dp,
+            pressedElevation = 4.dp
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(16.dp)
         ) {
             if (imageUrl.isNotEmpty()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = "Product Image",
-                    contentScale = ContentScale.Crop,
+                Box(
                     modifier = Modifier
-                        .size(70.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(12.dp))
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Product Image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             } else {
                 Box(
                     modifier = Modifier
-                        .size(70.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFFEDF7F0)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.iconlogo),
                         contentDescription = "Default Icon",
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(50.dp),
                         tint = Color.Unspecified
                     )
                 }
@@ -232,22 +397,32 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
                 Text(
                     text = name,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = 17.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
                     text = message,
                     fontSize = 14.sp,
                     color = Color.DarkGray,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 20.sp
                 )
 
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Row(
-                    modifier = Modifier.padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .background(
+                            color = primaryColor.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = "₱${String.format("%.2f", price)}",
@@ -265,16 +440,25 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
                     Text(
                         text = "$quantity $quantityUnit",
                         fontSize = 14.sp,
-                        color = Color.Gray
+                        color = Color.DarkGray,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Row(
-                    modifier = Modifier.padding(top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "User",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "By: $ownerName",
+                        text = ownerName,
                         fontSize = 13.sp,
                         color = Color.DarkGray,
                         fontWeight = FontWeight.Medium,
@@ -283,6 +467,15 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
                         modifier = Modifier.weight(1f)
                     )
 
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = "Time",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "$formattedDate at $formattedTime",
                         fontSize = 12.sp,
@@ -310,10 +503,10 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
 @Composable
 fun NotificationDetailsDialog(
     notification: Map<String, Any>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    primaryColor: Color
 ) {
     val firestore = FirebaseFirestore.getInstance()
-    val primaryColor = Color(0xFF0DA54B)
 
     val category = notification["category"] as? String ?: "Unknown"
     val imageUrl = notification["imageUrl"] as? String ?: ""
@@ -328,6 +521,7 @@ fun NotificationDetailsDialog(
 
     val formattedTime = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
     var ownerName by remember { mutableStateOf("Loading...") }
+    var isImageLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(userId) {
         firestore.collection("users").document(userId)
@@ -353,100 +547,218 @@ fun NotificationDetailsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         containerColor = Color.White,
         title = {
-            Text(
-                "Product Details",
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = primaryColor
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ShoppingCart,
+                    contentDescription = "Product",
+                    tint = primaryColor,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "Product Details",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp,
+                    color = primaryColor
+                )
+            }
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(vertical = 8.dp)
             ) {
                 if (imageUrl.isNotEmpty()) {
-                    AsyncImage(
-                        model = imageUrl,
-                        contentDescription = "Product Image",
-                        contentScale = ContentScale.Crop,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                    )
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isImageLoading) {
+                            CircularProgressIndicator(
+                                color = primaryColor,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(imageUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Product Image",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            onLoading = { isImageLoading = true },
+                            onSuccess = { isImageLoading = false },
+                            onError = { isImageLoading = false }
+                        )
+                    }
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(16.dp))
                             .background(Color(0xFFEDF7F0)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.iconlogo),
                             contentDescription = "Default Icon",
-                            modifier = Modifier.size(80.dp),
+                            modifier = Modifier.size(90.dp),
                             tint = Color.Unspecified
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // Product name in large font
-                Text(
-                    text = name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Price with currency symbol
-                Text(
-                    text = "₱${String.format("%.2f", price)}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = primaryColor
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Details section
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF8F8F8), RoundedCornerShape(12.dp))
-                        .padding(16.dp)
+                // Product name and price section
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    DetailRow("Category", category)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp,
+                            color = Color.DarkGray
+                        )
 
-                    if (quantity != null && quantityUnit != null) {
-                        DetailRow("Quantity", "$quantity $quantityUnit")
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Category,
+                                contentDescription = "Category",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = category,
+                                fontSize = 15.sp,
+                                color = Color.Gray
+                            )
+                        }
                     }
 
-                    DetailRow("Location", location)
-                    DetailRow("Posted by", ownerName)
-                    DetailRow("Posted on", formattedTime)
-
-                    if (message.isNotEmpty() && message != "New product added") {
-                        Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = primaryColor),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
                         Text(
-                            text = "Message:",
+                            text = "₱${String.format("%.2f", price)}",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Details section
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
                         Text(
-                            text = message,
-                            fontSize = 15.sp,
-                            modifier = Modifier.padding(top = 4.dp)
+                            text = "Product Information",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = primaryColor
                         )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        DetailRowImproved(
+                            icon = Icons.Default.Category,
+                            label = "Category",
+                            value = category,
+                            primaryColor = primaryColor
+                        )
+
+                        if (quantity != null && quantityUnit != null) {
+                            DetailRowImproved(
+                                icon = Icons.Default.ShoppingBasket,
+                                label = "Quantity",
+                                value = "$quantity $quantityUnit",
+                                primaryColor = primaryColor
+                            )
+                        }
+
+                        DetailRowImproved(
+                            icon = Icons.Default.LocationOn,
+                            label = "Location",
+                            value = location,
+                            primaryColor = primaryColor
+                        )
+
+                        DetailRowImproved(
+                            icon = Icons.Default.Person,
+                            label = "Posted by",
+                            value = ownerName,
+                            primaryColor = primaryColor
+                        )
+
+                        DetailRowImproved(
+                            icon = Icons.Default.Schedule,
+                            label = "Posted on",
+                            value = formattedTime,
+                            primaryColor = primaryColor
+                        )
+
+                        if (message.isNotEmpty() && message != "New product added") {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Divider(color = Color.LightGray)
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "Message",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = primaryColor
+                            )
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                            ) {
+                                Text(
+                                    text = message,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.padding(12.dp),
+                                    lineHeight = 24.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -455,32 +767,54 @@ fun NotificationDetailsDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 12.dp)
             ) {
-                Text("Close", fontSize = 16.sp)
+                Text(
+                    "Close",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     )
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
+private fun DetailRowImproved(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    primaryColor: Color
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = primaryColor,
+            modifier = Modifier.size(20.dp)
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
         Text(
             text = "$label:",
             fontWeight = FontWeight.Bold,
             fontSize = 15.sp,
-            modifier = Modifier.width(90.dp)
+            color = Color.DarkGray,
+            modifier = Modifier.width(80.dp)
         )
+
         Text(
             text = value,
-            fontSize = 15.sp
+            fontSize = 15.sp,
+            color = Color.DarkGray
         )
     }
 }
@@ -488,34 +822,94 @@ private fun DetailRow(label: String, value: String) {
 @Composable
 fun EmptyNotificationScreen() {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Notifications,
-            contentDescription = "No Notifications",
-            tint = Color(0xFF0DA54B),
-            modifier = Modifier.size(80.dp)
+        val composition by rememberLottieComposition(
+            LottieCompositionSpec.RawRes(R.raw.empty)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // If you don't have a Lottie animation, use this fallback
+        if (composition == null) {
+            Icon(
+                imageVector = Icons.Outlined.Notifications,
+                contentDescription = "No Notifications",
+                tint = Color(0xFF0DA54B),
+                modifier = Modifier.size(100.dp)
+            )
+        } else {
+            LottieAnimation(
+                composition = composition,
+                iterations = LottieConstants.IterateForever,
+                modifier = Modifier.size(200.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text(
             "No notifications yet",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Medium
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.DarkGray
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             "You'll see updates about new products here.",
             fontSize = 16.sp,
             color = Color.Gray,
-            modifier = Modifier.padding(horizontal = 32.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center,
+            lineHeight = 24.sp
         )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Add a refresh button with bounce animation
+        var isRefreshing by remember { mutableStateOf(false) }
+        val rotation by animateFloatAsState(
+            targetValue = if (isRefreshing) 360f else 0f,
+            animationSpec = tween(
+                durationMillis = 1000,
+                easing = LinearEasing
+            ),
+            label = "refresh_rotation"
+        )
+
+        Button(
+            onClick = {
+                isRefreshing = true
+                // Simulate refresh
+                Handler(Looper.getMainLooper()).postDelayed({
+                    isRefreshing = false
+                }, 1500)
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF0DA54B)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "Refresh",
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer {
+                        rotationZ = rotation
+                    },
+                tint = Color.White
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isRefreshing) "Refreshing..." else "Refresh",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 

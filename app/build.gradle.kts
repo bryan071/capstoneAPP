@@ -103,6 +103,7 @@ dependencies {
 
     implementation ("com.google.zxing:core:3.4.1") // ZXing dependency for GCASH
 
+    implementation("com.airbnb.android:lottie-compose:6.1.0")
 
 
     val nav_version = "2.8.7"
