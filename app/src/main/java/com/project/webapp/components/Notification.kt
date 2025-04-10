@@ -157,13 +157,30 @@ fun NotificationItem(notification: Map<String, Any>, firestore: FirebaseFirestor
     var ownerName by remember { mutableStateOf("Loading...") }
     val primaryColor = Color(0xFF0DA54B)
 
+
     LaunchedEffect(userId) {
-        if (!userId.isNullOrEmpty()) {
-            fetchOwnerName(firestore, userId) { name ->
-                ownerName = name
-            }
-        } else {
-            ownerName = "Unknown"
+        userId?.let { id ->
+            firestore.collection("users").document(id)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        val firstName = document.getString("firstname") ?: ""
+                        val lastName = document.getString("lastname") ?: ""
+
+                        ownerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
+                            "$firstName $lastName".trim()
+                        } else {
+                            document.getString("email") ?: "Unknown"
+                        }
+                    } else {
+                        ownerName = "Unknown"
+                    }
+                }
+                .addOnFailureListener {
+                    ownerName = "Unknown"
+                }
+        } ?: run {
+            ownerName = "Unknown"  // Set to Unknown if userId is null
         }
     }
 
@@ -313,9 +330,25 @@ fun NotificationDetailsDialog(
     var ownerName by remember { mutableStateOf("Loading...") }
 
     LaunchedEffect(userId) {
-        fetchOwnerName(firestore, userId) { name ->
-            ownerName = name
-        }
+        firestore.collection("users").document(userId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document.exists()) {
+                    val firstName = document.getString("firstname") ?: ""
+                    val lastName = document.getString("lastname") ?: ""
+
+                    ownerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
+                        "$firstName $lastName".trim()
+                    } else {
+                        document.getString("email") ?: "Unknown"
+                    }
+                } else {
+                    ownerName = "Unknown"
+                }
+            }
+            .addOnFailureListener {
+                ownerName = "Unknown"
+            }
     }
 
     AlertDialog(

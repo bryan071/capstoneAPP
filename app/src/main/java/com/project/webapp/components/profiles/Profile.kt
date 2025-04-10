@@ -1,6 +1,7 @@
 package com.project.webapp.components.profiles
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
@@ -29,6 +30,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -1152,6 +1154,8 @@ fun PostItem(
 
     // Delete confirmation dialog
     if (showDeleteConfirmDialog) {
+        val context = LocalContext.current
+
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
             shape = RoundedCornerShape(16.dp),
@@ -1197,30 +1201,67 @@ fun PostItem(
                                         batch.delete(document.reference)
                                     }
 
-                                    // Execute the batch
-                                    batch.commit().addOnSuccessListener {
-                                        // Now delete the post document
-                                        firestore.collection("posts").document(post.postId)
-                                            .delete()
-                                            .addOnSuccessListener {
-                                                Log.d("PostItem", "Post and related likes deleted successfully")
-                                                isDeleting = false
-                                                showDeleteConfirmDialog = false
-                                                // Let the snapshot listener handle the UI update
-                                                onLikeUpdated() // Use this callback to trigger a refresh
+                                    // Check for comments
+                                    firestore.collection("postComments")
+                                        .whereEqualTo("postId", post.postId)
+                                        .get()
+                                        .addOnSuccessListener { commentDocuments ->
+                                            // Add comment deletions to the batch
+                                            for (document in commentDocuments) {
+                                                batch.delete(document.reference)
                                             }
-                                            .addOnFailureListener { e ->
-                                                Log.e("PostItem", "Error deleting post", e)
-                                                isDeleting = false
-                                            }
-                                    }.addOnFailureListener { e ->
-                                        Log.e("PostItem", "Error deleting post likes", e)
-                                        isDeleting = false
-                                    }
+
+                                            // Add post deletion to the batch
+                                            batch.delete(firestore.collection("posts").document(post.postId))
+
+                                            // Execute the batch
+                                            batch.commit()
+                                                .addOnSuccessListener {
+                                                    Log.d("PostItem", "Post and related data deleted successfully")
+                                                    isDeleting = false
+                                                    showDeleteConfirmDialog = false
+
+                                                    // Show a toast to confirm deletion
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Post deleted successfully",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+
+                                                    // No need to manually update UI since the snapshot listener will handle it
+                                                }
+                                                .addOnFailureListener { e ->
+                                                    Log.e("PostItem", "Error in batch delete", e)
+                                                    isDeleting = false
+
+                                                    // Show error message
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Failed to delete post: ${e.message}",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                        }
+                                        .addOnFailureListener { e ->
+                                            Log.e("PostItem", "Error querying comments", e)
+                                            isDeleting = false
+
+                                            Toast.makeText(
+                                                context,
+                                                "Failed to delete post: ${e.message}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                 }
                                 .addOnFailureListener { e ->
-                                    Log.e("PostItem", "Error querying post likes", e)
+                                    Log.e("PostItem", "Error querying likes", e)
                                     isDeleting = false
+
+                                    Toast.makeText(
+                                        context,
+                                        "Failed to delete post: ${e.message}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                         }
                     },
