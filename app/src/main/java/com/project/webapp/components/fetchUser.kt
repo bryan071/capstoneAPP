@@ -6,9 +6,16 @@ fun fetchOwnerName(firestore: FirebaseFirestore, ownerId: String, onResult: (Str
     firestore.collection("users").document(ownerId)
         .get()
         .addOnSuccessListener { document ->
-            val name = document.getString("name")
-            val email = document.getString("email")
-            onResult(name ?: email ?: "Unknown") // Prioritize name, fallback to email
+            val firstName = document.getString("firstname") ?: ""
+            val lastName = document.getString("lastname") ?: ""
+
+            val fullName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
+                "$firstName $lastName".trim()
+            } else {
+                document.getString("name") ?: document.getString("email") ?: "Unknown"
+            }
+
+            onResult(fullName)
         }
         .addOnFailureListener {
             onResult("Unknown")

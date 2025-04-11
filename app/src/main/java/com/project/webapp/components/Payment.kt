@@ -454,7 +454,7 @@ private fun ItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "₱${item.price}",
+                    text = "₱${String.format("%.2f", item.price)}",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = themeColor
@@ -807,7 +807,7 @@ private fun CheckoutItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "₱${item.price}",
+                    text = "₱${String.format("%.2f", item.price)}",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = themeColor
@@ -1222,7 +1222,7 @@ private fun ReceiptItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "₱${item.price}",
+                    text = "₱${String.format("%.2f", item.price)}",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = themeColor
