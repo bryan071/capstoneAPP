@@ -2,12 +2,19 @@ package com.project.webapp.dashboards
 
 import WeatherSection
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,9 +40,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
@@ -55,6 +65,10 @@ import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
 import com.project.webapp.components.SearchBar
+import com.project.webapp.datas.UserData
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -624,136 +638,470 @@ fun CommunityFeed() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommunityFeedDialog(onDismiss: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
+    val auth = FirebaseAuth.getInstance()
     val postsCollection = db.collection("community_posts")
+    val context = LocalContext.current
 
+    // States
     var newPost by remember { mutableStateOf("") }
-    val posts = remember { mutableStateListOf<Post>() }
-    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "user_123"
+    var posts by remember { mutableStateOf<List<Post>>(emptyList()) }
+    var isPostsLoading by remember { mutableStateOf(true) }
+    var isPostSubmitting by remember { mutableStateOf(false) }
+    var showPostSuccess by remember { mutableStateOf(false) }
+    var userData by remember { mutableStateOf<UserData?>(null) }
+
+    val userId = auth.currentUser?.uid ?: ""
+    val currentUserId = userId
     val coroutineScope = rememberCoroutineScope()
 
-    // Firestore listener
-    LaunchedEffect(Unit) {
-        postsCollection.orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    Log.e("Firestore", "Listen failed.", e)
-                    return@addSnapshotListener
-                }
-                posts.clear()
-                snapshot?.documents?.mapNotNull { it.toObject(Post::class.java) }?.let { posts.addAll(it) }
-            }
+    // Colors
+    val primaryColor = Color(0xFF0DA54B)
+    val lightGreen = Color(0xFFE8F5E9)
+
+    // Fetch current user data for post creation
+    LaunchedEffect(userId) {
+        try {
+            val document = db.collection("users").document(userId).get().await()
+            userData = document.toObject(UserData::class.java)
+        } catch (e: Exception) {
+            Log.e("CommunityFeedDialog", "Error fetching user data", e)
+        }
     }
 
-    AlertDialog(
+    // Firestore listener for posts
+    LaunchedEffect(Unit) {
+        try {
+            val postListener = postsCollection
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null) {
+                        Log.e("CommunityFeedDialog", "Listen failed.", e)
+                        isPostsLoading = false
+                        return@addSnapshotListener
+                    }
+
+                    if (snapshot != null) {
+                        posts = snapshot.documents.mapNotNull { document ->
+                            try {
+                                document.toObject(Post::class.java)?.copy(postId = document.id)
+                            } catch (e: Exception) {
+                                Log.e("CommunityFeedDialog", "Error parsing post", e)
+                                null
+                            }
+                        }
+                    }
+                    isPostsLoading = false
+                }
+        } catch (e: Exception) {
+            Log.e("CommunityFeedDialog", "Error setting up post listener", e)
+            isPostsLoading = false
+        }
+    }
+
+    // Function to create a new post
+    fun createNewPost() {
+        if (newPost.isNotBlank() && !isPostSubmitting && userData != null) {
+            isPostSubmitting = true
+
+            val newPostData = Post(
+                userId = auth.currentUser?.uid ?: "",
+                userName = userData?.firstname ?: "Anonymous",
+                userImage = userData?.profilePicture ?: "",
+                content = newPost,
+                imageUrl = null,
+                timestamp = System.currentTimeMillis(),
+                likes = 0,
+                comments = 0
+            )
+
+            // Add to Firestore
+            postsCollection.add(newPostData)
+                .addOnSuccessListener {
+                    newPost = ""
+                    isPostSubmitting = false
+                    showPostSuccess = true
+
+                    // Hide success message after some time
+                    MainScope().launch {
+                        delay(3000)
+                        showPostSuccess = false
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e("CommunityFeedDialog", "Error creating post", e)
+                    Toast.makeText(context, "Failed to create post", Toast.LENGTH_SHORT).show()
+                    isPostSubmitting = false
+                }
+        }
+    }
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 8.dp)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .fillMaxHeight(0.8f)
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Groups,
-                    contentDescription = null,
-                    tint = Color(0xFF0DA54B),
-                    modifier = Modifier.size(28.dp)
+                // Dialog Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Title with icon
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.post),
+                            contentDescription = null,
+                            tint = primaryColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            "Community Feed",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = primaryColor
+                        )
+                    }
+
+                    // Close button
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(
+                                color = Color.LightGray.copy(alpha = 0.3f),
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.close),
+                            contentDescription = "Close",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Divider(
+                    color = Color.LightGray.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(vertical = 16.dp)
                 )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    "Community Feed",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = Color(0xFF0DA54B)
-                )
-            }
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // New Post Input
+
+                // Current user info for post creation
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AsyncImage(
+                        model = userData?.profilePicture ?: "",
+                        contentDescription = "Profile Image",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, primaryColor, CircleShape),
+                        error = painterResource(id = R.drawable.profile_icon),
+                        placeholder = painterResource(id = R.drawable.profile_icon),
+                        contentScale = ContentScale.Crop
+                    )
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            userData?.firstname ?: "User",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+
+                        Text(
+                            "Farmer",
+                            color = Color.Gray,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Post creation area
                 OutlinedTextField(
                     value = newPost,
                     onValueChange = { newPost = it },
-                    label = { Text("Share your thoughts...") },
+                    placeholder = { Text("Share updates with the farming community...") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White,
-                        focusedIndicatorColor = Color(0xFF0DA54B),
-                        unfocusedIndicatorColor = Color.LightGray
+                        .height(120.dp),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = primaryColor,
+                        unfocusedBorderColor = Color.LightGray,
+                        cursorColor = primaryColor
                     ),
-                    maxLines = 3
+                    shape = RoundedCornerShape(8.dp),
+                    maxLines = 5
                 )
 
-                // Post button
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            if (newPost.isNotBlank()) {
-                                addPost(postsCollection, newPost, userId)
-                                newPost = ""
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.End)
-                        .padding(bottom = 16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
-                ) {
-                    Text("Post")
-                }
-
-                Divider(thickness = 1.dp, color = Color.LightGray)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Posts List with header
+                // Success message when post is added
+                AnimatedVisibility(
+                    visible = showPostSuccess,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = lightGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.check),
+                                contentDescription = "Success",
+                                tint = primaryColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Post shared successfully!",
+                                color = primaryColor,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+
+                // Action Buttons
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Add photo button
+                    OutlinedButton(
+                        onClick = { /* Add photo functionality */ },
+                        border = BorderStroke(1.dp, primaryColor),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.addphoto),
+                            contentDescription = "Add Photo",
+                            tint = primaryColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add Photo", color = primaryColor)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Post button
+                    Button(
+                        onClick = { createNewPost() },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        enabled = newPost.isNotBlank() && !isPostSubmitting,
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                    ) {
+                        if (isPostSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(id = R.drawable.post),
+                                contentDescription = "Post",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Post", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Divider(
+                    color = Color.LightGray.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(vertical = 16.dp)
+                )
+
+                // Community Feed Section Title
                 Text(
-                    "Recent Posts",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
+                    "Community Updates",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = primaryColor,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                if (posts.isEmpty()) {
+                // Posts feed
+                if (isPostsLoading) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(100.dp),
+                            .weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            "No posts yet. Be the first to share!",
-                            color = Color.Gray
-                        )
+                        CircularProgressIndicator(color = primaryColor)
+                    }
+                } else if (posts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(lightGreen.copy(alpha = 0.5f))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.post),
+                                contentDescription = "No Posts",
+                                tint = primaryColor,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "No posts yet",
+                                fontWeight = FontWeight.Medium,
+                                color = Color.DarkGray
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Be the first to share with the community!",
+                                fontSize = 14.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.height(300.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         items(posts) { post ->
-                            PostItem(post, postsCollection, userId)
+                            PostItem(
+                                post = post,
+                                currentUserId = currentUserId,
+                                firestore = db,
+                                onCommentClick = { /* Navigate to post details */ },
+                                onLikeUpdated = { /* Let snapshot listener handle updates */ },
+                                primaryColor = primaryColor
+                            )
                         }
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", color = Color(0xFF0DA54B))
-            }
         }
-    )
+    }
 }
 
+
 @Composable
-fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
-    val isCurrentUserPost = post.userId == userId
+fun PostItem(
+    post: Post,
+    currentUserId: String,
+    firestore: FirebaseFirestore,
+    onCommentClick: () -> Unit,
+    onLikeUpdated: () -> Unit,
+    primaryColor: Color
+) {
+    val isCurrentUserPost = post.userId == currentUserId
     val backgroundColor = if (isCurrentUserPost) Color(0xFFE3F2FD) else Color.White
+    val postsCollection = firestore.collection("community_posts")
+
+    // Track if current user has liked this post
+    var isLiked by remember { mutableStateOf(false) }
+    var likeCount by remember { mutableStateOf(post.likes) }
+    val context = LocalContext.current
+
+    // Check if user has already liked this post
+    LaunchedEffect(post.postId) {
+        if (currentUserId.isNotEmpty() && post.postId.isNotEmpty()) {
+            try {
+                val likeDocument = firestore
+                    .collection("post_likes")
+                    .document("${post.postId}_$currentUserId")
+                    .get()
+                    .await()
+
+                isLiked = likeDocument.exists()
+            } catch (e: Exception) {
+                Log.e("PostItem", "Error checking like status", e)
+            }
+        }
+    }
+
+    // Function to handle liking/unliking posts
+    fun toggleLike() {
+        if (currentUserId.isEmpty() || post.postId.isEmpty()) return
+
+        val likeDocRef = firestore
+            .collection("post_likes")
+            .document("${post.postId}_$currentUserId")
+
+        val postDocRef = postsCollection.document(post.postId)
+
+        firestore.runTransaction { transaction ->
+            // Get the current post data
+            val postSnapshot = transaction.get(postDocRef)
+            val currentLikes = postSnapshot.getLong("likes") ?: 0
+
+            if (isLiked) {
+                // User is unliking the post
+                transaction.delete(likeDocRef)
+                transaction.update(postDocRef, "likes", currentLikes - 1)
+                likeCount--
+            } else {
+                // User is liking the post
+                val likeData = hashMapOf(
+                    "userId" to currentUserId,
+                    "postId" to post.postId,
+                    "timestamp" to System.currentTimeMillis()
+                )
+                transaction.set(likeDocRef, likeData)
+                transaction.update(postDocRef, "likes", currentLikes + 1)
+                likeCount++
+            }
+        }.addOnSuccessListener {
+            isLiked = !isLiked
+            // No need to update likeCount here as we already updated it above
+        }.addOnFailureListener { e ->
+            Log.e("PostItem", "Error updating like", e)
+            Toast.makeText(context, "Failed to update like", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -770,34 +1118,31 @@ fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // User icon/avatar
-                Box(
+                // User profile image
+                AsyncImage(
+                    model = post.userImage,
+                    contentDescription = "Profile Image",
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(if (isCurrentUserPost) Color(0xFF0DA54B) else Color.Gray),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "User Icon",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                        .border(1.dp, if (isCurrentUserPost) primaryColor else Color.Gray, CircleShape),
+                    error = painterResource(id = R.drawable.profile_icon),
+                    placeholder = painterResource(id = R.drawable.profile_icon),
+                    contentScale = ContentScale.Crop
+                )
 
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // User identification and timestamp
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (isCurrentUserPost) "You" else "Community Member",
+                        text = if (isCurrentUserPost) "You (${post.userName})" else post.userName,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
 
                     Text(
-                        text = formatTimestamp(post.timestamp), //
+                        text = formatTimestamp(post.timestamp),
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
@@ -805,7 +1150,10 @@ fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
 
                 // Delete button (only for user's own posts)
                 if (isCurrentUserPost) {
-                    IconButton(onClick = { deletePost(postsCollection, post.postId) }) {
+                    IconButton(onClick = {
+                        deletePost(postsCollection, post.postId)
+                        onLikeUpdated()
+                    }) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "Delete Post",
@@ -820,27 +1168,74 @@ fun PostItem(post: Post, postsCollection: CollectionReference, userId: String) {
             Text(
                 text = post.content,
                 fontSize = 14.sp,
-                modifier = Modifier.padding(top = 8.dp, start = 40.dp)
+                modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
             )
+
+            // Post image if available
+            if (!post.imageUrl.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                AsyncImage(
+                    model = post.imageUrl,
+                    contentDescription = "Post Image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            // Like and comment buttons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Like button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { toggleLike() }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = if (isLiked) R.drawable.like else R.drawable.like),
+                        contentDescription = "Like",
+                        tint = if (isLiked) Color.Unspecified else Color.Blue,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "$likeCount",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                // Comment button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { onCommentClick() }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.comment),
+                        contentDescription = "Comment",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${post.comments}",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
         }
     }
-}
-
-fun addPost(postsCollection: CollectionReference, content: String, userId: String) {
-    if (content.isBlank()) return
-
-    val postId = postsCollection.document().id // Generate ID first
-
-    val newPost = hashMapOf(
-        "id" to postId, // Store ID in the document itself
-        "userId" to userId,
-        "content" to content,
-        "timestamp" to FieldValue.serverTimestamp()
-    )
-
-    postsCollection.document(postId).set(newPost)
-        .addOnSuccessListener { Log.d("Firestore", "Post added successfully") }
-        .addOnFailureListener { e -> Log.e("Firestore", "Error adding post", e) }
 }
 
 fun deletePost(postsCollection: CollectionReference, postId: String) {
