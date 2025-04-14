@@ -1,6 +1,7 @@
 package com.project.webapp.components
 
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,11 +38,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.R
 import com.project.webapp.datas.CartItem
@@ -329,7 +332,48 @@ fun PaymentScreen(
                 Button(
                     onClick = {
                         cartViewModel.setCheckoutItems(displayItems)
-                        navController.navigate("checkoutScreen/$userType/${amount.toFloat()}")
+                        // Save the checkout information to database
+                        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@Button
+
+                        // Get current user delivery address from Firestore
+                        val firestore = FirebaseFirestore.getInstance()
+                        firestore.collection("users").document(userId).get()
+                            .addOnSuccessListener { userDocument ->
+                                val userAddress = userDocument.getString("address") ?: "No address provided"
+
+                                // Process each item and create notifications for the sellers
+                                displayItems.forEach { cartItem ->
+                                    cartViewModel.getProductById(cartItem.productId) { product ->
+                                        product?.let { prod ->
+                                            // Create a sale notification for the product owner
+                                            createSaleNotification(
+                                                firestore = firestore,
+                                                product = prod,
+                                                buyerId = userId,
+                                                quantity = cartItem.quantity,
+                                                paymentMethod = "Cash on Delivery",
+                                                deliveryAddress = userAddress,
+                                                message = "Your product was sold! Payment method: Cash on Delivery"
+                                            )
+
+                                            // Update product inventory in database
+                                            updateProductInventory(prod.prodId, cartItem.quantity)
+                                        }
+                                    }
+                                }
+
+                                // Create order record
+                                createOrderRecord(userId, displayItems, "Cash on Delivery", amount.toFloat(), userAddress)
+
+                                // Navigate to checkout confirmation
+                                navController.navigate("checkoutScreen/$userType/${amount.toFloat()}")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("Payment", "Error fetching user data", e)
+                                // Create order with default address
+                                createOrderRecord(userId, displayItems, "Cash on Delivery", amount.toFloat(), "No address provided")
+                                navController.navigate("checkoutScreen/$userType/${amount.toFloat()}")
+                            }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -338,28 +382,91 @@ fun PaymentScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = themeColor),
                     enabled = displayItems.isNotEmpty()
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Payments,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Cash on Delivery (COD)",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White
-                        )
-                    }
+                    Text(
+                        text = "Pay with Cash on Delivery",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
+}
+
+// Helper function to update product inventory after purchase
+private fun updateProductInventory(productId: String, quantitySold: Int) {
+    val firestore = FirebaseFirestore.getInstance()
+
+    // Get current product data
+    firestore.collection("products").document(productId)
+        .get()
+        .addOnSuccessListener { document ->
+            if (document.exists()) {
+                val currentQuantity = document.getLong("quantity")?.toInt() ?: 0
+                val newQuantity = (currentQuantity - quantitySold).coerceAtLeast(0)
+
+                // Update the quantity
+                firestore.collection("products").document(productId)
+                    .update("quantity", newQuantity)
+                    .addOnSuccessListener {
+                        Log.d("Inventory", "Product quantity updated for $productId")
+
+                        // If quantity is now 0, mark as sold out or remove from active listings
+                        if (newQuantity == 0) {
+                            firestore.collection("products").document(productId)
+                                .update("status", "sold_out")
+                                .addOnSuccessListener {
+                                    Log.d("Inventory", "Product marked as sold out: $productId")
+                                }
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("Inventory", "Error updating product quantity", e)
+                    }
+            }
+        }
+}
+
+// Create order record function
+private fun createOrderRecord(
+    userId: String,
+    items: List<CartItem>,
+    paymentMethod: String,
+    totalAmount: Float,
+    deliveryAddress: String
+) {
+    val firestore = FirebaseFirestore.getInstance()
+
+    val orderItems = items.map { item ->
+        hashMapOf(
+            "productId" to item.productId,
+            "name" to item.name,
+            "price" to item.price,
+            "quantity" to item.quantity
+        )
+    }
+
+    val orderData = hashMapOf(
+        "userId" to userId,
+        "items" to orderItems,
+        "totalAmount" to totalAmount,
+        "paymentMethod" to paymentMethod,
+        "status" to "pending",
+        "timestamp" to System.currentTimeMillis(),
+        "deliveryAddress" to deliveryAddress
+    )
+
+    firestore.collection("orders")
+        .add(orderData)
+        .addOnSuccessListener { documentReference ->
+            Log.d("Orders", "Order created with ID: ${documentReference.id}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("Orders", "Error creating order", e)
+        }
 }
 
 @Composable
@@ -1540,11 +1647,50 @@ fun DonationScreen(
                         }
                     }
 
-                    // For testing purposes, direct complete button
+// For testing purposes, direct complete button
                     OutlinedButton(
                         onClick = {
                             if (selectedOrganization != null) {
                                 showDonationReceipt = true
+
+                                // Create donation records and notifications when using the test button
+                                val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@OutlinedButton
+                                val firestore = FirebaseFirestore.getInstance()
+
+                                selectedOrganization?.let { organization ->
+                                    displayItems.forEach { cartItem ->
+                                        cartViewModel.getProductById(cartItem.productId) { product ->
+                                            product?.let { prod ->
+                                                // Now use organization instead of selectedOrganization
+                                                createDonationNotification(
+                                                    firestore = firestore,
+                                                    product = prod,
+                                                    donatorId = userId,
+                                                    organizationName = organization.name,
+                                                    quantity = cartItem.quantity,
+                                                    message = "Your product was donated to ${organization.name}. " +
+                                                            "Thank you for supporting sustainable agriculture and helping those in need!"
+                                                )
+
+                                                // Update product inventory
+                                                updateProductInventory(
+                                                    prod.prodId,
+                                                    cartItem.quantity
+                                                )
+
+                                                // Create donation record
+                                                createDonationRecord(
+                                                    userId = userId,
+                                                    productId = prod.prodId,
+                                                    productName = prod.name,
+                                                    organizationId = organization.id,
+                                                    organizationName = organization.name,
+                                                    quantity = cartItem.quantity
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         },
                         modifier = Modifier
@@ -1555,7 +1701,6 @@ fun DonationScreen(
                     ) {
                         Text("Complete Donation (For Testing)")
                     }
-
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
@@ -1628,6 +1773,39 @@ fun OrganizationItem(
         }
     }
 }
+
+// Create donation record function
+private fun createDonationRecord(
+    userId: String,
+    productId: String,
+    productName: String,
+    organizationId: String,
+    organizationName: String,
+    quantity: Int
+) {
+    val firestore = FirebaseFirestore.getInstance()
+
+    val donationData = hashMapOf(
+        "userId" to userId,
+        "productId" to productId,
+        "productName" to productName,
+        "organizationId" to organizationId,
+        "organizationName" to organizationName,
+        "quantity" to quantity,
+        "timestamp" to System.currentTimeMillis(),
+        "status" to "completed"
+    )
+
+    firestore.collection("donations")
+        .add(donationData)
+        .addOnSuccessListener { documentReference ->
+            Log.d("Donations", "Donation record created with ID: ${documentReference.id}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("Donations", "Error creating donation record", e)
+        }
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

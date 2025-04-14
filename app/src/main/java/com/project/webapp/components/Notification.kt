@@ -35,7 +35,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -95,6 +98,7 @@ import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
+import com.project.webapp.datas.Product
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,21 +112,34 @@ fun FarmerNotificationScreen(
     var notifications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF7FAF9)
 
     LaunchedEffect(Unit) {
-        firestore.collection("notifications")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, _ ->
-                isLoading = false
-                if (snapshot != null) {
-                    notifications = snapshot.documents.mapNotNull { doc ->
-                        doc.data?.plus("id" to doc.id)
+        if (currentUserId != null) {
+            firestore.collection("notifications")
+                .whereEqualTo("userId", currentUserId) // Filter notifications by current user ID
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    isLoading = false
+                    if (error != null) {
+                        Log.e("Firestore", "Error fetching notifications", error)
+                        return@addSnapshotListener
                     }
-                    Log.d("Firestore", "Fetched notifications: $notifications")
+
+                    if (snapshot != null) {
+                        notifications = snapshot.documents.mapNotNull { doc ->
+                            doc.data?.plus("id" to doc.id)
+                        }
+                        Log.d("Firestore", "Fetched notifications: $notifications")
+                    }
                 }
-            }
+        } else {
+            // Handle case when user is not logged in
+            isLoading = false
+            notifications = emptyList()
+        }
     }
 
     val context = LocalContext.current
@@ -277,7 +294,8 @@ fun NotificationItem(
     onClick: () -> Unit,
     primaryColor: Color
 ) {
-    val message = notification["message"] as? String ?: "New product added"
+    val notificationType = notification["type"] as? String ?: "product_added"
+    val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
     val imageUrl = notification["imageUrl"] as? String ?: ""
     val category = notification["category"] as? String ?: "Unknown"
     val name = notification["name"] as? String ?: "Unnamed"
@@ -286,13 +304,25 @@ fun NotificationItem(
     val quantityUnit = notification["quantityUnit"] as? String ?: "Unknown"
     val timestamp = notification["timestamp"] as? Long ?: 0L
     val userId = notification["userId"] as? String
+    val buyerId = notification["buyerId"] as? String
     val notificationId = notification["id"] as? String
+    val transactionType = notification["transactionType"] as? String ?: notificationType
+
     val formattedDate = SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(timestamp))
     val formattedTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 
     var ownerName by remember { mutableStateOf("Loading...") }
+    var buyerName by remember { mutableStateOf("") }
     var isPressed by remember { mutableStateOf(false) }
 
+    // Determine notification icon and color based on type
+    val (notificationIcon, notificationIconTint) = when (notificationType) {
+        "product_sold" -> Icons.Default.ShoppingCart to Color(0xFF0DA54B) // Blue for sales
+        "product_donated" -> Icons.Default.Favorite to Color(0xFFE91E63) // Pink for donations
+        else -> Icons.Default.Notifications to primaryColor // Default green for new products
+    }
+
+    // Fetch owner name
     LaunchedEffect(userId) {
         userId?.let { id ->
             firestore.collection("users").document(id)
@@ -316,6 +346,31 @@ fun NotificationItem(
                 }
         } ?: run {
             ownerName = "Unknown"
+        }
+    }
+
+    // Fetch buyer name if applicable
+    LaunchedEffect(buyerId) {
+        buyerId?.let { id ->
+            firestore.collection("users").document(id)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        val firstName = document.getString("firstname") ?: ""
+                        val lastName = document.getString("lastname") ?: ""
+
+                        buyerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
+                            "$firstName $lastName".trim()
+                        } else {
+                            document.getString("email") ?: "Unknown"
+                        }
+                    } else {
+                        buyerName = "Unknown"
+                    }
+                }
+                .addOnFailureListener {
+                    buyerName = "Unknown"
+                }
         }
     }
 
@@ -379,10 +434,10 @@ fun NotificationItem(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.iconlogo),
-                        contentDescription = "Default Icon",
+                        imageVector = notificationIcon,
+                        contentDescription = "Notification Icon",
                         modifier = Modifier.size(50.dp),
-                        tint = Color.Unspecified
+                        tint = notificationIconTint
                     )
                 }
             }
@@ -404,14 +459,39 @@ fun NotificationItem(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                Text(
-                    text = message,
-                    fontSize = 14.sp,
-                    color = Color.DarkGray,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp
-                )
+                // Display different message content based on notification type
+                when (notificationType) {
+                    "product_sold" -> {
+                        Text(
+                            text = if (buyerName.isNotEmpty()) "Sold to $buyerName" else "Your product was sold!",
+                            fontSize = 14.sp,
+                            color = Color.DarkGray,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 20.sp
+                        )
+                    }
+                    "product_donated" -> {
+                        Text(
+                            text = if (buyerName.isNotEmpty()) "Donated to $buyerName" else "Your product was donated!",
+                            fontSize = 14.sp,
+                            color = Color.DarkGray,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 20.sp
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = message,
+                            fontSize = 14.sp,
+                            color = Color.DarkGray,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 20.sp
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -419,7 +499,7 @@ fun NotificationItem(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .background(
-                            color = primaryColor.copy(alpha = 0.1f),
+                            color = notificationIconTint.copy(alpha = 0.1f),
                             shape = RoundedCornerShape(6.dp)
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -428,7 +508,7 @@ fun NotificationItem(
                         text = "₱${String.format("%.2f", price)}",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = primaryColor
+                        color = notificationIconTint
                     )
 
                     Text(
@@ -450,22 +530,45 @@ fun NotificationItem(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "User",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = ownerName,
-                        fontSize = 13.sp,
-                        color = Color.DarkGray,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
+                    when (notificationType) {
+                        "product_sold", "product_donated" -> {
+                            Icon(
+                                imageVector = if (notificationType == "product_sold")
+                                    Icons.Default.ShoppingCart else Icons.Default.Favorite,
+                                contentDescription = if (notificationType == "product_sold") "Sale" else "Donation",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (notificationType == "product_sold") "Sold" else "Donated",
+                                fontSize = 13.sp,
+                                color = notificationIconTint,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "User",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = ownerName,
+                                fontSize = 13.sp,
+                                color = Color.DarkGray,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -500,6 +603,15 @@ fun NotificationItem(
     }
 }
 
+// Helper function to get default message based on notification type
+private fun getDefaultMessage(notificationType: String): String {
+    return when (notificationType) {
+        "product_sold" -> "Your product was sold"
+        "product_donated" -> "Your product was donated"
+        else -> "New product added"
+    }
+}
+
 @Composable
 fun NotificationDetailsDialog(
     notification: Map<String, Any>,
@@ -507,6 +619,7 @@ fun NotificationDetailsDialog(
     primaryColor: Color
 ) {
     val firestore = FirebaseFirestore.getInstance()
+    val notificationType = notification["type"] as? String ?: "product_added"
 
     val category = notification["category"] as? String ?: "Unknown"
     val imageUrl = notification["imageUrl"] as? String ?: ""
@@ -516,12 +629,35 @@ fun NotificationDetailsDialog(
     val quantityUnit = notification["quantityUnit"] as? String
     val location = notification["location"] as? String ?: "Location not available"
     val userId = notification["userId"] as? String ?: "Unknown"
+    val buyerId = notification["buyerId"] as? String
     val timestamp = notification["timestamp"] as? Long ?: 0L
-    val message = notification["message"] as? String ?: "Product details"
+    val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
+    val paymentMethod = notification["paymentMethod"] as? String
+    val deliveryAddress = notification["deliveryAddress"] as? String
 
     val formattedTime = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
     var ownerName by remember { mutableStateOf("Loading...") }
+    var buyerName by remember { mutableStateOf("Loading...") }
     var isImageLoading by remember { mutableStateOf(true) }
+
+    // Determine notification icon and color based on type
+    val (dialogIcon, dialogTitle, dialogColor) = when (notificationType) {
+        "product_sold" -> Triple(
+            Icons.Default.ShoppingCart,
+            "Sale Details",
+            Color(0xFF0DA54B) // Blue for sales
+        )
+        "product_donated" -> Triple(
+            Icons.Default.Favorite,
+            "Donation Details",
+            Color(0xFFE91E63) // Pink for donations
+        )
+        else -> Triple(
+            Icons.Default.ShoppingCart,
+            "Product Details",
+            primaryColor // Default green for new products
+        )
+    }
 
     LaunchedEffect(userId) {
         firestore.collection("users").document(userId)
@@ -545,6 +681,33 @@ fun NotificationDetailsDialog(
             }
     }
 
+    // Fetch buyer name if applicable
+    LaunchedEffect(buyerId) {
+        buyerId?.let { id ->
+            firestore.collection("users").document(id)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        val firstName = document.getString("firstname") ?: ""
+                        val lastName = document.getString("lastname") ?: ""
+
+                        buyerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
+                            "$firstName $lastName".trim()
+                        } else {
+                            document.getString("email") ?: "Unknown"
+                        }
+                    } else {
+                        buyerName = "Unknown"
+                    }
+                }
+                .addOnFailureListener {
+                    buyerName = "Unknown"
+                }
+        } ?: run {
+            buyerName = "Not available"
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(20.dp),
@@ -555,17 +718,17 @@ fun NotificationDetailsDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
-                    imageVector = Icons.Default.ShoppingCart,
-                    contentDescription = "Product",
-                    tint = primaryColor,
+                    imageVector = dialogIcon,
+                    contentDescription = dialogTitle,
+                    tint = dialogColor,
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    "Product Details",
+                    dialogTitle,
                     fontWeight = FontWeight.Bold,
                     fontSize = 22.sp,
-                    color = primaryColor
+                    color = dialogColor
                 )
             }
         },
@@ -587,7 +750,7 @@ fun NotificationDetailsDialog(
                     ) {
                         if (isImageLoading) {
                             CircularProgressIndicator(
-                                color = primaryColor,
+                                color = dialogColor,
                                 modifier = Modifier.size(40.dp)
                             )
                         }
@@ -615,10 +778,10 @@ fun NotificationDetailsDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.iconlogo),
+                            imageVector = dialogIcon,
                             contentDescription = "Default Icon",
                             modifier = Modifier.size(90.dp),
-                            tint = Color.Unspecified
+                            tint = dialogColor
                         )
                     }
                 }
@@ -659,7 +822,7 @@ fun NotificationDetailsDialog(
                     }
 
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = primaryColor),
+                        colors = CardDefaults.cardColors(containerColor = dialogColor),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
@@ -687,52 +850,84 @@ fun NotificationDetailsDialog(
                             .padding(16.dp)
                     ) {
                         Text(
-                            text = "Product Information",
+                            text = if (notificationType == "product_added") "Product Information"
+                            else if (notificationType == "product_sold") "Sale Information"
+                            else "Donation Information",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
-                            color = primaryColor
+                            color = dialogColor
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        DetailRowImproved(
+                        DetailRow(
                             icon = Icons.Default.Category,
                             label = "Category",
                             value = category,
-                            primaryColor = primaryColor
+                            primaryColor = dialogColor
                         )
 
                         if (quantity != null && quantityUnit != null) {
-                            DetailRowImproved(
+                            DetailRow(
                                 icon = Icons.Default.ShoppingBasket,
                                 label = "Quantity",
                                 value = "$quantity $quantityUnit",
-                                primaryColor = primaryColor
+                                primaryColor = dialogColor
                             )
                         }
 
-                        DetailRowImproved(
+                        DetailRow(
                             icon = Icons.Default.LocationOn,
                             label = "Location",
                             value = location,
-                            primaryColor = primaryColor
+                            primaryColor = dialogColor
                         )
 
-                        DetailRowImproved(
+                        DetailRow(
                             icon = Icons.Default.Person,
-                            label = "Posted by",
+                            label = if (notificationType == "product_added") "Posted by" else "Seller",
                             value = ownerName,
-                            primaryColor = primaryColor
+                            primaryColor = dialogColor
                         )
 
-                        DetailRowImproved(
+                        // For sold/donated items, show buyer/donator info
+                        if (notificationType == "product_sold" || notificationType == "product_donated") {
+                            DetailRow(
+                                icon = if (notificationType == "product_sold") Icons.Default.ShoppingCart else Icons.Default.Favorite,
+                                label = if (notificationType == "product_sold") "Buyer" else "Donated to",
+                                value = buyerName,
+                                primaryColor = dialogColor
+                            )
+
+                            // Show payment method if available
+                            if (paymentMethod != null) {
+                                DetailRow(
+                                    icon = Icons.Default.CreditCard,
+                                    label = "Payment",
+                                    value = paymentMethod,
+                                    primaryColor = dialogColor
+                                )
+                            }
+
+                            // Show delivery address if available
+                            if (deliveryAddress != null) {
+                                DetailRow(
+                                    icon = Icons.Default.Home,
+                                    label = "Delivery to",
+                                    value = deliveryAddress,
+                                    primaryColor = dialogColor
+                                )
+                            }
+                        }
+
+                        DetailRow(
                             icon = Icons.Default.Schedule,
-                            label = "Posted on",
+                            label = if (notificationType == "product_added") "Posted on" else "Date",
                             value = formattedTime,
-                            primaryColor = primaryColor
+                            primaryColor = dialogColor
                         )
 
-                        if (message.isNotEmpty() && message != "New product added") {
+                        if (message.isNotEmpty() && !message.contains("New product")) {
                             Spacer(modifier = Modifier.height(16.dp))
                             Divider(color = Color.LightGray)
                             Spacer(modifier = Modifier.height(16.dp))
@@ -741,7 +936,7 @@ fun NotificationDetailsDialog(
                                 text = "Message",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
-                                color = primaryColor
+                                color = dialogColor
                             )
 
                             Card(
@@ -766,7 +961,7 @@ fun NotificationDetailsDialog(
         confirmButton = {
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                colors = ButtonDefaults.buttonColors(containerColor = dialogColor),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 12.dp)
@@ -782,7 +977,7 @@ fun NotificationDetailsDialog(
 }
 
 @Composable
-private fun DetailRowImproved(
+private fun DetailRow(
     icon: ImageVector,
     label: String,
     value: String,
@@ -911,6 +1106,84 @@ fun EmptyNotificationScreen() {
             )
         }
     }
+}
+// Function to create sale notification in Firestore
+
+fun createSaleNotification(
+    firestore: FirebaseFirestore,
+    product: Product,
+    buyerId: String,
+    quantity: Int = 1,
+    paymentMethod: String? = null,
+    deliveryAddress: String? = null,
+    message: String? = null
+) {
+    val notificationData = hashMapOf(
+        "type" to "product_sold",
+        "productId" to product.prodId,
+        "name" to product.name,
+        "price" to product.price,
+        "quantity" to quantity,
+        "quantityUnit" to product.quantityUnit,
+        "imageUrl" to product.imageUrl,
+        "category" to product.category,
+        "location" to product.cityName,
+        "timestamp" to System.currentTimeMillis(),
+        "userId" to product.ownerId, // The seller who will receive this notification
+        "buyerId" to buyerId,
+        "message" to (message ?: "Your product was sold!"),
+        "transactionType" to "sale"
+    )
+
+    // Add optional fields if provided
+    paymentMethod?.let { notificationData["paymentMethod"] = it }
+    deliveryAddress?.let { notificationData["deliveryAddress"] = it }
+
+    firestore.collection("notifications")
+        .add(notificationData)
+        .addOnSuccessListener {
+            Log.d("Firestore", "Sale notification created with ID: ${it.id}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("Firestore", "Error creating sale notification", e)
+        }
+}
+
+// Function to create donation notification in Firestore
+fun createDonationNotification(
+    firestore: FirebaseFirestore,
+    product: Product,
+    donatorId: String,
+    organizationName: String,
+    quantity: Int = 1,
+    message: String? = null
+) {
+    val notificationData = hashMapOf(
+        "type" to "product_donated",
+        "productId" to product.prodId,
+        "name" to product.name,
+        "price" to product.price,
+        "quantity" to quantity,
+        "quantityUnit" to product.quantityUnit,
+        "imageUrl" to product.imageUrl,
+        "category" to product.category,
+        "location" to product.cityName,
+        "timestamp" to System.currentTimeMillis(),
+        "userId" to product.ownerId, // The seller who will receive this notification
+        "buyerId" to donatorId,
+        "message" to (message ?: "Your product was donated to $organizationName"),
+        "transactionType" to "donation",
+        "organization" to organizationName
+    )
+
+    firestore.collection("notifications")
+        .add(notificationData)
+        .addOnSuccessListener {
+            Log.d("Firestore", "Donation notification created with ID: ${it.id}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("Firestore", "Error creating donation notification", e)
+        }
 }
 
 fun deleteNotification(firestore: FirebaseFirestore, notificationId: String) {
