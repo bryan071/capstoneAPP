@@ -520,6 +520,46 @@ fun ProductCard(
     }
 }
 
+fun fetchProducts(firestore: FirebaseFirestore, onProductsFetched: (List<Product>) -> Unit): ListenerRegistration {
+    return firestore.collection("products")
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e("FirestoreDebug", "Error fetching products: ${error.message}", error)
+                return@addSnapshotListener
+            }
+
+            if (snapshot == null || snapshot.isEmpty) {
+                Log.w("FirestoreDebug", "No products found")
+                onProductsFetched(emptyList())
+                return@addSnapshotListener
+            }
+
+            val fetchedProducts = snapshot.documents.mapNotNull { doc ->
+                try {
+                    Product(
+                        prodId = doc.id,
+                        ownerId = doc.getString("ownerId") ?: return@mapNotNull null,
+                        category = doc.getString("category") ?: return@mapNotNull null,
+                        imageUrl = doc.getString("imageUrl") ?: return@mapNotNull null,
+                        name = doc.getString("name") ?: return@mapNotNull null,
+                        description = doc.getString("description") ?: "",
+                        price = doc.getDouble("price") ?: 0.0,
+                        quantity = doc.getDouble("quantity") ?: 0.0,
+                        quantityUnit = doc.getString("quantityUnit") ?: "unit",
+                        cityName = doc.getString("cityName") ?: "Unknown",
+                        listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
+                    )
+                } catch (e: Exception) {
+                    Log.e("FirestoreDebug", "Error parsing product data: ${e.message}", e)
+                    null
+                }
+            }
+
+            onProductsFetched(fetchedProducts)
+            Log.d("FirestoreDebug", "Updated UI with ${fetchedProducts.size} products")
+        }
+}
+
 @Composable
 fun DiscountsBanner() {
     Card(
@@ -1027,7 +1067,6 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
     }
 }
 
-
 @Composable
 fun PostItem(
     post: Post,
@@ -1244,48 +1283,6 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
         .addOnFailureListener { e -> Log.e("Firestore", "Error deleting post", e) }
 }
 
-
-fun fetchProducts(firestore: FirebaseFirestore, onProductsFetched: (List<Product>) -> Unit): ListenerRegistration {
-    return firestore.collection("products")
-        .addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Log.e("FirestoreDebug", "Error fetching products: ${error.message}", error)
-                return@addSnapshotListener
-            }
-
-            if (snapshot == null || snapshot.isEmpty) {
-                Log.w("FirestoreDebug", "No products found")
-                onProductsFetched(emptyList())
-                return@addSnapshotListener
-            }
-
-            val fetchedProducts = snapshot.documents.mapNotNull { doc ->
-                try {
-                    Product(
-                        prodId = doc.id,
-                        ownerId = doc.getString("ownerId") ?: return@mapNotNull null,
-                        category = doc.getString("category") ?: return@mapNotNull null,
-                        imageUrl = doc.getString("imageUrl") ?: return@mapNotNull null,
-                        name = doc.getString("name") ?: return@mapNotNull null,
-                        description = doc.getString("description") ?: "",
-                        price = doc.getDouble("price") ?: 0.0,
-                        quantity = doc.getDouble("quantity") ?: 0.0,
-                        quantityUnit = doc.getString("quantityUnit") ?: "unit",
-                        cityName = doc.getString("cityName") ?: "Unknown",
-                        listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
-                    )
-                } catch (e: Exception) {
-                    Log.e("FirestoreDebug", "Error parsing product data: ${e.message}", e)
-                    null
-                }
-            }
-
-            onProductsFetched(fetchedProducts)
-            Log.d("FirestoreDebug", "Updated UI with ${fetchedProducts.size} products")
-        }
-}
-
-
 fun formatTimestamp(timestamp: Long): String {
     return try {
         val sdf = SimpleDateFormat("MMM dd, yyyy • h:mm a", Locale.getDefault())
@@ -1294,9 +1291,6 @@ fun formatTimestamp(timestamp: Long): String {
         "Unknown time"
     }
 }
-
-
-
 
 @Composable
 fun BottomNavigationBar(navController: NavController) {

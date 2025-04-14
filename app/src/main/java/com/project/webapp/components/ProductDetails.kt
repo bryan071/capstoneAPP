@@ -1,15 +1,14 @@
 package com.project.webapp.components
 
-import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -24,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -120,18 +118,8 @@ fun ProductDetailsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Back Button
-                    IconButton(
-                        onClick = { navController.popBackStack() },
-                        modifier = Modifier
-                            .shadow(2.dp, CircleShape)
-                            .background(Color.White, CircleShape)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.backbtn),
-                            contentDescription = "Back",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(28.dp)
-                        )
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))

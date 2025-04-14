@@ -13,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -124,21 +126,8 @@ fun FarmerEditProfileScreen(navController: NavController) {
                         .padding(bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = {
-                            if (hasChanges) {
-                                showDialog = true
-                            } else {
-                                navController.popBackStack()
-                            }
-                        }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.backbtn),
-                            contentDescription = "Back",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(28.dp)
-                        )
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
 
                     Text(
