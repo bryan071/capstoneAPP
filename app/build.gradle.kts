@@ -18,6 +18,11 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // GCash API credentials
+        buildConfigField("String", "GCASH_CLIENT_ID", "\"your_gcash_client_id_here\"")
+        buildConfigField("String", "GCASH_CLIENT_SECRET", "\"your_gcash_client_secret_here\"")
+        buildConfigField("String", "GCASH_MERCHANT_ID", "\"your_gcash_merchant_id_here\"")
     }
 
     buildTypes {
@@ -38,6 +43,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // Enable BuildConfig generation
+        buildConfig = true
     }
 }
 
@@ -100,11 +107,15 @@ dependencies {
     implementation("com.google.android.gms:play-services-maps:18.2.0") // Google Maps API
     implementation ("com.google.accompanist:accompanist-permissions:0.33.1-alpha")
     implementation ("com.google.accompanist:accompanist-permissions:0.32.0")
+    implementation ("com.squareup.okhttp3:logging-interceptor:4.9.3")
 
     implementation ("com.google.zxing:core:3.4.1") // ZXing dependency for GCASH
 
     implementation("com.airbnb.android:lottie-compose:6.1.0")
 
+    // Coroutines
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1")
+    implementation ("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
 
     val nav_version = "2.8.7"
     implementation("androidx.navigation:navigation-compose:$nav_version")
