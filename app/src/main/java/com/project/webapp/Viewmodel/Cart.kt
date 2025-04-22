@@ -257,8 +257,6 @@ class CartViewModel : ViewModel() {
         _checkoutItems.clear()
         _checkoutItems.addAll(items)
     }
-
-
 }
 
 

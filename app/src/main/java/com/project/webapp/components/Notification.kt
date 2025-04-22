@@ -587,12 +587,15 @@ fun NotificationItem(
                 }
             }
 
-            if (notificationId != null) {
+            if (!notificationId.isNullOrEmpty()) {
                 IconButton(
-                    onClick = { deleteNotification(firestore, notificationId) }
+                    onClick = {
+                        Log.d("DeleteNotification", "Trying to delete ID: $notificationId")
+                        deleteNotification(firestore, notificationId)
+                    }
                 ) {
                     Icon(
-                        Icons.Default.Delete,
+                        imageVector = Icons.Default.Delete,
                         contentDescription = "Delete",
                         tint = Color.Red.copy(alpha = 0.7f),
                         modifier = Modifier.size(22.dp)
@@ -1131,7 +1134,7 @@ fun createSaleNotification(
         "timestamp" to System.currentTimeMillis(),
         "userId" to product.ownerId, // The seller who will receive this notification
         "buyerId" to buyerId,
-        "message" to (message ?: "Your product was sold!"),
+        "message" to "Your product was sold!",
         "transactionType" to "sale"
     )
 

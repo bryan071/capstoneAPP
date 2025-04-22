@@ -27,13 +27,13 @@ import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.components.CartScreen
 import com.project.webapp.components.ChatScreen
 import com.project.webapp.components.CheckoutScreen
-import com.project.webapp.components.DonationScreen
+import com.project.webapp.components.payment.DonationScreen
 import com.project.webapp.components.EditProductScreen
 import com.project.webapp.dashboards.BottomNavigationBar
 import com.project.webapp.dashboards.FarmerDashboard
 import com.project.webapp.components.FarmerMarketScreen
-import com.project.webapp.components.GcashScreen
-import com.project.webapp.components.PaymentScreen
+import com.project.webapp.components.payment.GcashScreen
+import com.project.webapp.components.payment.PaymentScreen
 import com.project.webapp.components.ProductDetailsScreen
 import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
@@ -189,6 +189,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             ) { backStackEntry ->
                 val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
                 val ownerId = backStackEntry.arguments?.getString("ownerId") ?: ""
+
                 GcashScreen(navController, totalPrice, FirebaseFirestore.getInstance(), ownerId)
             }
 
