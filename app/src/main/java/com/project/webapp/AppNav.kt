@@ -35,6 +35,7 @@ import com.project.webapp.components.FarmerMarketScreen
 import com.project.webapp.components.payment.GcashScreen
 import com.project.webapp.components.payment.PaymentScreen
 import com.project.webapp.components.ProductDetailsScreen
+import com.project.webapp.components.delivery.OrdersScreen
 import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
 import com.project.webapp.components.profiles.FarmerProfileScreen
@@ -105,6 +106,12 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             }
             composable(Route.EDIT_PROFILE) {
                 FarmerEditProfileScreen(navController)
+            }
+
+            composable(Route.ORDERS) {
+                OrdersScreen(
+                    navController = navController
+                )
             }
 
             composable("productDetails/{productId}") { backStackEntry ->

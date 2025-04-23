@@ -343,7 +343,7 @@ fun ReceiptScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Button(
-                        onClick = { navController.navigate("orderHistory") },
+                        onClick = { navController.navigate("order") },
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),

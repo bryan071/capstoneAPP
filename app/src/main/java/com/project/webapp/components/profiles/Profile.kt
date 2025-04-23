@@ -19,6 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -33,6 +36,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -45,6 +49,11 @@ import com.google.firebase.firestore.Query
 import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
+import com.project.webapp.Route.ORDERS
+import com.project.webapp.components.delivery.OrderDetailsDialog
+import com.project.webapp.components.delivery.OrderItem
+import com.project.webapp.components.delivery.OrdersScreen
+import com.project.webapp.datas.Order
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.UserData
 import kotlinx.coroutines.MainScope
@@ -466,27 +475,45 @@ fun ProfileTabContent(
     onShowLogoutDialog: () -> Unit,
     profileUserId: String?
 ) {
-    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-        // Stats Cards
-        Text(
-            "Farmer Statistics",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.Start)
-                .padding(start = 8.dp, bottom = 12.dp)
-        )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+    ) {
+        if (userData?.userType?.trim()?.lowercase() == "market") {
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            ProfileStatCard("Products", userData?.productsListed ?: 0, primaryColor, lightGreen)
-            ProfileStatCard("Sales", userData?.salesCompleted ?: 0, primaryColor, lightGreen)
-            ProfileStatCard("Rating", 4.8, primaryColor, lightGreen)
+            Button(
+                onClick = { navController.navigate(ORDERS) },
+                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("View your order here", color = Color.White)
+
+            }
+        } else {
+            // Farmer Statistics
+            Text(
+                "Farmer Statistics",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .padding(start = 8.dp, bottom = 12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                ProfileStatCard("Products", userData?.productsListed ?: 0, primaryColor, lightGreen)
+                ProfileStatCard("Sales", userData?.salesCompleted ?: 0, primaryColor, lightGreen)
+                ProfileStatCard("Rating", 4.8, primaryColor, lightGreen)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
-
-        Spacer(modifier = Modifier.height(24.dp))
 
         // Settings & Logout (only for current user)
         if (isCurrentUserProfile) {
@@ -495,7 +522,6 @@ fun ProfileTabContent(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .align(Alignment.Start)
                     .padding(start = 8.dp, bottom = 12.dp)
             )
 
@@ -516,13 +542,11 @@ fun ProfileTabContent(
                 }
             }
         } else {
-            // Show farmer's top products when viewing other profiles
             Text(
                 "Top Products",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .align(Alignment.Start)
                     .padding(start = 8.dp, bottom = 12.dp)
             )
 

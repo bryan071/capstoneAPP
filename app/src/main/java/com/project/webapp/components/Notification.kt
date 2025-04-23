@@ -980,7 +980,7 @@ fun NotificationDetailsDialog(
 }
 
 @Composable
-private fun DetailRow(
+ fun DetailRow(
     icon: ImageVector,
     label: String,
     value: String,
