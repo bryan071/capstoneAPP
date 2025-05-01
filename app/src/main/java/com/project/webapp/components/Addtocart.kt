@@ -10,9 +10,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,6 +31,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.rememberLottieComposition
 import com.project.webapp.R
 import com.project.webapp.datas.CartItem
 
@@ -75,25 +83,62 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.backbtn), // Replace with an appropriate cart icon
-                    contentDescription = "Empty Cart",
-                    modifier = Modifier.size(100.dp),
-                    tint = primaryGreen.copy(alpha = 0.7f)
+                val composition by rememberLottieComposition(
+                    LottieCompositionSpec.RawRes(R.raw.empty)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+
+                // If you don't have a Lottie animation, use this fallback
+                if (composition == null) {
+                    Icon(
+                        imageVector = Icons.Outlined.Notifications,
+                        contentDescription = "No Notifications",
+                        tint = Color(0xFF0DA54B),
+                        modifier = Modifier.size(100.dp)
+                    )
+                } else {
+                    LottieAnimation(
+                        composition = composition,
+                        iterations = LottieConstants.IterateForever,
+                        modifier = Modifier.size(200.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 Text(
-                    text = "Your cart is empty",
+                    text = "Your cart is empty!",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.Gray
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+
                 Text(
-                    text = "Add items to start shopping",
+                    text = "Add items to start shopping.",
                     fontSize = 16.sp,
                     color = Color.Gray
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = { navController.navigate("market") },
+                    colors = ButtonDefaults.buttonColors(Color(0xFF0DA54B)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ShoppingCart,
+                        contentDescription = "Shop Now",
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Start Shopping",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         } else {
             Column(

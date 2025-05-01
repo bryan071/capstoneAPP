@@ -261,11 +261,11 @@ fun OrderItem(
 
     // Get color and icon for status
     val (statusColor, statusIcon) = when (order.status) {
-        OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF9C27B0) to Icons.Default.CheckCircle
-        OrderStatus.TO_SHIP.name -> Color(0xFF2196F3) to Icons.Default.Inventory
-        OrderStatus.SHIPPING.name -> Color(0xFFFF9800) to Icons.Default.LocalShipping
-        OrderStatus.TO_DELIVER.name -> Color(0xFF03A9F4) to Icons.Default.LocalShipping
-        OrderStatus.DELIVERED.name -> Color(0xFF4CAF50) to Icons.Default.CheckCircle
+        OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
+        OrderStatus.TO_SHIP.name -> Color(0xFF0DA54B) to Icons.Default.Inventory
+        OrderStatus.SHIPPING.name -> Color(0xFF0DA54B) to Icons.Default.LocalShipping
+        OrderStatus.TO_DELIVER.name -> Color(0xFF0DA54B) to Icons.Default.LocalShipping
+        OrderStatus.DELIVERED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
         OrderStatus.COMPLETED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
         else -> Color.Gray to Icons.Default.Info
     }
@@ -425,10 +425,10 @@ fun OrderDetailsDialog(
 
     // Get color for status
     val statusColor = when (order.status) {
-        OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF9C27B0)
-        OrderStatus.TO_SHIP.name -> Color(0xFF2196F3)
-        OrderStatus.SHIPPING.name -> Color(0xFFFF9800)
-        OrderStatus.TO_DELIVER.name -> Color(0xFF03A9F4)
+        OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF0DA54B)
+        OrderStatus.TO_SHIP.name -> Color(0xFF0DA54B)
+        OrderStatus.SHIPPING.name -> Color(0xFF0DA54B)
+        OrderStatus.TO_DELIVER.name -> Color(0xFF0DA54B)
         OrderStatus.DELIVERED.name -> Color(0xFF4CAF50)
         OrderStatus.COMPLETED.name -> Color(0xFF0DA54B)
         else -> Color.Gray
@@ -806,7 +806,7 @@ fun EmptyOrdersScreen(navController: NavController) {
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            "No orders yet",
+            "No orders yet!",
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
             color = Color.DarkGray
