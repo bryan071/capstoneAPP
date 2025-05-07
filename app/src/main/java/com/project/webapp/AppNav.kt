@@ -40,6 +40,7 @@ import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
 import com.project.webapp.components.profiles.FarmerProfileScreen
 import com.project.webapp.pages.Register
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @SuppressLint("ContextCastToActivity")
 @Composable
@@ -109,6 +110,8 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             }
 
             composable(Route.ORDERS) {
+
+
                 OrdersScreen(
                     navController = navController
                 )
@@ -132,25 +135,40 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
 
 
             composable(
-                route = "checkoutScreen/{userType}/{totalPrice}",
+                route = "checkoutScreen/{userType}/{totalPrice}?paymentMethod={paymentMethod}&referenceId={referenceId}",
                 arguments = listOf(
                     navArgument("userType") { type = NavType.StringType },
-                    navArgument("totalPrice") { type = NavType.FloatType } // Use FloatType for now
+                    navArgument("totalPrice") { type = NavType.FloatType }, // Use FloatType for now
+                    navArgument("paymentMethod") {
+                        type = NavType.StringType
+                        defaultValue = "COD"
+                        nullable = true
+                    },
+                    navArgument("referenceId") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                        nullable = true
+                    }
                 )
             ) { backStackEntry ->
                 val userType = backStackEntry.arguments?.getString("userType") ?: "cart_checkout"
-                val totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble()
-                    ?: 0.0 // Convert to Double here
+                val totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble() ?: 0.0
+                val paymentMethod = backStackEntry.arguments?.getString("paymentMethod") ?: "COD"
+                val referenceId = backStackEntry.arguments?.getString("referenceId") ?: ""
+
+                // Collect the StateFlow as a plain State object (not using 'by' delegate)
+                val checkoutItems = cartViewModel.checkoutItems.collectAsStateWithLifecycle()
 
                 CheckoutScreen(
                     navController = navController,
                     cartViewModel = cartViewModel,
                     totalPrice = totalPrice,
-                    cartItems = cartViewModel.checkoutItems,
-                    userType = userType
+                    cartItems = checkoutItems.value,    // Access the current value using .value
+                    userType = userType,
+                    paymentMethod = paymentMethod,
+                    referenceId = referenceId
                 )
             }
-
             composable("editProduct/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
                 EditProductScreen(navController, productId, FirebaseFirestore.getInstance())

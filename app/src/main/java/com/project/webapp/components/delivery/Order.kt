@@ -42,7 +42,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -84,7 +83,6 @@ import com.google.firebase.firestore.Query
 import com.project.webapp.Viewmodel.OrderStatus
 import com.project.webapp.components.DetailRow
 import com.project.webapp.components.LoadingAnimation
-import com.project.webapp.datas.Order
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -97,7 +95,6 @@ fun OrdersScreen(
     showScaffold: Boolean = true // Parameter to control scaffold visibility
 ) {
     val primaryColor = Color(0xFF0DA54B)
-
     val firestore = FirebaseFirestore.getInstance()
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
     var orders by remember { mutableStateOf<List<Order>>(emptyList()) }
@@ -192,6 +189,7 @@ fun OrdersScreen(
             navController = navController,
             primaryColor = primaryColor,
             modifier = modifier
+
         )
     }
 
@@ -203,6 +201,7 @@ fun OrdersScreen(
             primaryColor = primaryColor
         )
     }
+
 }
 
 @Composable
@@ -216,6 +215,8 @@ private fun OrdersContent(
     primaryColor: Color,
     modifier: Modifier = Modifier
 ) {
+
+
     Box(
         modifier = modifier
             .padding(paddingValues)
@@ -235,10 +236,12 @@ private fun OrdersContent(
             ) {
                 items(orders.size) { index ->
                     val order = orders[index]
+
                     OrderItem(
                         order = order,
                         onClick = { onOrderSelected(order) },
                         primaryColor = primaryColor
+
                     )
                 }
             }
@@ -252,14 +255,27 @@ fun OrderItem(
     onClick: () -> Unit,
     primaryColor: Color
 ) {
-    val firstItem = order.items.firstOrNull()
-    val itemName = firstItem?.get("name") as? String ?: "Unknown Product"
-    val itemPrice = (firstItem?.get("price") as? Number)?.toDouble() ?: 0.0
-    val itemImageUrl = firstItem?.get("imageUrl") as? String ?: ""
+    // Check if items list is empty before attempting to access
+    val hasItems = order.items.isNotEmpty()
+    val firstItem = if (hasItems) order.items.firstOrNull() else null
+
+    // Determine if this is a GCash payment
+    val isGCashPayment = order.paymentMethod.equals("GCash", ignoreCase = true)
+
+    // Determine display name for the order
+    val itemName = when {
+        hasItems && firstItem?.get("name") != null ->
+            firstItem["name"] as? String ?: "Unnamed Product"
+        isGCashPayment ->
+            "GCash Payment #${order.orderId.takeLast(6)}"
+        else ->
+            "Order #${order.orderId.takeLast(6)}"
+    }
+
     val formattedDate = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(order.createdAt))
     var isPressed by remember { mutableStateOf(false) }
 
-    // Get color and icon for status
+    // Status color and icon mapping
     val (statusColor, statusIcon) = when (order.status) {
         OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
         OrderStatus.TO_SHIP.name -> Color(0xFF0DA54B) to Icons.Default.Inventory
@@ -337,6 +353,12 @@ fun OrderItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Product image
+                val itemImageUrl = if (hasItems && firstItem?.get("imageUrl") != null) {
+                    firstItem["imageUrl"] as? String ?: ""
+                } else {
+                    ""
+                }
+
                 if (itemImageUrl.isNotEmpty()) {
                     Box(
                         modifier = Modifier
@@ -386,9 +408,8 @@ fun OrderItem(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // Show number of items
                     Text(
-                        text = "${order.items.size} item(s)",
+                        text = if (hasItems) "${order.items.size} item(s)" else "Order details",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
@@ -402,7 +423,6 @@ fun OrderItem(
                         color = primaryColor
                     )
                 }
-
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowRight,
                     contentDescription = "View Details",
@@ -412,6 +432,7 @@ fun OrderItem(
         }
     }
 }
+
 
 @Composable
 fun OrderDetailsDialog(
@@ -519,98 +540,127 @@ fun OrderDetailsDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Order items
-                Text(
-                    text = "Items (${order.items.size})",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color.DarkGray
-                )
+                // Handle the case where order.items might be empty
+                if (order.items.isNotEmpty()) {
+                    Text(
+                        text = "Items (${order.items.size})",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color.DarkGray
+                    )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        order.items.forEachIndexed { index, item ->
-                            val name = item["name"] as? String ?: "Unknown Product"
-                            val price = (item["price"] as? Number)?.toDouble() ?: 0.0
-                            val quantity = (item["quantity"] as? Number)?.toInt() ?: 1
-                            val imageUrl = item["imageUrl"] as? String ?: ""
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            order.items.forEachIndexed { index, item ->
+                                val name = item["name"] as? String ?: "Unnamed Product"
+                                val price = (item["price"] as? Number)?.toDouble() ?: 0.0
+                                val quantity = (item["quantity"] as? Number)?.toInt() ?: 1
+                                val imageUrl = item["imageUrl"] as? String ?: ""
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            ) {
-                                // Product image
-                                if (imageUrl.isNotEmpty()) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(50.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                    ) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(LocalContext.current)
-                                                .data(imageUrl)
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = "Product Image",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                ) {
+                                    // Product image
+                                    if (imageUrl.isNotEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(50.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                        ) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(LocalContext.current)
+                                                    .data(imageUrl)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = "Product Image",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(50.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFFEDF7F0)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ShoppingBasket,
+                                                contentDescription = "Product Icon",
+                                                tint = primaryColor,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+
+                                        Text(
+                                            text = "Qty: $quantity",
+                                            fontSize = 13.sp,
+                                            color = Color.Gray
                                         )
                                     }
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(50.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFFEDF7F0)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ShoppingBasket,
-                                            contentDescription = "Product Icon",
-                                            tint = primaryColor,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                    }
-                                }
 
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = name,
+                                        text = "₱${String.format("%.2f", price * quantity)}",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-
-                                    Text(
-                                        text = "Qty: $quantity",
-                                        fontSize = 13.sp,
-                                        color = Color.Gray
+                                        color = Color.DarkGray
                                     )
                                 }
 
-                                Text(
-                                    text = "₱${String.format("%.2f", price * quantity)}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = Color.DarkGray
-                                )
+                                if (index < order.items.size - 1) {
+                                    Divider(color = Color.LightGray)
+                                }
                             }
+                        }
+                    }
+                } else {
+                    // Handle the case where there are no items
+                    Text(
+                        text = "Order Details",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color.DarkGray
+                    )
 
-                            if (index < order.items.size - 1) {
-                                Divider(color = Color.LightGray)
-                            }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "This order doesn't contain detailed item information.",
+                                fontSize = 14.sp,
+                                color = Color.Gray
+                            )
                         }
                     }
                 }
 
+                // Rest of the dialog content remains the same...
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Payment information
@@ -643,16 +693,20 @@ fun OrderDetailsDialog(
                             primaryColor = primaryColor
                         )
 
+                        // Calculate shipping fee and subtotal
+                        val shippingFee = 50.0 // Fixed shipping fee
+                        val subtotal = order.totalAmount - shippingFee
+
                         DetailRow(
                             label = "Items Subtotal",
-                            value = "₱${String.format("%.2f", order.totalAmount - 50.0f)}",
+                            value = "₱${String.format("%.2f", subtotal)}",
                             icon = Icons.Default.ShoppingBasket,
                             primaryColor = primaryColor
                         )
 
                         DetailRow(
                             label = "Shipping Fee",
-                            value = "₱50.00",
+                            value = "₱${String.format("%.2f", shippingFee)}",
                             icon = Icons.Default.LocalShipping,
                             primaryColor = primaryColor
                         )
@@ -725,7 +779,6 @@ fun OrderDetailsDialog(
         }
     )
 }
-
 
 @Composable
 fun OrderStatusPoint(

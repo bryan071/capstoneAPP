@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.LocationOn
@@ -57,7 +59,9 @@ import com.project.webapp.R
 import com.project.webapp.datas.CartItem
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlin.random.Random
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,25 +71,27 @@ fun ReceiptScreen(
     cartViewModel: CartViewModel,
     cartItems: List<CartItem>,
     totalPrice: Double,
-    userType: String = "defaultUser",
-    sellerNames: Map<String, String>
+    userType: String,
+    sellerNames: Map<String, String>,
+    paymentMethod: String = "COD",
+    referenceId: String = ""
 ) {
-    // Define the theme color to match other screens
-    val themeColor = Color(0xFF0DA54B)
     val currentUser by cartViewModel.currentUser.collectAsState()
+    val themeColor = Color(0xFF0DA54B) // GCash green
+    val currentDate = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(Date())
+    val currentTime = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+    val orderNumber = remember { UUID.randomUUID().toString().substring(0, 8).uppercase() }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Order Complete") },
+                title = { Text("Receipt") },
                 navigationIcon = {
-                    IconButton(onClick = { navController.navigate("market") {
-                        popUpTo("market") { inclusive = true }
-                    }}) {
+                    IconButton(onClick = { /* No back action here, to enforce "done" button */ }) {
                         Icon(
                             painter = painterResource(id = R.drawable.backbtn),
-                            contentDescription = "Back to market",
-                            tint = Color.Unspecified
+                            contentDescription = "Back",
+                            tint = Color.Transparent // Make invisible
                         )
                     }
                 },
@@ -106,294 +112,288 @@ fun ReceiptScreen(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Success card
+                // Success Icon
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(60.dp)
+                        .background(themeColor, CircleShape)
+                        .padding(12.dp)
+                )
+
+                Text(
+                    "Order Confirmed!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "Your order has been placed successfully.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+
+                // Receipt Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = themeColor,
-                            modifier = Modifier.size(72.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Thank You!",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Your order has been placed successfully",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-
-                        // Generate random order number
-                        val orderNumber = remember {
-                            val random = Random.nextInt(100000, 999999)
-                            "ORD-$random"
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        // Receipt Header
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.Center
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Order #: ",
+                                "Order #$orderNumber",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    currentDate,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                                Text(
+                                    currentTime,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+
+                        Divider(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            color = Color(0xFFEEEEEE)
+                        )
+
+                        // Customer Information
+                        currentUser?.let { user ->
+                            Text(
+                                "Customer Details",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                "${user.firstname} ${user.lastname}",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+
+                            Text(
+                                user.phoneNumber,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color.Gray
                             )
+
                             Text(
-                                text = orderNumber,
+                                user.address,
                                 style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray
+                            )
+                        }
+
+                        Divider(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            color = Color(0xFFEEEEEE)
+                        )
+
+                        // Order Items
+                        Text(
+                            "Order Details",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        cartItems.forEach { item ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(3f)) {
+                                    Text(
+                                        item.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Text(
+                                        "Seller: ${sellerNames[item.productId] ?: "Unknown"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+
+                                Text(
+                                    "x${item.quantity}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Text(
+                                    "₱${String.format("%.2f", item.price * item.quantity)}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.End
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        Divider(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            color = Color(0xFFEEEEEE)
+                        )
+
+                        // Payment Summary
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Items Subtotal",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "₱${"%.2f".format(totalPrice - 50.0)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.End
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Shipping Fee",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "₱50.00",
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.End
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Total",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "₱${"%.2f".format(totalPrice)}",
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                                color = themeColor,
+                                textAlign = TextAlign.End
                             )
                         }
-                    }
-                }
-
-                // Order items section
-                SectionTitle(title = "Order Items (${cartItems.size})")
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        cartItems.forEachIndexed { index, item ->
-                            val sellerName = sellerNames[item.sellerId] ?: "Loading..."
-
-                            ReceiptItemCard(
-                                item = item,
-                                sellerName = sellerName,
-                                themeColor = themeColor
-                            )
-
-                            if (index < cartItems.size - 1) {
-                                Divider(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    color = Color(0xFFEEEEEE)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Shipping Address Section
-                currentUser?.let { user ->
-                    SectionTitle(title = "Delivery Address")
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = themeColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    "${user.firstname} ${user.lastname}",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Phone,
-                                    contentDescription = null,
-                                    tint = themeColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    user.phoneNumber,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.Top,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = null,
-                                    tint = themeColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    user.address,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Payment Summary
-                SectionTitle(title = "Payment Summary")
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        PriceLine(
-                            title = "Items Total",
-                            value = "₱${"%.2f".format(totalPrice - 50.0)}",
-                            themeColor = themeColor
-                        )
-
-                        PriceLine(
-                            title = "Shipping Fee",
-                            value = "₱50.00",
-                            themeColor = themeColor
-                        )
 
                         Divider(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 8.dp),
                             color = Color(0xFFEEEEEE)
                         )
 
-                        PriceLine(
-                            title = "Total Amount",
-                            value = "₱${"%.2f".format(totalPrice)}",
-                            isBold = true,
-                            themeColor = themeColor
-                        )
-
-                        PriceLine(
-                            title = "Payment Method",
-                            value = "Cash on Delivery",
-                            themeColor = themeColor
-                        )
-
-                        // Add estimated delivery date
-                        val calendar = Calendar.getInstance()
-                        calendar.add(Calendar.DAY_OF_MONTH, 3)
-                        val deliveryDate = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(calendar.time)
-
-                        Divider(
+                        // Payment Method
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
-                            color = Color(0xFFEEEEEE)
-                        )
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Payment Method",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                when (paymentMethod) {
+                                    "GCash" -> "GCash"
+                                    else -> "Cash on Delivery"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.End
+                            )
+                        }
 
-                        PriceLine(
-                            title = "Estimated Delivery",
-                            value = deliveryDate,
-                            themeColor = themeColor
-                        )
+                        // Show reference ID for GCash payments
+                        if (paymentMethod == "GCash" && referenceId.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Reference ID",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    referenceId,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.End
+                                )
+                            }
+                        }
                     }
                 }
 
-                // Action buttons
-                Row(
+                // Done Button
+                Button(
+                    onClick = {
+                        navController.navigate("farmerdashboard") {
+                            popUpTo("home") { inclusive = true }
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        .height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = themeColor)
                 ) {
-                    Button(
-                        onClick = { navController.navigate("order") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEEEEEE),
-                            contentColor = Color.Black
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.List,
-                                contentDescription = null
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("View Orders")
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            navController.navigate("market") {
-                                popUpTo("market") { inclusive = true }
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = themeColor)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ShoppingCart,
-                                contentDescription = null,
-                                tint = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Continue Shopping",
-                                color = Color.White
-                            )
-                        }
-                    }
+                    Text(
+                        "Done",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

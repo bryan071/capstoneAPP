@@ -1,10 +1,11 @@
 package com.project.webapp.Viewmodel
 
 import android.util.Log
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.datas.CartItem
-import com.project.webapp.datas.Order
-import java.util.Calendar
+import java.util.Date
 import java.util.UUID
 
 enum class OrderStatus(val displayName: String) {
@@ -15,6 +16,7 @@ enum class OrderStatus(val displayName: String) {
     DELIVERED("Delivered"),
     COMPLETED("Completed")
 }
+
 
 fun createOrderRecord(
     userId: String,
@@ -27,59 +29,69 @@ fun createOrderRecord(
     val orderId = UUID.randomUUID().toString()
     val currentTime = System.currentTimeMillis()
 
-    // Create an order object with initial status
+    // Add debug logs to trace the items being saved
+    Log.d("OrderDebug", "Creating order for payment method: $paymentMethod")
+    Log.d("OrderDebug", "Items count: ${items.size}")
+
+    // Detailed logging of each item
+    items.forEachIndexed { index, item ->
+        Log.d("OrderDebug", "Item $index: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+    }
+
+    // Check if we have items to process
+    if (items.isEmpty()) {
+        Log.e("Order", "No items to purchase!")
+        return
+    }
+
+    // Map items and ensure seller names are fetched correctly
+    val orderItems = items.map { item ->
+        mapOf(
+            "productId" to item.productId,
+            "name" to item.name,
+            "price" to item.price,
+            "quantity" to item.quantity,
+            "imageUrl" to item.imageUrl,
+            "sellerName" to item.sellerId
+        )
+    }
+
+    // Log the mapped items to ensure they're correctly transformed
+    Log.d("OrderDebug", "Mapped ${orderItems.size} items for order record")
+
+    // Create the order data
     val orderData = hashMapOf(
         "orderId" to orderId,
         "buyerId" to userId,
-        "items" to items.map { item ->
-            hashMapOf(
-                "productId" to item.productId,
-                "name" to item.name,
-                "price" to item.price,
-                "quantity" to item.quantity,
-                "imageUrl" to item.imageUrl
-            )
-        },
+        "items" to orderItems,
         "status" to OrderStatus.PAYMENT_RECEIVED.name,
         "paymentMethod" to paymentMethod,
         "totalAmount" to totalAmount,
         "deliveryAddress" to deliveryAddress,
         "createdAt" to currentTime,
         "updatedAt" to currentTime,
-        // Add estimated delivery timeframe (5-7 days from now)
-        "estimatedDelivery" to calculateEstimatedDelivery(currentTime)
+        "estimatedDelivery" to Timestamp(calculateEstimatedDelivery(currentTime))
     )
 
     // Add the order to Firestore
     firestore.collection("orders").document(orderId)
         .set(orderData)
         .addOnSuccessListener {
-            Log.d("Order", "Order record created successfully")
-            // Create order status history for tracking
+            Log.d("Order", "Order record created successfully with ID: $orderId")
             createOrderStatusHistory(orderId, OrderStatus.PAYMENT_RECEIVED.name, currentTime)
         }
         .addOnFailureListener { e ->
             Log.e("Order", "Error creating order record", e)
         }
+
+    // IMPORTANT: The cleanup operation has been completely removed from this function
+    // as it was potentially interfering with new orders
 }
 
-// Calculate estimated delivery date (5-7 days from now)
-fun calculateEstimatedDelivery(currentTime: Long): Map<String, Long> {
-    val calendar = Calendar.getInstance()
-    // Min delivery date (5 days from now)
-    calendar.timeInMillis = currentTime
-    calendar.add(Calendar.DAY_OF_MONTH, 5)
-    val minDelivery = calendar.timeInMillis
-
-    // Max delivery date (7 days from now)
-    calendar.timeInMillis = currentTime
-    calendar.add(Calendar.DAY_OF_MONTH, 7)
-    val maxDelivery = calendar.timeInMillis
-
-    return mapOf(
-        "minDate" to minDelivery,
-        "maxDate" to maxDelivery
-    )
+// Calculate estimated delivery date (3 days from now)
+fun calculateEstimatedDelivery(currentTime: Long): Date {
+    val estimatedTimeMillis = currentTime + 3 * 24 * 60 * 60 * 1000 // 3 days
+    return Date(estimatedTimeMillis)
 }
 
 // Create order status history entry
@@ -102,10 +114,14 @@ fun createOrderStatusHistory(orderId: String, status: String, timestamp: Long) {
     firestore.collection("orders").document(orderId)
         .collection("statusHistory")
         .add(historyEntry)
+        .addOnSuccessListener {
+            Log.d("Order", "Status history created successfully for order: $orderId")
+        }
         .addOnFailureListener { e ->
             Log.e("Order", "Error creating status history", e)
         }
 }
+
 
 // Helper function to get a message based on order status
 private fun getStatusMessage(status: String, orderId: String): String {

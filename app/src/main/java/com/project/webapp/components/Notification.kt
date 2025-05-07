@@ -636,6 +636,7 @@ fun NotificationDetailsDialog(
     val timestamp = notification["timestamp"] as? Long ?: 0L
     val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
     val paymentMethod = notification["paymentMethod"] as? String
+    Log.d("PaymentDebug", "Retrieved payment method from notification: $paymentMethod")
     val deliveryAddress = notification["deliveryAddress"] as? String
 
     val formattedTime = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
@@ -902,12 +903,18 @@ fun NotificationDetailsDialog(
                                 primaryColor = dialogColor
                             )
 
-                            // Show payment method if available
-                            if (paymentMethod != null) {
+                            DetailRow(
+                                icon = Icons.Default.CreditCard,
+                                label = "Payment",
+                                value = paymentMethod ?: "Not specified",
+                                primaryColor = dialogColor
+                            )
+
+                            if (paymentMethod?.equals("GCash", ignoreCase = true) == true) {
                                 DetailRow(
                                     icon = Icons.Default.CreditCard,
-                                    label = "Payment",
-                                    value = paymentMethod,
+                                    label = "GCash Info",
+                                    value = "Paid electronically",
                                     primaryColor = dialogColor
                                 )
                             }
@@ -1138,14 +1145,14 @@ fun createSaleNotification(
         "transactionType" to "sale"
     )
 
-    // Add optional fields if provided
-    paymentMethod?.let { notificationData["paymentMethod"] = it }
+    notificationData["paymentMethod"] = paymentMethod ?: "Not specified"
     deliveryAddress?.let { notificationData["deliveryAddress"] = it }
 
     firestore.collection("notifications")
         .add(notificationData)
         .addOnSuccessListener {
             Log.d("Firestore", "Sale notification created with ID: ${it.id}")
+            Log.d("PaymentDebug", "Notification saved with payment: ${notificationData["paymentMethod"]}")
         }
         .addOnFailureListener { e ->
             Log.e("Firestore", "Error creating sale notification", e)

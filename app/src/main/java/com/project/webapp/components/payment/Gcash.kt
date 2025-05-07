@@ -89,6 +89,9 @@ fun GcashScreen(
     cartViewModel: CartViewModel = viewModel()
 ) {
     val cartItems by cartViewModel.cartItems.collectAsStateWithLifecycle()
+    val isCartLoading by cartViewModel.isCartLoading.collectAsStateWithLifecycle()
+    val cartLoadError by cartViewModel.cartLoadError.collectAsStateWithLifecycle()
+
     // State to hold the owner's name, QR code, and payment status
     var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var paymentStatus by remember { mutableStateOf("") }
@@ -97,6 +100,8 @@ fun GcashScreen(
     var showReceiptDialog by remember { mutableStateOf(false) }
     var referenceId by remember { mutableStateOf("") }
     var paymentTimestamp by remember { mutableStateOf("") }
+    var showErrorDialog by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
     // GCash brand color
     val gcashGreen = Color(0xFF0DA54B)
@@ -116,6 +121,20 @@ fun GcashScreen(
             merchantId = "mock_merchant_id",
             redirectUrl = "com.project.webapp://payment_callback"
         )
+    }
+
+    // Explicitly refresh cart items when the screen loads
+    LaunchedEffect(Unit) {
+        Log.d("GCashScreen", "Screen launched - refreshing cart")
+        cartViewModel.refreshCartItems()
+    }
+
+    // Log cart items when they change
+    LaunchedEffect(cartItems) {
+        Log.d("GCashDebug", "Cart items updated in GCashScreen: ${cartItems.size} items in cart")
+        cartItems.forEach { item ->
+            Log.d("GCashDebug", "Cart item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+        }
     }
 
     // Fetch the owner's name and generate QR code when the screen is first composed
@@ -138,18 +157,38 @@ fun GcashScreen(
         }
     }
 
-    fun processSuccessfulPayment(transactionId: String, referenceId: String, cartItems: List<CartItem>) {
+    fun processSuccessfulPayment(
+        transactionId: String,
+        referenceId: String,
+        displayItems: List<CartItem>
+    ) {
+        // Verify items are present
+        if (displayItems.isEmpty()) {
+            Log.e("GCashDebug", "Cannot process payment with empty cart!")
+            paymentStatus = "Error: Your cart is empty"
+            isLoading = false
+            errorMessage = "Unable to process payment: Your cart is empty."
+            showErrorDialog = true
+            return
+        }
 
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val userType = "user"
         val paymentData = hashMapOf(
             "transactionId" to transactionId,
             "referenceId" to referenceId,
             "status" to "COMPLETED",
             "amount" to totalPrice,
             "seller" to ownerId,
-            "timestamp" to FieldValue.serverTimestamp()
+            "timestamp" to FieldValue.serverTimestamp(),
+            "paymentMethod" to "GCash"
         )
 
-        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        // Debug log to verify items being passed to payment processing
+        Log.d("GCashDebug", "Processing payment with ${displayItems.size} items")
+        displayItems.forEach { item ->
+            Log.d("GCashDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+        }
 
         firestore.collection("payments")
             .document(transactionId)
@@ -157,18 +196,26 @@ fun GcashScreen(
             .addOnSuccessListener {
                 Log.d("GCashScreen", "Payment record created successfully")
                 paymentStatus = "Payment successful!"
-
                 val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
                 paymentTimestamp = dateFormat.format(Date())
 
+                // Get user address
                 firestore.collection("users").document(userId).get()
                     .addOnSuccessListener { userDocument ->
                         val userAddress = userDocument.getString("address") ?: "No address provided"
+                        val userName = "${userDocument.getString("firstname") ?: ""} ${userDocument.getString("lastname") ?: ""}"
 
-                        // ✅ use cartItems here
-                        cartItems.forEach { cartItem ->
+                        // Make a deep copy of the cart items to ensure we don't lose them during async operations
+                        val orderItems = displayItems.toList()
+
+                        // Debug log to verify items count before order creation
+                        Log.d("GCashDebug", "Creating order with ${orderItems.size} items")
+
+                        // Process each item and create notifications for the sellers
+                        displayItems.forEach { cartItem ->
                             cartViewModel.getProductById(cartItem.productId) { product ->
                                 product?.let { prod ->
+                                    // Create a sale notification for the product owner
                                     createSaleNotification(
                                         firestore = firestore,
                                         product = prod,
@@ -178,34 +225,64 @@ fun GcashScreen(
                                         deliveryAddress = userAddress,
                                         message = "Your product was sold! Payment method: GCash (Ref: $referenceId)"
                                     )
+
+                                    // Update product inventory in database
                                     updateProductInventory(prod.prodId, cartItem.quantity)
                                 }
                             }
                         }
 
-                        // ✅ and here
-                        createOrderRecord(userId, cartItems, "GCash", totalPrice.toFloat(), userAddress)
-                        showReceiptDialog = true
+                        // Create order record with the copied items
+                        if (orderItems.isNotEmpty()) {
+                            Log.d("GCashDebug", "Calling createOrderRecord with ${orderItems.size} items")
+                            createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), userAddress)
+                        } else {
+                            Log.e("GCashDebug", "No items to create order with!")
+                        }
+
+                        // Navigate to checkout confirmation screen with payment method and reference ID
+                        navController.navigate(
+                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId"
+                        )
                     }
                     .addOnFailureListener { e ->
                         Log.e("GCashScreen", "Error fetching user data", e)
-                        createOrderRecord(userId, cartItems, "GCash", totalPrice.toFloat(), "No address provided")
-                        showReceiptDialog = true
+                        // Create order with default address and the copied items list
+                        val orderItems = displayItems.toList()
+                        createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), "No address provided")
+
+                        // Navigate with payment info even if there's an error getting the address
+                        navController.navigate(
+                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId"
+                        )
                     }
             }
             .addOnFailureListener { e ->
-                Log.e("GCashScreen", "Error updating payment: ${e.message}")
+                Log.e("GCashScreen", "Error saving payment: ${e.message}")
                 paymentStatus = "Error saving payment record"
+                errorMessage = "Payment processing error: ${e.message}"
+                showErrorDialog = true
             }
     }
-
-
     // Function to initiate GCash payment and proceed directly
-    fun initiateGCashPayment(cartItems: List<CartItem>) {
+    fun initiateGCashPayment() {
+        // First ensure cart items are loaded
+        val currentCartItems = cartItems
+
+        // Check if cart is empty
+        if (currentCartItems.isEmpty()) {
+            Log.e("GCashDebug", "Cannot initiate payment with empty cart!")
+            paymentStatus = "Error: Your cart is empty"
+            Toast.makeText(context, "Cannot process payment: Cart is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Debug log to verify input cart items
+        Log.d("GCashDebug", "Initiating payment with ${currentCartItems.size} items")
+
         val currentContext = context
         isLoading = true
         paymentStatus = "Processing..."
-
 
         val amountInCents = (totalPrice.toDoubleOrNull() ?: 0.0) * 100
         val paymentRequest = GCashPaymentRequest(
@@ -234,8 +311,14 @@ fun GcashScreen(
                         Toast.LENGTH_LONG
                     ).show()
 
-                    // Simulate successful payment directly
-                    processSuccessfulPayment(transactionId, referenceId, cartItems)
+                    // Make a safe copy of cart items to prevent any modification during async processing
+                    val itemsForProcessing = currentCartItems.toList()
+
+                    // Verify items count
+                    Log.d("GCashDebug", "About to process payment with ${itemsForProcessing.size} items")
+
+                    // Simulate successful payment directly with the copied items
+                    processSuccessfulPayment(transactionId, referenceId, itemsForProcessing)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -391,11 +474,11 @@ fun GcashScreen(
 
                 // Payment buttons
                 Button(
-                    onClick = { initiateGCashPayment(cartItems) },
+                    onClick = { initiateGCashPayment() },
+                    enabled = !isLoading && cartItems.isNotEmpty(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    enabled = !isLoading,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = gcashGreen,
                         contentColor = Color.White
@@ -642,7 +725,7 @@ fun GcashScreen(
                         // Go to Success Screen Button
                         Button(
                             onClick = {
-                                navController.navigate("payment_success/$transactionId") {
+                                navController.navigate("order") {
                                     popUpTo("payment_success") { inclusive = true }
                                     launchSingleTop = true
                                 }

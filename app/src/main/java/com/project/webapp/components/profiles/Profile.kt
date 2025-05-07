@@ -50,10 +50,6 @@ import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.Route.ORDERS
-import com.project.webapp.components.delivery.OrderDetailsDialog
-import com.project.webapp.components.delivery.OrderItem
-import com.project.webapp.components.delivery.OrdersScreen
-import com.project.webapp.datas.Order
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.UserData
 import kotlinx.coroutines.MainScope

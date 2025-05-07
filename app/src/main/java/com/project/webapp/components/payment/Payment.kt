@@ -1,30 +1,17 @@
 package com.project.webapp.components.payment
 
-import android.graphics.Bitmap
 import android.util.Log
-import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.runtime.getValue
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,47 +19,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.project.webapp.R
 import com.project.webapp.Viewmodel.createOrderRecord
-import com.project.webapp.components.createDonationNotification
 import com.project.webapp.components.createSaleNotification
 import com.project.webapp.components.fetchOwnerName
-import com.project.webapp.components.generateQRCode
 import com.project.webapp.datas.CartItem
-import com.project.webapp.datas.GCashApiConfig
-import com.project.webapp.datas.GCashPaymentRequest
-import com.project.webapp.datas.Organization
 import com.project.webapp.datas.Product
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
-import kotlin.random.Random
+
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -314,6 +278,11 @@ fun PaymentScreen(
                 Button(
                     onClick = {
                         ownerId?.let { id ->
+                            // Set checkout items in the cart view model to make them available to GcashScreen
+                            cartViewModel.setCheckoutItems(displayItems)
+
+                            // Navigate to GCash payment screen
+                            // The actual payment processing will happen in GcashScreen
                             navController.navigate("gcashScreen/$formattedAmount/$id")
                         }
                     },
@@ -321,7 +290,8 @@ fun PaymentScreen(
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF)),
+                    enabled = displayItems.isNotEmpty()
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

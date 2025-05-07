@@ -1,5 +1,6 @@
 package com.project.webapp.components
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,35 +70,78 @@ fun CheckoutScreen(
     navController: NavController,
     cartViewModel: CartViewModel,
     totalPrice: Double,
-    cartItems: List<CartItem>,
-    userType: String
+    cartItems: List<CartItem>? = null,
+    userType: String,
+    paymentMethod: String = "COD", // Add default payment method
+    referenceId: String = "" // Add reference ID for GCash payments
 ) {
     var showReceipt by remember { mutableStateOf(false) }
     val sellerNames = remember { mutableStateMapOf<String, String>() }
     val currentUser by cartViewModel.currentUser.collectAsState()
 
-    // Define the theme color - same as in PaymentScreen
-    val themeColor = Color(0xFF0DA54B)
+    // Debug log for tracking data flow
+    LaunchedEffect(key1 = Unit) {
+        Log.d("CheckoutScreen", "Initial params - paymentMethod: $paymentMethod, referenceId: $referenceId")
+        Log.d("CheckoutScreen", "Direct cartItems size: ${cartItems?.size ?: 0}")
+        Log.d("CheckoutScreen", "ViewModel purchasedItems size: ${cartViewModel.purchasedItems.value.size}")
+        Log.d("CheckoutScreen", "ViewModel cartItems size: ${cartViewModel.cartItems.value.size}")
+    }
 
-    // Match PaymentScreen logic exactly
-    LaunchedEffect(cartItems) {
-        cartItems.forEach { item ->
-            cartViewModel.getProductById(item.productId) { product ->
-                product?.ownerId?.let { sellerId ->
-                    if (sellerId !in sellerNames) {
-                        cartViewModel.getUserById(sellerId) { user ->
-                            user?.let {
-                                sellerNames[sellerId] = "${it.firstname} ${it.lastname}"
+    // Get purchased items from ViewModel using collectAsState for real-time updates
+    val purchasedItems by cartViewModel.purchasedItems.collectAsState()
+    val viewModelCartItems by cartViewModel.cartItems.collectAsState()
+
+    // If cartItems is null or empty, get them from the ViewModel with proper precedence
+    val effectiveCartItems = remember(cartItems, purchasedItems, viewModelCartItems) {
+        when {
+            // First priority: Items passed directly to this composable
+            !cartItems.isNullOrEmpty() -> cartItems
+
+            // Second priority: Items marked as purchased (from GCash flow)
+            purchasedItems.isNotEmpty() -> purchasedItems
+
+            // Fallback: Regular cart items
+            else -> viewModelCartItems
+        }
+    }
+
+    // Log the selected items for debugging
+    LaunchedEffect(effectiveCartItems) {
+        Log.d("CheckoutScreen", "Final effectiveCartItems size: ${effectiveCartItems.size}")
+    }
+
+    // Define the theme color - same as in PaymentScreen
+    val themeColor = Color(0xFF0DA54B) // GCash green
+
+    // Fetch seller information for the cart items
+    LaunchedEffect(effectiveCartItems) {
+        effectiveCartItems.forEach { item ->
+            // If item already has a seller ID, use it directly
+                cartViewModel.getProductById(item.productId) { product ->
+                    product?.let { prod ->
+                        if (prod.ownerId !in sellerNames) {
+                            cartViewModel.getUserById(prod.ownerId) { user ->
+                                user?.let {
+                                    sellerNames[item.productId] = "${it.firstname} ${it.lastname}"
+                                }
                             }
                         }
                     }
                 }
-            }
         }
     }
 
     if (showReceipt) {
-        ReceiptScreen(navController, cartViewModel, cartItems, totalPrice, userType, sellerNames)
+        ReceiptScreen(
+            navController = navController,
+            cartViewModel = cartViewModel,
+            cartItems = effectiveCartItems,
+            totalPrice = totalPrice,
+            userType = userType,
+            sellerNames = sellerNames,
+            paymentMethod = paymentMethod,
+            referenceId = referenceId
+        )
     } else {
         Scaffold(
             topBar = {
@@ -142,20 +186,44 @@ fun CheckoutScreen(
                             modifier = Modifier.padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.ShoppingCart,
-                                contentDescription = null,
-                                tint = themeColor,
-                                modifier = Modifier.size(40.dp)
-                            )
+                            // Different icons based on payment method
+                            if (paymentMethod == "GCash") {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.gcash_icon),
+                                    contentDescription = null,
+                                    tint = Color.Unspecified,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.ShoppingCart,
+                                    contentDescription = null,
+                                    tint = themeColor,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(8.dp))
 
+                            // Display payment method
                             Text(
-                                "Cash on Delivery",
+                                when (paymentMethod) {
+                                    "GCash" -> "GCash Payment"
+                                    else -> "Cash on Delivery"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
+
+                            // Show reference ID for GCash payments
+                            if (paymentMethod == "GCash" && referenceId.isNotEmpty()) {
+                                Text(
+                                    "Reference ID: $referenceId",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
 
                             Text(
                                 "Please confirm your order details below",
@@ -164,6 +232,7 @@ fun CheckoutScreen(
                             )
                         }
                     }
+
 
                     // Shipping Address Section
                     currentUser?.let { user ->
@@ -230,7 +299,7 @@ fun CheckoutScreen(
                     }
 
                     // Order Items Section
-                    SectionTitle(title = "Order Items (${cartItems.size})")
+                    SectionTitle(title = "Order Items (${effectiveCartItems .size})")
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -239,8 +308,8 @@ fun CheckoutScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                            cartItems.forEachIndexed { index, item ->
-                                val sellerName = sellerNames[item.sellerId] ?: "Loading..."
+                            effectiveCartItems .forEachIndexed { index, item ->
+                                val sellerName = sellerNames[item.productId] ?: "Loading..."
 
                                 CheckoutItemCard(
                                     item = item,
@@ -248,7 +317,7 @@ fun CheckoutScreen(
                                     themeColor = themeColor
                                 )
 
-                                if (index < cartItems.size - 1) {
+                                if (index < effectiveCartItems .size - 1) {
                                     Divider(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -301,7 +370,10 @@ fun CheckoutScreen(
 
                             PriceLine(
                                 title = "Payment Method",
-                                value = "Cash on Delivery",
+                                value = when (paymentMethod) {
+                                    "GCash" -> "GCash"
+                                    else -> "Cash on Delivery"
+                                },
                                 themeColor = themeColor
                             )
                         }
@@ -310,7 +382,8 @@ fun CheckoutScreen(
                     // Confirmation Button
                     Button(
                         onClick = {
-                            cartViewModel.completePurchase("COD", "", "")
+                            // Complete purchase with the appropriate payment method
+                            cartViewModel.completePurchase(paymentMethod, referenceId, "")
                             showReceipt = true
                         },
                         modifier = Modifier
@@ -318,7 +391,7 @@ fun CheckoutScreen(
                             .height(56.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = themeColor),
-                        enabled = cartItems.isNotEmpty()
+                        enabled = effectiveCartItems .isNotEmpty()
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

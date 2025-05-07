@@ -1,7 +1,7 @@
 package com.project.webapp.datas
 
 data class Product(
-    val prodId: String = "",
+    var prodId: String = "",
     val ownerId: String = "",
     val category: String = "",
     val imageUrl: String = "",
