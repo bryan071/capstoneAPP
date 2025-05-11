@@ -1,392 +1,387 @@
-import android.util.Log
-import androidx.compose.runtime.mutableStateListOf
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import androidx.navigation.NavController
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.project.webapp.datas.CartItem
-import com.project.webapp.datas.Product
-import com.project.webapp.datas.UserData
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
+        import android.util.Log
+        import androidx.lifecycle.ViewModel
+        import androidx.lifecycle.viewModelScope
+        import androidx.navigation.NavController
+        import com.google.firebase.auth.FirebaseAuth
+        import com.google.firebase.firestore.FirebaseFirestore
+        import com.project.webapp.datas.CartItem
+        import com.project.webapp.datas.Product
+        import com.project.webapp.datas.UserData
+        import kotlinx.coroutines.flow.MutableStateFlow
+        import kotlinx.coroutines.flow.StateFlow
+        import kotlinx.coroutines.flow.asStateFlow
+        import kotlinx.coroutines.launch
+        import kotlinx.coroutines.tasks.await
 
-class CartViewModel : ViewModel() {
-    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+        class CartViewModel : ViewModel() {
+            private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
+            private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 
-    // State flows for reactive UI
-    private val _cartItems = MutableStateFlow<List<CartItem>>(emptyList())
-    val cartItems: StateFlow<List<CartItem>> = _cartItems
+            // State flows for reactive UI
+            private val _cartItems = MutableStateFlow<List<CartItem>>(emptyList())
+            val cartItems: StateFlow<List<CartItem>> = _cartItems.asStateFlow()
 
-    // State tracking for cart loading status
-    private val _isCartLoading = MutableStateFlow(true)
-    val isCartLoading: StateFlow<Boolean> = _isCartLoading
+            private val _isCartLoading = MutableStateFlow(true)
+            val isCartLoading: StateFlow<Boolean> = _isCartLoading.asStateFlow()
 
-    // State to track if cart failed to load
-    private val _cartLoadError = MutableStateFlow<String?>(null)
-    val cartLoadError: StateFlow<String?> = _cartLoadError
+            private val _cartLoadError = MutableStateFlow<String?>(null)
+            val cartLoadError: StateFlow<String?> = _cartLoadError.asStateFlow()
 
-    private val _cartIconShake = MutableStateFlow(false)
-    val cartIconShake: StateFlow<Boolean> = _cartIconShake
+            private val _cartIconShake = MutableStateFlow(false)
+            val cartIconShake: StateFlow<Boolean> = _cartIconShake.asStateFlow()
 
-    private val _showSnackbar = MutableStateFlow(false)
-    val showSnackbar: StateFlow<Boolean> = _showSnackbar
+            private val _showSnackbar = MutableStateFlow(false)
+            val showSnackbar: StateFlow<Boolean> = _showSnackbar.asStateFlow()
 
-    private val _snackbarMessage = MutableStateFlow<String?>(null)
-    val snackbarMessage: StateFlow<String?> = _snackbarMessage
+            private val _snackbarMessage = MutableStateFlow<String?>(null)
+            val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
-    // Explicitly synchronize checkout items with cart items
-    private val _checkoutItems = MutableStateFlow<List<CartItem>>(emptyList())
-    val checkoutItems: StateFlow<List<CartItem>> = _checkoutItems
+            private val _checkoutItems = MutableStateFlow<List<CartItem>>(emptyList())
+            val checkoutItems: StateFlow<List<CartItem>> = _checkoutItems.asStateFlow()
 
-    val totalCartPrice: StateFlow<Double> = _cartItems.map { items ->
-        items.sumOf { it.price * it.quantity }
-    }.stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
+            private val _directBuyItem = MutableStateFlow<CartItem?>(null)
+            val directBuyItem: StateFlow<CartItem?> = _directBuyItem.asStateFlow()
 
-    private val _directBuyItem = MutableStateFlow<CartItem?>(null)
-    val directBuyItem: StateFlow<CartItem?> = _directBuyItem
+            private val _currentUser = MutableStateFlow<UserData?>(null)
+            val currentUser: StateFlow<UserData?> = _currentUser.asStateFlow()
 
-    private val _currentUser = MutableStateFlow<UserData?>(null)
-    val currentUser: StateFlow<UserData?> = _currentUser
+            private val _purchasedItems = MutableStateFlow<List<CartItem>>(emptyList())
+            val purchasedItems: StateFlow<List<CartItem>> = _purchasedItems.asStateFlow()
 
-    private val _purchasedItems = MutableStateFlow<List<CartItem>>(emptyList())
-    val purchasedItems: StateFlow<List<CartItem>> = _purchasedItems
+            private val _totalCartPrice = MutableStateFlow(0.0)
+            val totalCartPrice: StateFlow<Double> = _totalCartPrice.asStateFlow()
 
-    init {
-        loadCartItems()
-        loadCurrentUser()
-    }
-
-    private fun loadCurrentUser() {
-        val userId = auth.currentUser?.uid ?: return
-        firestore.collection("users").document(userId).get()
-            .addOnSuccessListener { document ->
-                val user = document.toObject(UserData::class.java)
-                _currentUser.value = user
-                Log.d("CartViewModel", "Current user loaded: ${user?.firstname} ${user?.lastname}")
+            init {
+                loadCartItems()
+                loadCurrentUser()
             }
-            .addOnFailureListener { e ->
-                Log.e("CartViewModel", "Error loading user data: ${e.message}")
+
+            private fun loadCurrentUser() {
+                val userId = auth.currentUser?.uid ?: return
+                firestore.collection("users").document(userId).get()
+                    .addOnSuccessListener { document ->
+                        val user = document.toObject(UserData::class.java)
+                        _currentUser.value = user
+                        Log.d("CartViewModel", "Current user loaded: ${user?.firstname} ${user?.lastname}")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("CartViewModel", "Error loading user data: ${e.message}")
+                        _cartLoadError.value = "Failed to load user: ${e.message}"
+                    }
             }
-    }
 
-    fun loadCartItems() {
-        val userId = auth.currentUser?.uid
-        if (userId == null) {
-            Log.e("CartViewModel", "Cannot load cart: User not logged in")
-            _isCartLoading.value = false
-            _cartLoadError.value = "User not logged in"
-            return
-        }
-
-        _isCartLoading.value = true
-        _cartLoadError.value = null
-
-        Log.d("CartViewModel", "Starting to load cart items for user: $userId")
-
-        firestore.collection("carts").document(userId).collection("items")
-            .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    Log.e("CartViewModel", "Error loading cart items: ${e.message}")
+            fun loadCartItems() {
+                val userId = auth.currentUser?.uid
+                if (userId == null) {
+                    Log.e("CartViewModel", "Cannot load cart: User not logged in")
                     _isCartLoading.value = false
-                    _cartLoadError.value = e.message
-                    return@addSnapshotListener
+                    _cartLoadError.value = "User not logged in"
+                    _cartItems.value = emptyList()
+                    _totalCartPrice.value = 0.0
+                    return
                 }
 
-                val items = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(CartItem::class.java)?.also { item ->
-                        // Ensure the productId is set if it's not in the document
-                        if (item.productId.isEmpty()) {
-                            item.productId = doc.id
+                _isCartLoading.value = true
+                _cartLoadError.value = null
+
+                Log.d("CartViewModel", "Starting to load cart items for user: $userId")
+
+                firestore.collection("carts").document(userId).collection("items")
+                    .addSnapshotListener { snapshot, e ->
+                        if (e != null) {
+                            Log.e("CartViewModel", "Error loading cart items: ${e.message}")
+                            _isCartLoading.value = false
+                            _cartLoadError.value = e.message
+                            _cartItems.value = emptyList()
+                            _totalCartPrice.value = 0.0
+                            return@addSnapshotListener
                         }
-                        Log.d("CartViewModel", "Loaded cart item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+
+                        val items = snapshot?.documents?.mapNotNull { doc ->
+                            try {
+                                val item = doc.toObject(CartItem::class.java)?.also { cartItem ->
+                                    if (cartItem.productId.isEmpty()) {
+                                        cartItem.productId = doc.id
+                                    }
+                                    if (cartItem.price <= 0 || cartItem.quantity <= 0 || cartItem.productId.isEmpty()) {
+                                        Log.w("CartViewModel", "Invalid cart item: $cartItem, Firestore data: ${doc.data}")
+                                        viewModelScope.launch {
+                                            doc.reference.delete().await()
+                                            Log.d("CartViewModel", "Deleted invalid cart item: ${doc.id}")
+                                        }
+                                        null
+                                    } else {
+                                        cartItem
+                                    }
+                                }
+                                item
+                            } catch (e: Exception) {
+                                Log.e("CartViewModel", "Error parsing cart item: ${doc.data}, ${e.message}")
+                                null
+                            }
+                        } ?: emptyList()
+
+                        Log.d("CartViewModel", "Total items loaded in cart: ${items.size}")
+                        _cartItems.value = items
+                        _totalCartPrice.value = items.sumOf { it.price * it.quantity }
+                        _checkoutItems.value = items
+                        _isCartLoading.value = false
                     }
-                } ?: emptyList()
-
-                Log.d("CartViewModel", "Total items loaded in cart: ${items.size}")
-                _cartItems.value = items
-
-                // Ensure checkout items are synchronized with cart items
-                _checkoutItems.value = items
-
-                _isCartLoading.value = false
             }
-    }
 
-    // Function to verify cart is loaded and contains items
-    fun verifyCartLoaded(onCartLoaded: (List<CartItem>) -> Unit, onEmptyCart: () -> Unit, onError: (String) -> Unit) {
-        if (_isCartLoading.value) {
-            onError("Cart is still loading")
-            return
-        }
-
-        if (_cartLoadError.value != null) {
-            onError(_cartLoadError.value ?: "Unknown error loading cart")
-            return
-        }
-
-        val currentItems = _cartItems.value
-        if (currentItems.isEmpty()) {
-            Log.e("CartViewModel", "Cart is empty when verifying")
-            onEmptyCart()
-            return
-        }
-
-        Log.d("CartViewModel", "Cart verification successful: ${currentItems.size} items")
-        onCartLoaded(currentItems)
-    }
-
-    // Function to fetch a product by its ID
-    fun getProductById(productId: String, onResult: (Product?) -> Unit) {
-        firestore.collection("products").document(productId)
-            .get()
-            .addOnSuccessListener { document ->
-                val product = document.toObject(Product::class.java)
-                if (product != null) {
-                    // Ensure ID is set
-                    product.prodId = document.id
+            fun verifyCartLoaded(onCartLoaded: (List<CartItem>) -> Unit, onEmptyCart: () -> Unit, onError: (String) -> Unit) {
+                if (_isCartLoading.value) {
+                    onError("Cart is still loading")
+                    return
                 }
-                Log.d("CartViewModel", "Product retrieved: ${product?.name}")
-                onResult(product)
+
+                if (_cartLoadError.value != null) {
+                    onError(_cartLoadError.value ?: "Unknown error loading cart")
+                    return
+                }
+
+                val currentItems = _cartItems.value
+                if (currentItems.isEmpty()) {
+                    Log.e("CartViewModel", "Cart is empty when verifying")
+                    onEmptyCart()
+                    return
+                }
+
+                Log.d("CartViewModel", "Cart verification successful: ${currentItems.size} items")
+                onCartLoaded(currentItems)
             }
-            .addOnFailureListener { error ->
-                Log.e("CartViewModel", "Error fetching product by ID: ${error.message}")
-                onResult(null)
-            }
-    }
 
-    fun addToCart(product: Product, userType: String, navController: NavController) {
-        triggerCartShake()
-        val userId = auth.currentUser?.uid ?: return
-
-        if (userType == "direct_buying") {
-            // Set as direct buy item
-            setDirectBuyItem(product)
-            val totalPrice = product.price
-            navController.navigate("paymentScreen/${product.prodId}/$totalPrice")
-            return
-        }
-
-        viewModelScope.launch {
-            val cartRef = firestore.collection("carts").document(userId).collection("items")
-                .document(product.prodId)
-
-            cartRef.get().addOnSuccessListener { document ->
-                if (document.exists()) {
-                    val newQuantity = (document.getLong("quantity") ?: 1) + 1
-                    cartRef.update("quantity", newQuantity).addOnSuccessListener {
-                        Log.d("Cart", "Quantity updated in cart")
-                        loadCartItems()
+            fun getProductById(productId: String, onResult: (Product?) -> Unit) {
+                firestore.collection("products").document(productId)
+                    .get()
+                    .addOnSuccessListener { document ->
+                        val product = document.toObject(Product::class.java)
+                        if (product != null) {
+                            product.prodId = document.id
+                        }
+                        Log.d("CartViewModel", "Product retrieved: ${product?.name}")
+                        onResult(product)
                     }
-                } else {
-                    val cartItem = hashMapOf(
-                        "productId" to product.prodId,
-                        "name" to product.name,
-                        "price" to product.price,
-                        "weight" to product.quantity,
-                        "unit" to product.quantityUnit,
-                        "quantity" to 1,
-                        "imageUrl" to product.imageUrl,
-                        "sellerId" to product.ownerId,
-                        "isDirectBuy" to false
-                    )
-                    cartRef.set(cartItem).addOnSuccessListener {
-                        Log.d("Cart", "New product added to cart!")
-                        loadCartItems()
+                    .addOnFailureListener { error ->
+                        Log.e("CartViewModel", "Error fetching product by ID: ${error.message}")
+                        onResult(null)
+                    }
+            }
+
+            fun addToCart(product: Product, userType: String, navController: NavController) {
+                triggerCartShake()
+                val userId = auth.currentUser?.uid ?: return
+
+                if (userType == "direct_buying") {
+                    setDirectBuyItem(product)
+                    val totalPrice = product.price
+                    navController.navigate("paymentScreen/${product.prodId}/$totalPrice")
+                    return
+                }
+
+                viewModelScope.launch {
+                    val cartRef = firestore.collection("carts").document(userId).collection("items")
+                        .document(product.prodId)
+
+                    try {
+                        val document = cartRef.get().await()
+                        if (document.exists()) {
+                            val newQuantity = (document.getLong("quantity") ?: 1) + 1
+                            cartRef.update("quantity", newQuantity).await()
+                            Log.d("CartViewModel", "Quantity updated in cart: ${product.name}, New Quantity: $newQuantity")
+                        } else {
+                            val cartItem = hashMapOf(
+                                "productId" to product.prodId,
+                                "name" to product.name,
+                                "price" to product.price,
+                                "weight" to product.quantity,
+                                "unit" to product.quantityUnit,
+                                "quantity" to 1,
+                                "imageUrl" to product.imageUrl,
+                                "sellerId" to product.ownerId,
+                                "isDirectBuy" to false
+                            )
+                            cartRef.set(cartItem).await()
+                            Log.d("CartViewModel", "New product added to cart: ${product.name}")
+                        }
+
+                        _cartIconShake.value = true
+                        _snackbarMessage.value = "${product.name} added to cart!"
+                        _showSnackbar.value = true
+                    } catch (e: Exception) {
+                        Log.e("CartViewModel", "Failed to add to cart: ${e.message}")
+                        _cartLoadError.value = "Failed to add to cart: ${e.message}"
                     }
                 }
-
-                _cartIconShake.value = true
-                _snackbarMessage.value = "${product.name} added to cart!"
-                _showSnackbar.value = true
-            }.addOnFailureListener { e ->
-                Log.e("Cart", "Failed to add to cart: ${e.message}")
             }
-        }
-    }
 
-    fun setDirectBuyItem(product: Product) {
-        val directItem = CartItem(
-            productId = product.prodId,
-            name = product.name,
-            price = product.price,
-            quantity = 1,
-            imageUrl = product.imageUrl,
-            isDirectBuy = true,
-            sellerId = product.ownerId,
-            unit = product.quantityUnit,
-            weight = product.quantity
-        )
+            fun setDirectBuyItem(product: Product) {
+                val directItem = CartItem(
+                    productId = product.prodId,
+                    name = product.name,
+                    price = product.price,
+                    quantity = 1,
+                    imageUrl = product.imageUrl,
+                    isDirectBuy = true,
+                    sellerId = product.ownerId,
+                    unit = product.quantityUnit,
+                    weight = product.quantity
+                )
 
-        Log.d("CartViewModel", "Setting direct buy item: ${directItem.name}")
-        _directBuyItem.value = directItem
+                Log.d("CartViewModel", "Setting direct buy item: ${directItem.name}")
+                _directBuyItem.value = directItem
+                _checkoutItems.value = listOf(directItem)
+                _purchasedItems.value = listOf(directItem)
+            }
 
-        // Also add to checkout items to ensure consistency
-        _checkoutItems.value = listOf(directItem)
-    }
-
-    fun removeFromCart(itemId: String) {
-        val userId = auth.currentUser?.uid ?: return
-        viewModelScope.launch {
-            Log.d("CartViewModel", "Removing item from cart: $itemId")
-            firestore.collection("carts").document(userId).collection("items").document(itemId)
-                .delete()
-                .addOnSuccessListener {
-                    Log.d("CartViewModel", "Item removed from cart: $itemId")
+            fun removeFromCart(itemId: String) {
+                val userId = auth.currentUser?.uid ?: return
+                viewModelScope.launch {
+                    try {
+                        Log.d("CartViewModel", "Removing item from cart: $itemId")
+                        firestore.collection("carts").document(userId).collection("items").document(itemId)
+                            .delete().await()
+                        Log.d("CartViewModel", "Item removed from cart: $itemId")
+                    } catch (e: Exception) {
+                        Log.e("CartViewModel", "Failed to remove item from cart: ${e.message}")
+                        _cartLoadError.value = "Failed to remove item: ${e.message}"
+                    }
                 }
-                .addOnFailureListener { e ->
-                    Log.e("CartViewModel", "Failed to remove item from cart: ${e.message}")
-                }
-        }
-    }
+            }
 
-    fun completePurchase(userType: String, paymentMethod: String, gcashRef: String = "") {
-        val userId = auth.currentUser?.uid ?: return
-        val orderId = firestore.collection("orders").document().id
-
-        // First verify we have items to purchase
-        verifyCartLoaded(
-            onCartLoaded = { items ->
+            fun completePurchase(userType: String, paymentMethod: String, referenceId: String = "") {
                 val itemsToPurchase = if (userType == "direct_buying") {
-                    items.filter { it.isDirectBuy }
+                    _directBuyItem.value?.let { listOf(it) } ?: emptyList()
                 } else {
-                    items
+                    _checkoutItems.value
                 }
 
                 if (itemsToPurchase.isEmpty()) {
-                    Log.e("Order", "No items to purchase!")
-                    return@verifyCartLoaded
+                    Log.e("CartViewModel", "No items to complete purchase, DirectBuy: ${_directBuyItem.value}, Checkout: ${_checkoutItems.value.size}, Cart: ${_cartItems.value.size}")
+                    clearCart()
+                    return
                 }
 
-                Log.d("Order", "Creating order with ${itemsToPurchase.size} items")
+                // Log purchased items for debugging
+                itemsToPurchase.forEach { item ->
+                    Log.d("CartViewModel", "Purchased item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}")
+                }
 
-                val order = hashMapOf(
-                    "userId" to userId,
-                    "orderId" to orderId,
-                    "items" to itemsToPurchase.map { item ->
-                        hashMapOf(
-                            "productId" to item.productId,
-                            "name" to item.name,
-                            "price" to item.price,
-                            "quantity" to item.quantity
-                        )
-                    },
-                    "totalPrice" to itemsToPurchase.sumOf { it.price * it.quantity },
-                    "paymentMethod" to if (paymentMethod.isNullOrBlank() || paymentMethod != "GCash") "COD" else "GCash",
-                    "gcashReference" to if (paymentMethod == "GCash") gcashRef else null,
-                    "status" to "Pending",
-                    "timestamp" to System.currentTimeMillis()
-                )
+                // Set purchased items and clear cart
+                _purchasedItems.value = itemsToPurchase
+                viewModelScope.launch {
+                    clearCart()
+                    _directBuyItem.value = null
+                    _checkoutItems.value = emptyList()
+                    _purchasedItems.value = emptyList()
+                    Log.d("CartViewModel", "Purchase completed and cart cleared")
+                }
+            }
 
-                firestore.collection("orders").document(orderId).set(order)
-                    .addOnSuccessListener {
-                        clearCartAfterPurchase(userId, isDirectBuy = userType == "direct_buying")
-                        Log.d("Order", "Order placed successfully!")
+            private fun clearCart() {
+                viewModelScope.launch {
+                    val userId = auth.currentUser?.uid ?: return@launch
+                    val cartRef = firestore.collection("carts").document(userId).collection("items")
+
+                    try {
+                        val snapshot = cartRef.get().await()
+                        Log.d("CartViewModel", "Cart items before clear: ${snapshot.documents.size}")
+                        snapshot.documents.forEach { doc ->
+                            Log.d("CartViewModel", "Firestore cart item: ${doc.id}, ${doc.data}")
+                        }
+                        val batch = firestore.batch()
+                        snapshot.documents.forEach { doc ->
+                            batch.delete(doc.reference)
+                        }
+                        batch.commit().await()
+                        _cartItems.value = emptyList()
+                        _totalCartPrice.value = 0.0
+                        Log.d("CartViewModel", "Cart cleared successfully")
+                    } catch (e: Exception) {
+                        Log.e("CartViewModel", "Error clearing cart: ${e.message}")
+                        _cartLoadError.value = "Failed to clear cart: ${e.message}"
+                        _cartItems.value = emptyList()
+                        _totalCartPrice.value = 0.0
+                    }
+                }
+            }
+
+            fun clearPurchasedItems() {
+                _purchasedItems.value = emptyList()
+                Log.d("CartViewModel", "Cleared purchased items")
+            }
+
+            fun getUserById(userId: String, onResult: (UserData?) -> Unit) {
+                firestore.collection("users").document(userId)
+                    .get()
+                    .addOnSuccessListener { document ->
+                        val user = document.toObject(UserData::class.java)
+                        onResult(user)
                     }
                     .addOnFailureListener { e ->
-                        Log.e("Order", "Failed to place order: ${e.message}")
+                        Log.e("CartViewModel", "Error fetching user: ${e.message}")
+                        onResult(null)
                     }
-            },
-            onEmptyCart = {
-                Log.e("Order", "Cannot complete purchase with empty cart")
-            },
-            onError = { error ->
-                Log.e("Order", "Error when completing purchase: $error")
             }
-        )
-    }
 
-    private fun clearCartAfterPurchase(userId: String, isDirectBuy: Boolean) {
-        if (isDirectBuy) {
-            val directBuyItem = cartItems.value.firstOrNull { it.isDirectBuy }
-            directBuyItem?.let {
-                firestore.collection("carts").document(userId).collection("items")
-                    .document(it.productId).delete()
-            }
-        } else {
-            firestore.collection("carts").document(userId).collection("items").get()
-                .addOnSuccessListener { documents ->
-                    for (document in documents) {
-                        document.reference.delete()
+            fun updateCartItemQuantity(productId: String, newQuantity: Int) {
+                if (newQuantity <= 0) {
+                    removeFromCart(productId)
+                    return
+                }
+
+                val userId = auth.currentUser?.uid ?: return
+
+                viewModelScope.launch {
+                    try {
+                        Log.d("CartViewModel", "Updating quantity for $productId to $newQuantity")
+                        firestore.collection("carts").document(userId).collection("items")
+                            .document(productId)
+                            .update("quantity", newQuantity)
+                            .await()
+                        Log.d("CartViewModel", "Quantity updated in database")
+
+                        val currentCart = _cartItems.value.toMutableList()
+                        val index = currentCart.indexOfFirst { it.productId == productId }
+                        if (index != -1) {
+                            val updatedItem = currentCart[index].copy(quantity = newQuantity)
+                            currentCart[index] = updatedItem
+                            _cartItems.value = currentCart
+                            _checkoutItems.value = currentCart
+                            _totalCartPrice.value = currentCart.sumOf { it.price * it.quantity }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CartViewModel", "Failed to update quantity: ${e.message}")
+                        _cartLoadError.value = "Failed to update quantity: ${e.message}"
                     }
                 }
-        }
-    }
-
-    fun getUserById(userId: String, onResult: (UserData?) -> Unit) {
-        firestore.collection("users").document(userId)
-            .get()
-            .addOnSuccessListener { document ->
-                val user = document.toObject(UserData::class.java)
-                onResult(user)
             }
-            .addOnFailureListener { e ->
-                Log.e("CartViewModel", "Error fetching user: ${e.message}")
-                onResult(null)
+
+            fun clearSnackbarMessage() {
+                _snackbarMessage.value = null
+                _showSnackbar.value = false
             }
-    }
 
-    fun updateCartItemQuantity(productId: String, newQuantity: Int) {
-        val userId = auth.currentUser?.uid ?: return
+            fun triggerCartShake() {
+                _cartIconShake.value = true
+            }
 
-        viewModelScope.launch {
-            Log.d("CartViewModel", "Updating quantity for $productId to $newQuantity")
+            fun resetCartIconShake() {
+                _cartIconShake.value = false
+            }
 
-            // Update in Firestore first
-            firestore.collection("carts").document(userId).collection("items")
-                .document(productId)
-                .update("quantity", newQuantity)
-                .addOnSuccessListener {
-                    Log.d("CartViewModel", "Quantity updated in database")
-                }
-                .addOnFailureListener { e ->
-                    Log.e("CartViewModel", "Failed to update quantity: ${e.message}")
-                }
+            fun getTotalCartPrice(): Double {
+                return totalCartPrice.value
+            }
 
-            // Also update in local state for immediate UI feedback
-            val currentCart = _cartItems.value.toMutableList()
-            val index = currentCart.indexOfFirst { it.productId == productId }
-            if (index != -1) {
-                val updatedItem = currentCart[index].copy(quantity = newQuantity)
-                currentCart[index] = updatedItem
-                _cartItems.value = currentCart
+            fun setCheckoutItems(items: List<CartItem>) {
+                Log.d("CartViewModel", "Setting checkout items: ${items.size} items, Items: ${items.joinToString { "${it.name} (ID: ${it.productId})" }}")
+                _checkoutItems.value = items
+                _purchasedItems.value = items
+            }
 
-                // Keep checkout items in sync
-                _checkoutItems.value = currentCart
+            fun refreshCartItems() {
+                Log.d("CartViewModel", "Manually refreshing cart items")
+                loadCartItems()
             }
         }
-    }
-
-    fun clearSnackbarMessage() {
-        _snackbarMessage.value = null
-        _showSnackbar.value = false
-    }
-
-    fun triggerCartShake() {
-        _cartIconShake.value = true
-    }
-
-    fun resetCartIconShake() {
-        _cartIconShake.value = false
-    }
-
-    fun getTotalCartPrice(): Double {
-        return totalCartPrice.value
-    }
-
-    fun setCheckoutItems(items: List<CartItem>) {
-        Log.d("CartViewModel", "Setting checkout items: ${items.size} items")
-        _checkoutItems.value = items
-    }
-
-    // Force a manual refresh of cart items from the database
-    fun refreshCartItems() {
-        Log.d("CartViewModel", "Manually refreshing cart items")
-        loadCartItems()
-    }
-}

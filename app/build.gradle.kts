@@ -74,10 +74,12 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx:24.9.0")
     implementation ("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx:23.3.1")
+    implementation("com.google.firebase:firebase-auth")
 
 
     implementation("com.google.android.gms:play-services-auth:20.7.0")
     implementation("com.google.android.gms:play-services-location:21.0.1")
+    implementation ("com.google.android.play:integrity:1.4.0")
 
     // Jetpack Compose
     implementation("androidx.compose:compose-bom:2024.02.00")
@@ -116,7 +118,9 @@ dependencies {
     // Coroutines
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1")
     implementation ("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
-
+// Kotlin Coroutines for Flow and Firestore await()
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     val nav_version = "2.8.7"
     implementation("androidx.navigation:navigation-compose:$nav_version")
 }

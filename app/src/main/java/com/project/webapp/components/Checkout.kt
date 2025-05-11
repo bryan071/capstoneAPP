@@ -51,16 +51,19 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.google.gson.Gson
 import com.project.webapp.R
 import com.project.webapp.components.payment.PriceLine
 import com.project.webapp.components.payment.ReceiptScreen
 import com.project.webapp.components.payment.SectionTitle
 import com.project.webapp.datas.CartItem
+import java.net.URLDecoder
 import kotlin.collections.contains
 import kotlin.collections.forEach
 
@@ -70,14 +73,27 @@ fun CheckoutScreen(
     navController: NavController,
     cartViewModel: CartViewModel,
     totalPrice: Double,
-    cartItems: List<CartItem>? = null,
     userType: String,
-    paymentMethod: String = "COD", // Add default payment method
-    referenceId: String = "" // Add reference ID for GCash payments
+    paymentMethod: String = "COD",
+    referenceId: String = "",
+    itemsJson: String? = null // JSON string from navigation
 ) {
     var showReceipt by remember { mutableStateOf(false) }
     val sellerNames = remember { mutableStateMapOf<String, String>() }
     val currentUser by cartViewModel.currentUser.collectAsState()
+
+    // Parse cartItems from JSON
+    val cartItems: List<CartItem>? = remember(itemsJson) {
+        itemsJson?.let {
+            try {
+                val decodedJson = URLDecoder.decode(it, "UTF-8")
+                Gson().fromJson(decodedJson, Array<CartItem>::class.java).toList()
+            } catch (e: Exception) {
+                Log.e("CheckoutScreen", "Error parsing cartItems JSON: ${e.message}")
+                null
+            }
+        }
+    }
 
     // Debug log for tracking data flow
     LaunchedEffect(key1 = Unit) {
@@ -91,16 +107,11 @@ fun CheckoutScreen(
     val purchasedItems by cartViewModel.purchasedItems.collectAsState()
     val viewModelCartItems by cartViewModel.cartItems.collectAsState()
 
-    // If cartItems is null or empty, get them from the ViewModel with proper precedence
+    // Determine effectiveCartItems
     val effectiveCartItems = remember(cartItems, purchasedItems, viewModelCartItems) {
         when {
-            // First priority: Items passed directly to this composable
             !cartItems.isNullOrEmpty() -> cartItems
-
-            // Second priority: Items marked as purchased (from GCash flow)
             purchasedItems.isNotEmpty() -> purchasedItems
-
-            // Fallback: Regular cart items
             else -> viewModelCartItems
         }
     }
@@ -110,24 +121,20 @@ fun CheckoutScreen(
         Log.d("CheckoutScreen", "Final effectiveCartItems size: ${effectiveCartItems.size}")
     }
 
-    // Define the theme color - same as in PaymentScreen
-    val themeColor = Color(0xFF0DA54B) // GCash green
-
     // Fetch seller information for the cart items
     LaunchedEffect(effectiveCartItems) {
         effectiveCartItems.forEach { item ->
-            // If item already has a seller ID, use it directly
-                cartViewModel.getProductById(item.productId) { product ->
-                    product?.let { prod ->
-                        if (prod.ownerId !in sellerNames) {
-                            cartViewModel.getUserById(prod.ownerId) { user ->
-                                user?.let {
-                                    sellerNames[item.productId] = "${it.firstname} ${it.lastname}"
-                                }
+            cartViewModel.getProductById(item.productId) { product ->
+                product?.let { prod ->
+                    if (prod.ownerId !in sellerNames) {
+                        cartViewModel.getUserById(prod.ownerId) { user ->
+                            user?.let {
+                                sellerNames[item.productId] = "${it.firstname} ${it.lastname}"
                             }
                         }
                     }
                 }
+            }
         }
     }
 
@@ -186,7 +193,6 @@ fun CheckoutScreen(
                             modifier = Modifier.padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            // Different icons based on payment method
                             if (paymentMethod == "GCash") {
                                 Icon(
                                     painter = painterResource(id = R.drawable.gcash_icon),
@@ -198,14 +204,13 @@ fun CheckoutScreen(
                                 Icon(
                                     imageVector = Icons.Default.ShoppingCart,
                                     contentDescription = null,
-                                    tint = themeColor,
+                                    tint = Color(0xFF0DA54B),
                                     modifier = Modifier.size(40.dp)
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Display payment method
                             Text(
                                 when (paymentMethod) {
                                     "GCash" -> "GCash Payment"
@@ -215,7 +220,6 @@ fun CheckoutScreen(
                                 fontWeight = FontWeight.Bold
                             )
 
-                            // Show reference ID for GCash payments
                             if (paymentMethod == "GCash" && referenceId.isNotEmpty()) {
                                 Text(
                                     "Reference ID: $referenceId",
@@ -232,7 +236,6 @@ fun CheckoutScreen(
                             )
                         }
                     }
-
 
                     // Shipping Address Section
                     currentUser?.let { user ->
@@ -252,7 +255,7 @@ fun CheckoutScreen(
                                     Icon(
                                         imageVector = Icons.Default.Person,
                                         contentDescription = null,
-                                        tint = themeColor,
+                                        tint = Color(0xFF0DA54B),
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -269,7 +272,7 @@ fun CheckoutScreen(
                                     Icon(
                                         imageVector = Icons.Default.Phone,
                                         contentDescription = null,
-                                        tint = themeColor,
+                                        tint = Color(0xFF0DA54B),
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -280,12 +283,12 @@ fun CheckoutScreen(
                                 }
 
                                 Row(
-                                    verticalAlignment = Alignment.Top,
+                                    verticalAlignment = Alignment.Top
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.LocationOn,
                                         contentDescription = null,
-                                        tint = themeColor,
+                                        tint = Color(0xFF0DA54B),
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -299,7 +302,7 @@ fun CheckoutScreen(
                     }
 
                     // Order Items Section
-                    SectionTitle(title = "Order Items (${effectiveCartItems .size})")
+                    SectionTitle(title = "Order Items (${effectiveCartItems.size})")
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -308,22 +311,32 @@ fun CheckoutScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                            effectiveCartItems .forEachIndexed { index, item ->
-                                val sellerName = sellerNames[item.productId] ?: "Loading..."
-
-                                CheckoutItemCard(
-                                    item = item,
-                                    sellerName = sellerName,
-                                    themeColor = themeColor
+                            if (effectiveCartItems.isEmpty()) {
+                                Text(
+                                    text = "No items to display",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(16.dp),
+                                    textAlign = TextAlign.Center
                                 )
+                            } else {
+                                effectiveCartItems.forEachIndexed { index, item ->
+                                    val sellerName = sellerNames[item.productId] ?: "Loading..."
 
-                                if (index < effectiveCartItems .size - 1) {
-                                    Divider(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        color = Color(0xFFEEEEEE)
+                                    CheckoutItemCard(
+                                        item = item,
+                                        sellerName = sellerName,
+                                        themeColor = Color(0xFF0DA54B)
                                     )
+
+                                    if (index < effectiveCartItems.size - 1) {
+                                        Divider(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 8.dp),
+                                            color = Color(0xFFEEEEEE)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -345,13 +358,13 @@ fun CheckoutScreen(
                             PriceLine(
                                 title = "Items Total",
                                 value = "₱${"%.2f".format(totalPrice - 50.0)}",
-                                themeColor = themeColor
+                                themeColor = Color(0xFF0DA54B)
                             )
 
                             PriceLine(
                                 title = "Shipping Fee",
                                 value = "₱50.00",
-                                themeColor = themeColor
+                                themeColor = Color(0xFF0DA54B)
                             )
 
                             Divider(
@@ -365,7 +378,7 @@ fun CheckoutScreen(
                                 title = "Total Amount",
                                 value = "₱${"%.2f".format(totalPrice)}",
                                 isBold = true,
-                                themeColor = themeColor
+                                themeColor = Color(0xFF0DA54B)
                             )
 
                             PriceLine(
@@ -374,7 +387,7 @@ fun CheckoutScreen(
                                     "GCash" -> "GCash"
                                     else -> "Cash on Delivery"
                                 },
-                                themeColor = themeColor
+                                themeColor = Color(0xFF0DA54B)
                             )
                         }
                     }
@@ -382,16 +395,16 @@ fun CheckoutScreen(
                     // Confirmation Button
                     Button(
                         onClick = {
-                            // Complete purchase with the appropriate payment method
-                            cartViewModel.completePurchase(paymentMethod, referenceId, "")
+                            cartViewModel.completePurchase(userType, paymentMethod, referenceId)
+                            cartViewModel.clearPurchasedItems() // Clear purchased items after confirmation
                             showReceipt = true
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = themeColor),
-                        enabled = effectiveCartItems .isNotEmpty()
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+                        enabled = effectiveCartItems.isNotEmpty()
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

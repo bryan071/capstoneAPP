@@ -2,6 +2,7 @@ package com.project.webapp.pages
 
 import android.app.Activity
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -17,8 +18,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +43,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.google.android.play.core.integrity.IntegrityManagerFactory
+import com.google.android.play.core.integrity.IntegrityTokenRequest
 import com.google.firebase.FirebaseException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.*
@@ -50,12 +55,48 @@ import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.components.TopBar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 val PrimaryColor = Color(0xFF0DA54B)
 val backgroundColor = Color(0xFFF5F5F5)
 val cardColor = Color.White
+
+// Function to generate a secure nonce for Play Integrity API
+fun generateNonce(): String {
+    val random = SecureRandom()
+    val bytes = ByteArray(16) // 128-bit nonce
+    random.nextBytes(bytes)
+    return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+}
+
+// Function to request Play Integrity token
+fun requestIntegrityToken(
+    context: Context,
+    nonce: String,
+    onResult: (String?, String?) -> Unit
+) {
+    // Create an IntegrityManager instance
+    val integrityManager = IntegrityManagerFactory.create(context)
+
+    // Build the integrity token request
+    val request: IntegrityTokenRequest = IntegrityTokenRequest.builder()
+        .setNonce(nonce)
+        .build()
+
+    // Request the integrity token
+    integrityManager.requestIntegrityToken(request)
+        .addOnSuccessListener { response ->
+            val token = response.token()
+            Log.d("PlayIntegrity", "Integrity token: $token")
+            onResult(token, null)
+        }
+        .addOnFailureListener { exception ->
+            Log.e("PlayIntegrity", "Failed to get integrity token: ${exception.message}", exception)
+            onResult(null, exception.message)
+        }
+}
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -85,6 +126,7 @@ fun ForgotPass(
     var canResendOtp by remember { mutableStateOf(false) }
     var resendToken by remember { mutableStateOf<PhoneAuthProvider.ForceResendingToken?>(null) }
     var userType by remember { mutableStateOf<String?>(null) }
+    var integrityToken by remember { mutableStateOf<String?>(null) }
 
     val auth = FirebaseAuth.getInstance()
     val scrollState = rememberScrollState()
@@ -97,7 +139,19 @@ fun ForgotPass(
     var isPasswordValid by remember { mutableStateOf(false) }
     var passwordsMatch by remember { mutableStateOf(false) }
 
-
+    // Request Play Integrity token on screen load
+    LaunchedEffect(Unit) {
+        val nonce = generateNonce()
+        requestIntegrityToken(context, nonce) { token, error ->
+            if (token != null) {
+                integrityToken = token
+                Log.d("ForgotPass", "Play Integrity token obtained: $token")
+            } else {
+                errorMessage = error ?: "Failed to verify app integrity"
+                Log.e("ForgotPass", "Play Integrity error: $error")
+            }
+        }
+    }
 
     // Track countdown for OTP resending
     LaunchedEffect(key1 = step, key2 = canResendOtp) {
@@ -202,6 +256,10 @@ fun ForgotPass(
                     phoneNumber = phoneNumber,
                     onPhoneChanged = { phoneNumber = it },
                     onSubmit = {
+                        if (integrityToken == null) {
+                            errorMessage = "App integrity verification failed. Please try again."
+                            return@PhoneStep
+                        }
                         keyboardController?.hide()
                         focusManager.clearFocus()
                         isLoading = true
@@ -266,6 +324,10 @@ fun ForgotPass(
                     countdown = countdown,
                     canResend = canResendOtp,
                     onResend = {
+                        if (integrityToken == null) {
+                            errorMessage = "App integrity verification failed. Please try again."
+                            return@OTPStep
+                        }
                         resendVerificationCode(
                             phoneNumber = phoneNumber,
                             resendToken = resendToken,
@@ -371,66 +433,54 @@ fun StepIndicator(currentStep: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        for (step in 1..3) {
+        val steps = listOf("Phone", "Verify", "Reset")
+        steps.forEachIndexed { index, label ->
+            val stepNumber = index + 1
+            val isActive = stepNumber <= currentStep
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .padding(4.dp),
-                    contentAlignment = Alignment.Center
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = if (isActive) PrimaryColor else Color(0xFFE0E0E0)
                 ) {
-                    Surface(
-                        modifier = Modifier.size(32.dp),
-                        color = if (step <= currentStep) PrimaryColor else Color.LightGray,
-                        shape = CircleShape
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = step.toString(),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stepNumber.toString(),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
                     }
                 }
-
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = when (step) {
-                        1 -> "Phone"
-                        2 -> "Verify"
-                        3 -> "Reset"
-                        else -> ""
-                    },
+                    text = label,
                     fontSize = 12.sp,
-                    color = if (step <= currentStep) PrimaryColor else Color.Gray
+                    color = if (isActive) PrimaryColor else Color.Gray,
+                    fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal
                 )
             }
 
-            // Connector line between steps
-            if (step < 3) {
-                Box(
+            if (stepNumber < steps.size) {
+                Surface(
                     modifier = Modifier
                         .height(2.dp)
-                        .weight(1f)
-                        .align(Alignment.CenterVertically)
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = if (step < currentStep) PrimaryColor else Color.LightGray
-                    ) {}
-                }
+                        .weight(1f),
+                    color = if (stepNumber < currentStep) PrimaryColor else Color(0xFFE0E0E0)
+                ) {}
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhoneStep(
     phoneNumber: String,
@@ -438,20 +488,22 @@ fun PhoneStep(
     onSubmit: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Enter your phone number",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium
+            text = "Enter Phone Number",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             text = "We'll send a verification code to this number",
@@ -465,18 +517,15 @@ fun PhoneStep(
         OutlinedTextField(
             value = phoneNumber,
             onValueChange = { input ->
-                if (input.isEmpty()) {
-                    onPhoneChanged("+63")
-                } else if (input.startsWith("+63")) {
-                    onPhoneChanged(input)
-                } else if (input.startsWith("+")) {
-                    onPhoneChanged("+63" + input.substring(1))
+                val cleaned = input.replace("[^0-9+]".toRegex(), "")
+                if (cleaned.startsWith("+63") || cleaned.isEmpty()) {
+                    onPhoneChanged(cleaned)
                 } else {
-                    onPhoneChanged("+63$input")
+                    onPhoneChanged("+63$cleaned")
                 }
             },
             label = { Text("Phone Number") },
-            placeholder = { Text("+63 9XX XXX XXXX") },
+            placeholder = { Text("+639123456789") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Phone,
@@ -485,21 +534,37 @@ fun PhoneStep(
             keyboardActions = KeyboardActions(
                 onDone = {
                     focusManager.clearFocus()
+                    keyboardController?.hide()
                     if (isValidPhoneNumber(phoneNumber)) {
                         onSubmit()
                     }
                 }
             ),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = {
+                Text(
+                    text = "+63",
+                    color = Color.Gray,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+            },
+            isError = phoneNumber.isNotEmpty() && !isValidPhoneNumber(phoneNumber),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = PrimaryColor,
+                unfocusedBorderColor = Color.Gray
+            )
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Format: +63 9XX XXX XXXX",
-            fontSize = 12.sp,
-            color = Color.Gray
-        )
+        if (phoneNumber.isNotEmpty() && !isValidPhoneNumber(phoneNumber)) {
+            Text(
+                text = "Please enter a valid phone number (+639XXXXXXXXX)",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, top = 4.dp)
+            )
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -508,13 +573,23 @@ fun PhoneStep(
             enabled = isValidPhoneNumber(phoneNumber),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = PrimaryColor,
+                disabledContainerColor = Color.Gray
+            ),
+            shape = MaterialTheme.shapes.medium
         ) {
-            Text("Send Verification Code")
+            Text(
+                text = "Send Verification Code",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OTPStep(
     otpValues: List<String>,
@@ -526,31 +601,32 @@ fun OTPStep(
     onResend: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Enter verification code",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium
+            text = "Enter Verification Code",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "We've sent a verification code to your phone number",
+            text = "We've sent a 6-digit code to your phone",
             fontSize = 14.sp,
             color = Color.Gray,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // OTP input fields in a row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -559,31 +635,43 @@ fun OTPStep(
                 OutlinedTextField(
                     value = otpValues[i],
                     onValueChange = { value ->
-                        onOtpChanged(i, value)
+                        if (value.length <= 1 && value.all { it.isDigit()}) {
+                            onOtpChanged(i, value)
+                            if (value.isNotEmpty() && i < 5) {
+                                focusRequesters[i + 1].requestFocus()
+                            } else if (value.isEmpty() && i > 0) {
+                                focusRequesters[i - 1].requestFocus()
+                            }
+                            if (i == 5 && value.isNotEmpty() && otpValues.joinToString("").length == 6) {
+                                keyboardController?.hide()
+                                onSubmit()
+                            }
+                        }
                     },
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(56.dp)
+                        .focusRequester(focusRequesters[i]),
+                    textStyle = LocalTextStyle.current.copy(
+                        textAlign = TextAlign.Center,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,
                         imeAction = if (i < 5) ImeAction.Next else ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(
-                        onNext = {
-                            if (i < 5) focusRequesters[i + 1].requestFocus()
-                        },
+                        onNext = { if (i < 5) focusRequesters[i + 1].requestFocus() },
                         onDone = {
                             focusManager.clearFocus()
-                            if (otpValues.joinToString("").length == 6) {
-                                onSubmit()
-                            }
+                            if (otpValues.joinToString("").length == 6) onSubmit()
                         }
                     ),
-                    singleLine = true,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
-                        .focusRequester(focusRequesters[i]),
-                    textStyle = LocalTextStyle.current.copy(
-                        textAlign = TextAlign.Center,
-                        fontSize = 18.sp
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = PrimaryColor,
+                        unfocusedBorderColor = Color.Gray
                     )
                 )
             }
@@ -591,47 +679,48 @@ fun OTPStep(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Resend button with countdown
         Row(
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 16.dp)
         ) {
             Text(
-                text = "Didn't receive the code? ",
+                text = if (canResend) "Didn't receive the code? " else "Resend in ${countdown}s",
                 fontSize = 14.sp,
                 color = Color.Gray
             )
-
             if (canResend) {
-                TextButton(
-                    onClick = {
-                        onResend()
-                    }
-                ) {
-                    Text("Resend")
+                TextButton(onClick = onResend) {
+                    Text(
+                        text = "Resend",
+                        color = PrimaryColor,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
-            } else {
-                Text(
-                    text = "Resend in ${countdown}s",
-                    fontSize = 14.sp,
-                    color = Color.Gray
-                )
             }
         }
-
-        Spacer(modifier = Modifier.height(32.dp))
 
         Button(
             onClick = onSubmit,
             enabled = otpValues.joinToString("").length == 6,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = PrimaryColor,
+                disabledContainerColor = Color.Gray
+            ),
+            shape = MaterialTheme.shapes.medium
         ) {
-            Text("Verify Code")
+            Text(
+                text = "Verify Code",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResetPasswordStep(
     password: String,
@@ -647,31 +736,32 @@ fun ResetPasswordStep(
     onSubmit: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Create new password",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium
+            text = "Create New Password",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Your identity has been verified! Set your new password",
+            text = "Set a strong password for your account",
             fontSize = 14.sp,
             color = Color.Gray,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Password field
         OutlinedTextField(
             value = password,
             onValueChange = onPasswordChange,
@@ -686,12 +776,17 @@ fun ResetPasswordStep(
                 IconButton(onClick = onTogglePasswordVisibility) {
                     Icon(
                         imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                        tint = Color.Gray
                     )
                 }
             },
             isError = password.isNotEmpty() && !isPasswordValid,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = PrimaryColor,
+                unfocusedBorderColor = Color.Gray
+            )
         )
 
         if (password.isNotEmpty()) {
@@ -700,7 +795,6 @@ fun ResetPasswordStep(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Confirm Password field
         OutlinedTextField(
             value = confirmPassword,
             onValueChange = onConfirmPasswordChange,
@@ -714,6 +808,7 @@ fun ResetPasswordStep(
             keyboardActions = KeyboardActions(
                 onDone = {
                     focusManager.clearFocus()
+                    keyboardController?.hide()
                     if (isPasswordValid && passwordsMatch) {
                         onSubmit()
                     }
@@ -723,12 +818,17 @@ fun ResetPasswordStep(
                 IconButton(onClick = onToggleConfirmPasswordVisibility) {
                     Icon(
                         imageVector = if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password"
+                        contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password",
+                        tint = Color.Gray
                     )
                 }
             },
             isError = confirmPassword.isNotEmpty() && !passwordsMatch,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = PrimaryColor,
+                unfocusedBorderColor = Color.Gray
+            )
         )
 
         if (confirmPassword.isNotEmpty() && !passwordsMatch) {
@@ -749,32 +849,40 @@ fun ResetPasswordStep(
             enabled = isPasswordValid && passwordsMatch,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = PrimaryColor,
+                disabledContainerColor = Color.Gray
+            ),
+            shape = MaterialTheme.shapes.medium
         ) {
-            Text("Reset Password")
+            Text(
+                text = "Reset Password",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
 
 @Composable
 fun PasswordStrengthIndicator(password: String, isValid: Boolean) {
-    Column(modifier = Modifier.padding(start = 16.dp, top = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val hasMinLength = password.length >= 8
-            val hasLetterAndDigit = password.any { it.isLetter() } && password.any { it.isDigit() }
+    Column(modifier = Modifier.padding(start = 16.dp, top = 8.dp)) {
+        val hasMinLength = password.length >= 8
+        val hasLetterAndDigit = hasLetterAndDigit(password)
 
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = if (hasMinLength) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                imageVector = if (hasMinLength) Icons.Default.CheckCircle else Icons.Default.Warning,
                 contentDescription = null,
                 tint = if (hasMinLength) Color.Green else Color.Red,
                 modifier = Modifier.size(16.dp)
             )
-
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "At least 8 characters",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (hasMinLength) Color.Green else Color.Red,
-                modifier = Modifier.padding(start = 4.dp)
+                color = if (hasMinLength) Color.Green else Color.Red
             )
         }
 
@@ -782,17 +890,16 @@ fun PasswordStrengthIndicator(password: String, isValid: Boolean) {
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = if (hasLetterAndDigit(password)) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                imageVector = if (hasLetterAndDigit) Icons.Default.CheckCircle else Icons.Default.Warning,
                 contentDescription = null,
-                tint = if (hasLetterAndDigit(password)) Color.Green else Color.Red,
+                tint = if (hasLetterAndDigit) Color.Green else Color.Red,
                 modifier = Modifier.size(16.dp)
             )
-
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "Contains letters and numbers",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (hasLetterAndDigit(password)) Color.Green else Color.Red,
-                modifier = Modifier.padding(start = 4.dp)
+                color = if (hasLetterAndDigit) Color.Green else Color.Red
             )
         }
     }
@@ -899,9 +1006,17 @@ fun verifyOTP(
     onSuccess: () -> Unit,
     onError: (String) -> Unit
 ) {
+    if (verificationId.isEmpty()) {
+        onError("Verification ID is missing. Please request a new OTP.")
+        return
+    }
+    if (otp.length != 6 || !otp.all { it.isDigit() }) {
+        onError("Please enter a valid 6-digit OTP.")
+        return
+    }
+
     try {
         val credential = PhoneAuthProvider.getCredential(verificationId, otp)
-
         auth.signInWithCredential(credential).addOnCompleteListener { task ->
             if (task.isSuccessful) {
                 Log.d("ForgotPass", "OTP Verified Successfully")
@@ -910,6 +1025,7 @@ fun verifyOTP(
                 Log.e("ForgotPass", "OTP Verification Failed: ${task.exception?.message}")
                 when (task.exception) {
                     is FirebaseAuthInvalidCredentialsException -> onError("Invalid verification code. Please try again.")
+                    is FirebaseAuthException -> onError("Authentication error: ${task.exception?.message}")
                     else -> onError("Verification failed: ${task.exception?.message ?: "Unknown error"}")
                 }
             }
@@ -1005,8 +1121,6 @@ fun checkPhoneNumberExists(
         .addOnSuccessListener { documents ->
             if (!documents.isEmpty) {
                 Log.d("FirestoreCheck", "Phone number found in Firestore!")
-
-                // Send verification code
                 sendVerificationCode(
                     phoneNumber = formattedPhone,
                     auth = auth,

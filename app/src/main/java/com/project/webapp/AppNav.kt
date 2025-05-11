@@ -41,6 +41,7 @@ import com.project.webapp.pages.Login
 import com.project.webapp.components.profiles.FarmerProfileScreen
 import com.project.webapp.pages.Register
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.navDeepLink
 
 @SuppressLint("ContextCastToActivity")
 @Composable
@@ -135,38 +136,21 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
 
 
             composable(
-                route = "checkoutScreen/{userType}/{totalPrice}?paymentMethod={paymentMethod}&referenceId={referenceId}",
+                route = "checkoutScreen/{userType}/{totalPrice}?paymentMethod={paymentMethod}&referenceId={referenceId}&items={items}",
                 arguments = listOf(
                     navArgument("userType") { type = NavType.StringType },
-                    navArgument("totalPrice") { type = NavType.FloatType }, // Use FloatType for now
-                    navArgument("paymentMethod") {
-                        type = NavType.StringType
-                        defaultValue = "COD"
-                        nullable = true
-                    },
-                    navArgument("referenceId") {
-                        type = NavType.StringType
-                        defaultValue = ""
-                        nullable = true
-                    }
-                )
+                    navArgument("totalPrice") { type = NavType.FloatType }
+                ),
+                deepLinks = listOf(navDeepLink { uriPattern = "com.project.webapp://checkout/{userType}/{totalPrice}?paymentMethod={paymentMethod}&referenceId={referenceId}&items={items}" })
             ) { backStackEntry ->
-                val userType = backStackEntry.arguments?.getString("userType") ?: "cart_checkout"
-                val totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble() ?: 0.0
-                val paymentMethod = backStackEntry.arguments?.getString("paymentMethod") ?: "COD"
-                val referenceId = backStackEntry.arguments?.getString("referenceId") ?: ""
-
-                // Collect the StateFlow as a plain State object (not using 'by' delegate)
-                val checkoutItems = cartViewModel.checkoutItems.collectAsStateWithLifecycle()
-
                 CheckoutScreen(
                     navController = navController,
-                    cartViewModel = cartViewModel,
-                    totalPrice = totalPrice,
-                    cartItems = checkoutItems.value,    // Access the current value using .value
-                    userType = userType,
-                    paymentMethod = paymentMethod,
-                    referenceId = referenceId
+                    cartViewModel = viewModel(),
+                    totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble() ?: 0.0,
+                    userType = backStackEntry.arguments?.getString("userType") ?: "",
+                    paymentMethod = backStackEntry.arguments?.getString("paymentMethod") ?: "COD",
+                    referenceId = backStackEntry.arguments?.getString("referenceId") ?: "",
+                    itemsJson = backStackEntry.arguments?.getString("items")
                 )
             }
             composable("editProduct/{productId}") { backStackEntry ->
@@ -206,16 +190,18 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 )
             }
             composable(
-                "gcashScreen/{totalPrice}/{ownerId}",
+                route = "gcashScreen/{totalPrice}/{ownerId}",
                 arguments = listOf(
                     navArgument("totalPrice") { type = NavType.StringType },
                     navArgument("ownerId") { type = NavType.StringType }
                 )
             ) { backStackEntry ->
-                val totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "0.00"
-                val ownerId = backStackEntry.arguments?.getString("ownerId") ?: ""
-
-                GcashScreen(navController, totalPrice, FirebaseFirestore.getInstance(), ownerId)
+                GcashScreen(
+                    navController = navController,
+                    totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "",
+                    ownerId = backStackEntry.arguments?.getString("ownerId") ?: "",
+                    cartViewModel = viewModel()
+                )
             }
 
 

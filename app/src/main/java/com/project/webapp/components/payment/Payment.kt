@@ -30,14 +30,19 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.gson.Gson
 import com.project.webapp.Viewmodel.createOrderRecord
 import com.project.webapp.components.createSaleNotification
 import com.project.webapp.components.fetchOwnerName
 import com.project.webapp.datas.CartItem
 import com.project.webapp.datas.Product
-
-
+import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,11 +61,15 @@ fun PaymentScreen(
     val sellerNames = remember { mutableStateMapOf<String, String>() }
     val userType = if (directBuyProductId != null) "direct_buying" else "cart_checkout"
     var directBuyProduct by remember { mutableStateOf<Product?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var paymentStatus by remember { mutableStateOf("") }
+    var paymentTimestamp by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+    var showErrorDialog by remember { mutableStateOf(false) }
 
-    // Define the theme color
     val themeColor = Color(0xFF0DA54B)
+    val firestore = FirebaseFirestore.getInstance()
 
-    // Fetch direct buy product
     LaunchedEffect(directBuyProductId) {
         directBuyProductId?.let { id ->
             cartViewModel.getProductById(id) { product ->
@@ -69,7 +78,6 @@ fun PaymentScreen(
         }
     }
 
-    // Prepare items to display
     val displayItems: List<CartItem> = remember(directBuyProduct, cartItems) {
         if (directBuyProduct != null) {
             listOf(
@@ -79,7 +87,10 @@ fun PaymentScreen(
                     price = directBuyProduct!!.price,
                     quantity = 1,
                     imageUrl = directBuyProduct!!.imageUrl,
-                    isDirectBuy = true
+                    isDirectBuy = true,
+                    sellerId = directBuyProduct!!.ownerId,
+                    unit = directBuyProduct!!.quantityUnit,
+                    weight = directBuyProduct!!.quantity
                 )
             )
         } else {
@@ -87,7 +98,6 @@ fun PaymentScreen(
         }
     }
 
-    // Fetch seller info for each item and map it by productId
     LaunchedEffect(displayItems) {
         displayItems.forEach { item ->
             cartViewModel.getProductById(item.productId) { product ->
@@ -102,12 +112,37 @@ fun PaymentScreen(
         }
     }
 
+    LaunchedEffect(directBuyProduct) {
+        if (directBuyProduct != null && directBuyProductId != null) {
+            val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@LaunchedEffect
+            val cartRef = firestore.collection("carts").document(userId).collection("items")
+                .document(directBuyProductId)
+
+            val cartItem = hashMapOf(
+                "productId" to directBuyProduct!!.prodId,
+                "name" to directBuyProduct!!.name,
+                "price" to directBuyProduct!!.price,
+                "quantity" to 1,
+                "imageUrl" to directBuyProduct!!.imageUrl,
+                "sellerId" to directBuyProduct!!.ownerId,
+                "isDirectBuy" to true,
+                "unit" to directBuyProduct!!.quantityUnit,
+                "weight" to directBuyProduct!!.quantity
+            )
+
+            cartRef.set(cartItem).addOnSuccessListener {
+                Log.d("PaymentScreen", "Direct buy item added to Firestore cart: ${directBuyProduct!!.name}")
+            }.addOnFailureListener { e ->
+                Log.e("PaymentScreen", "Failed to add direct buy item to cart: ${e.message}")
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Checkout") },
                 navigationIcon = {
-                    // Back Button
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
@@ -131,10 +166,8 @@ fun PaymentScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Section: Order Summary
                 SectionTitle(title = "Order Summary")
 
-                // Section: Shipping Info
                 currentUser?.let { user ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -208,7 +241,6 @@ fun PaymentScreen(
                     }
                 }
 
-                // Section: Items to purchase
                 SectionTitle(title = "Items (${displayItems.size})")
 
                 Card(
@@ -239,7 +271,6 @@ fun PaymentScreen(
                     }
                 }
 
-                // Section: Payment Methods
                 SectionTitle(title = "Payment Methods")
 
                 var ownerId by remember { mutableStateOf<String?>(null) }
@@ -248,7 +279,6 @@ fun PaymentScreen(
                     if (directBuyProduct != null) {
                         ownerId = directBuyProduct?.ownerId
                     } else if (displayItems.isNotEmpty()) {
-                        // For cart: we need to get the product first to access its ownerId
                         cartViewModel.getProductById(displayItems.first().productId) { product ->
                             product?.let {
                                 ownerId = product.ownerId
@@ -261,7 +291,7 @@ fun PaymentScreen(
 
                 LaunchedEffect(ownerId) {
                     ownerId?.let {
-                        fetchOwnerName(FirebaseFirestore.getInstance(), it) { name ->
+                        fetchOwnerName(firestore, it) { name ->
                             ownerName = name
                         }
                     }
@@ -278,11 +308,7 @@ fun PaymentScreen(
                 Button(
                     onClick = {
                         ownerId?.let { id ->
-                            // Set checkout items in the cart view model to make them available to GcashScreen
                             cartViewModel.setCheckoutItems(displayItems)
-
-                            // Navigate to GCash payment screen
-                            // The actual payment processing will happen in GcashScreen
                             navController.navigate("gcashScreen/$formattedAmount/$id")
                         }
                     },
@@ -291,7 +317,7 @@ fun PaymentScreen(
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF)),
-                    enabled = displayItems.isNotEmpty()
+                    enabled = displayItems.isNotEmpty() && !isLoading
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -311,75 +337,166 @@ fun PaymentScreen(
                     }
                 }
 
-
-
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Button(
                     onClick = {
-                        cartViewModel.setCheckoutItems(displayItems)
-                        // Save the checkout information to database
-                        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@Button
-
-                        // Get current user delivery address from Firestore
-                        val firestore = FirebaseFirestore.getInstance()
-                        firestore.collection("users").document(userId).get()
-                            .addOnSuccessListener { userDocument ->
-                                val userAddress = userDocument.getString("address") ?: "No address provided"
-
-                                // Process each item and create notifications for the sellers
-                                displayItems.forEach { cartItem ->
-                                    cartViewModel.getProductById(cartItem.productId) { product ->
-                                        product?.let { prod ->
-                                            // Create a sale notification for the product owner
-                                            createSaleNotification(
-                                                firestore = firestore,
-                                                product = prod,
-                                                buyerId = userId,
-                                                quantity = cartItem.quantity,
-                                                paymentMethod = "Cash on Delivery",
-                                                deliveryAddress = userAddress,
-                                                message = "Your product was sold! Payment method: Cash on Delivery"
-                                            )
-
-                                            // Update product inventory in database
-                                            updateProductInventory(prod.prodId, cartItem.quantity)
-                                        }
-                                    }
-                                }
-
-                                // Create order record
-                                createOrderRecord(userId, displayItems, "Cash on Delivery", amount.toFloat(), userAddress)
-
-                                // Navigate to checkout confirmation
-                                navController.navigate("checkoutScreen/$userType/${amount.toFloat()}")
+                        isLoading = true
+                        val transactionId = UUID.randomUUID().toString()
+                        processCodPayment(
+                            firestore = firestore,
+                            cartViewModel = cartViewModel,
+                            navController = navController,
+                            transactionId = transactionId,
+                            displayItems = displayItems,
+                            totalPrice = amount.toFloat(),
+                            ownerId = ownerId ?: "",
+                            userType = userType,
+                            onPaymentStatus = { status ->
+                                paymentStatus = status
+                                isLoading = false
+                            },
+                            onError = { error ->
+                                errorMessage = error
+                                showErrorDialog = true
+                                isLoading = false
                             }
-                            .addOnFailureListener { e ->
-                                Log.e("Payment", "Error fetching user data", e)
-                                // Create order with default address
-                                createOrderRecord(userId, displayItems, "Cash on Delivery", amount.toFloat(), "No address provided")
-                                navController.navigate("checkoutScreen/$userType/${amount.toFloat()}")
-                            }
+                        )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = themeColor),
-                    enabled = displayItems.isNotEmpty()
+                    enabled = displayItems.isNotEmpty() && !isLoading
                 ) {
-                    Text(
-                        text = "Pay with Cash on Delivery",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(color = Color.White)
+                    } else {
+                        Text(
+                            text = "Pay with Cash on Delivery",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                if (showErrorDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showErrorDialog = false },
+                        title = { Text("Payment Error") },
+                        text = { Text(errorMessage) },
+                        confirmButton = {
+                            Button(onClick = { showErrorDialog = false }) {
+                                Text("OK")
+                            }
+                        }
+                    )
+                }
             }
         }
     }
+}
+
+fun processCodPayment(
+    firestore: FirebaseFirestore,
+    cartViewModel: CartViewModel,
+    navController: NavController,
+    transactionId: String,
+    displayItems: List<CartItem>,
+    totalPrice: Float,
+    ownerId: String,
+    userType: String,
+    onPaymentStatus: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    if (displayItems.isEmpty()) {
+        Log.e("PaymentDebug", "Cannot process COD payment with empty items!")
+        onPaymentStatus("Error: No items to process")
+        onError("Unable to process payment: No items found.")
+        return
+    }
+
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    val userAddress = cartViewModel.currentUser.value?.address ?: "No address provided"
+    val paymentData = hashMapOf(
+        "transactionId" to transactionId,
+        "userId" to userId,
+        "status" to "PENDING",
+        "amount" to totalPrice,
+        "seller" to ownerId,
+        "timestamp" to FieldValue.serverTimestamp(),
+        "paymentMethod" to "COD",
+        "deliveryAddress" to userAddress
+    )
+
+    Log.d("PaymentDebug", "Processing COD payment with ${displayItems.size} items")
+    displayItems.forEach { item ->
+        Log.d("PaymentDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}")
+    }
+
+    firestore.collection("payments")
+        .document(transactionId)
+        .set(paymentData)
+        .addOnSuccessListener {
+            Log.d("PaymentScreen", "COD payment record created successfully")
+            onPaymentStatus("Order placed successfully!")
+            val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
+            val paymentTimestamp = dateFormat.format(Date())
+
+            firestore.collection("users").document(userId).get()
+                .addOnSuccessListener { userDocument ->
+                    val orderItems = displayItems.toList()
+
+                    Log.d("PaymentDebug", "Creating order with ${orderItems.size} items")
+
+                    displayItems.forEach { cartItem ->
+                        cartViewModel.getProductById(cartItem.productId) { product ->
+                            product?.let { prod ->
+                                createSaleNotification(
+                                    firestore = firestore,
+                                    product = prod,
+                                    buyerId = userId,
+                                    quantity = cartItem.quantity,
+                                    paymentMethod = "COD",
+                                    deliveryAddress = userAddress,
+                                    message = "Your product was sold! Payment method: COD"
+                                )
+                                updateProductInventory(prod.prodId, cartItem.quantity)
+                            }
+                        }
+                    }
+
+                    createOrderRecord(userId, orderItems, "COD", totalPrice, userAddress)
+                    cartViewModel.completePurchase(userType, "COD")
+
+                    val itemsJson = Gson().toJson(orderItems)
+                    val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
+                    navController.navigate(
+                        "checkoutScreen/$userType/$totalPrice?paymentMethod=COD&referenceId=&items=$encodedItems"
+                    )
+                }
+                .addOnFailureListener { e ->
+                    Log.e("PaymentScreen", "Error fetching user data", e)
+                    val orderItems = displayItems.toList()
+                    createOrderRecord(userId, orderItems, "COD", totalPrice, "No address provided")
+                    cartViewModel.completePurchase(userType, "COD")
+
+                    val itemsJson = Gson().toJson(orderItems)
+                    val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
+                    navController.navigate(
+                        "checkoutScreen/$userType/$totalPrice?paymentMethod=COD&referenceId=&items=$encodedItems"
+                    )
+                }
+        }
+        .addOnFailureListener { e ->
+            Log.e("PaymentScreen", "Error saving COD payment: ${e.message}")
+            onPaymentStatus("Error saving order")
+            onError("Order processing error: ${e.message}")
+        }
 }
 
 @Composable

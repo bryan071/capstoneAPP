@@ -61,6 +61,7 @@ import androidx.navigation.NavController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.gson.Gson
 import com.project.webapp.R
 import com.project.webapp.Viewmodel.createOrderRecord
 import com.project.webapp.components.createSaleNotification
@@ -73,6 +74,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,15 +86,14 @@ import java.util.UUID
 fun GcashScreen(
     navController: NavController,
     totalPrice: String,
-    firestore: FirebaseFirestore,
     ownerId: String,
     cartViewModel: CartViewModel = viewModel()
 ) {
     val cartItems by cartViewModel.cartItems.collectAsStateWithLifecycle()
     val isCartLoading by cartViewModel.isCartLoading.collectAsStateWithLifecycle()
     val cartLoadError by cartViewModel.cartLoadError.collectAsStateWithLifecycle()
+    val firestore = FirebaseFirestore.getInstance()
 
-    // State to hold the owner's name, QR code, and payment status
     var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var paymentStatus by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -103,16 +104,9 @@ fun GcashScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // GCash brand color
     val gcashGreen = Color(0xFF0DA54B)
-
-    // Generate a unique transaction ID
     val transactionId = remember { UUID.randomUUID().toString() }
-
-    // Use mutableStateMapOf to store seller names by their IDs
     val sellerNames = remember { mutableStateMapOf<String, String>() }
-
-    // GCash API configuration - using mock values
     val context = LocalContext.current
     val gcashApiConfig = remember {
         GCashApiConfig(
@@ -123,34 +117,21 @@ fun GcashScreen(
         )
     }
 
-    // Explicitly refresh cart items when the screen loads
-    LaunchedEffect(Unit) {
-        Log.d("GCashScreen", "Screen launched - refreshing cart")
-        cartViewModel.refreshCartItems()
-    }
-
-    // Log cart items when they change
     LaunchedEffect(cartItems) {
-        Log.d("GCashDebug", "Cart items updated in GCashScreen: ${cartItems.size} items in cart")
+        Log.d("GCashDebug", "Cart items updated in GcashScreen: ${cartItems.size} items")
         cartItems.forEach { item ->
-            Log.d("GCashDebug", "Cart item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+            Log.d("GCashDebug", "Cart item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}, isDirectBuy: ${item.isDirectBuy}")
         }
     }
 
-    // Fetch the owner's name and generate QR code when the screen is first composed
     LaunchedEffect(ownerId, totalPrice) {
-        // Use the existing method from CartViewModel to get user info
         cartViewModel.getUserById(ownerId) { user ->
             user?.let {
                 sellerNames[ownerId] = "${it.firstname} ${it.lastname}"
-
-                // Generate dynamic QR code with payment details
                 val content = "GCash Payment\nName: ${sellerNames[ownerId]}\nAmount: ₱$totalPrice\nTxnID: $transactionId"
                 qrCodeBitmap = generateQRCode(content)
             } ?: run {
                 sellerNames[ownerId] = "Mock Seller"
-
-                // Generate QR code even if seller name isn't found
                 val content = "GCash Payment\nName: Mock Seller\nAmount: ₱$totalPrice\nTxnID: $transactionId"
                 qrCodeBitmap = generateQRCode(content)
             }
@@ -162,18 +143,17 @@ fun GcashScreen(
         referenceId: String,
         displayItems: List<CartItem>
     ) {
-        // Verify items are present
         if (displayItems.isEmpty()) {
-            Log.e("GCashDebug", "Cannot process payment with empty cart!")
-            paymentStatus = "Error: Your cart is empty"
+            Log.e("GCashDebug", "Cannot process payment with empty items!")
+            paymentStatus = "Error: No items to process"
             isLoading = false
-            errorMessage = "Unable to process payment: Your cart is empty."
+            errorMessage = "Unable to process payment: No items found."
             showErrorDialog = true
             return
         }
 
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val userType = "user"
+        val userType = if (displayItems.any { it.isDirectBuy }) "direct_buying" else "cart_checkout"
         val paymentData = hashMapOf(
             "transactionId" to transactionId,
             "referenceId" to referenceId,
@@ -184,10 +164,9 @@ fun GcashScreen(
             "paymentMethod" to "GCash"
         )
 
-        // Debug log to verify items being passed to payment processing
         Log.d("GCashDebug", "Processing payment with ${displayItems.size} items")
         displayItems.forEach { item ->
-            Log.d("GCashDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+            Log.d("GCashDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}")
         }
 
         firestore.collection("payments")
@@ -199,23 +178,16 @@ fun GcashScreen(
                 val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
                 paymentTimestamp = dateFormat.format(Date())
 
-                // Get user address
                 firestore.collection("users").document(userId).get()
                     .addOnSuccessListener { userDocument ->
                         val userAddress = userDocument.getString("address") ?: "No address provided"
-                        val userName = "${userDocument.getString("firstname") ?: ""} ${userDocument.getString("lastname") ?: ""}"
-
-                        // Make a deep copy of the cart items to ensure we don't lose them during async operations
                         val orderItems = displayItems.toList()
 
-                        // Debug log to verify items count before order creation
                         Log.d("GCashDebug", "Creating order with ${orderItems.size} items")
 
-                        // Process each item and create notifications for the sellers
                         displayItems.forEach { cartItem ->
                             cartViewModel.getProductById(cartItem.productId) { product ->
                                 product?.let { prod ->
-                                    // Create a sale notification for the product owner
                                     createSaleNotification(
                                         firestore = firestore,
                                         product = prod,
@@ -225,35 +197,32 @@ fun GcashScreen(
                                         deliveryAddress = userAddress,
                                         message = "Your product was sold! Payment method: GCash (Ref: $referenceId)"
                                     )
-
-                                    // Update product inventory in database
                                     updateProductInventory(prod.prodId, cartItem.quantity)
                                 }
                             }
                         }
 
-                        // Create order record with the copied items
-                        if (orderItems.isNotEmpty()) {
-                            Log.d("GCashDebug", "Calling createOrderRecord with ${orderItems.size} items")
-                            createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), userAddress)
-                        } else {
-                            Log.e("GCashDebug", "No items to create order with!")
-                        }
+                        createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), userAddress)
+                        cartViewModel.completePurchase(userType, "GCash", referenceId)
 
-                        // Navigate to checkout confirmation screen with payment method and reference ID
+                        // Pass orderItems as a JSON string
+                        val itemsJson = Gson().toJson(orderItems)
+                        val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
                         navController.navigate(
-                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId"
+                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId&items=$encodedItems"
                         )
                     }
                     .addOnFailureListener { e ->
                         Log.e("GCashScreen", "Error fetching user data", e)
-                        // Create order with default address and the copied items list
                         val orderItems = displayItems.toList()
                         createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), "No address provided")
+                        cartViewModel.completePurchase(userType, "GCash", referenceId)
 
-                        // Navigate with payment info even if there's an error getting the address
+                        // Pass orderItems as a JSON string
+                        val itemsJson = Gson().toJson(orderItems)
+                        val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
                         navController.navigate(
-                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId"
+                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId&items=$encodedItems"
                         )
                     }
             }
@@ -264,21 +233,18 @@ fun GcashScreen(
                 showErrorDialog = true
             }
     }
-    // Function to initiate GCash payment and proceed directly
-    fun initiateGCashPayment() {
-        // First ensure cart items are loaded
-        val currentCartItems = cartItems
 
-        // Check if cart is empty
-        if (currentCartItems.isEmpty()) {
-            Log.e("GCashDebug", "Cannot initiate payment with empty cart!")
-            paymentStatus = "Error: Your cart is empty"
-            Toast.makeText(context, "Cannot process payment: Cart is empty", Toast.LENGTH_SHORT).show()
+    fun initiateGCashPayment() {
+        val itemsToProcess = cartItems.filter { it.sellerId == ownerId }
+
+        if (itemsToProcess.isEmpty()) {
+            Log.e("GCashDebug", "Cannot initiate payment with empty items!")
+            paymentStatus = "Error: No items to process"
+            Toast.makeText(context, "Cannot process payment: No items found", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Debug log to verify input cart items
-        Log.d("GCashDebug", "Initiating payment with ${currentCartItems.size} items")
+        Log.d("GCashDebug", "Initiating payment with ${itemsToProcess.size} items")
 
         val currentContext = context
         isLoading = true
@@ -295,29 +261,19 @@ fun GcashScreen(
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Generate reference ID immediately for mock flow
                 referenceId = "REF_${System.currentTimeMillis()}"
-
-                // Simulate network delay
                 delay(1000)
 
                 withContext(Dispatchers.Main) {
                     isLoading = false
-
-                    // Show toast for GCash simulation
                     Toast.makeText(
                         currentContext,
                         "Mock: Processing GCash payment of ₱$totalPrice",
                         Toast.LENGTH_LONG
                     ).show()
 
-                    // Make a safe copy of cart items to prevent any modification during async processing
-                    val itemsForProcessing = currentCartItems.toList()
-
-                    // Verify items count
+                    val itemsForProcessing = itemsToProcess.toList()
                     Log.d("GCashDebug", "About to process payment with ${itemsForProcessing.size} items")
-
-                    // Simulate successful payment directly with the copied items
                     processSuccessfulPayment(transactionId, referenceId, itemsForProcessing)
                 }
             } catch (e: Exception) {
@@ -329,7 +285,6 @@ fun GcashScreen(
         }
     }
 
-    // UI for GcashScreen
     Scaffold(
         topBar = {
             TopAppBar(
@@ -353,7 +308,6 @@ fun GcashScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // GCash Header
                 Image(
                     painter = painterResource(id = R.drawable.gcash_icon),
                     contentDescription = "GCash Logo",
@@ -378,9 +332,7 @@ fun GcashScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-
                         Spacer(modifier = Modifier.height(8.dp))
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -388,9 +340,7 @@ fun GcashScreen(
                             Text("Merchant:", fontWeight = FontWeight.Bold)
                             Text(sellerNames[ownerId] ?: "Loading...")
                         }
-
                         Spacer(modifier = Modifier.height(4.dp))
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -398,9 +348,7 @@ fun GcashScreen(
                             Text("Amount:", fontWeight = FontWeight.Bold)
                             Text("₱$totalPrice")
                         }
-
                         Spacer(modifier = Modifier.height(4.dp))
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -411,7 +359,6 @@ fun GcashScreen(
                     }
                 }
 
-                // QR Code Section
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -428,9 +375,7 @@ fun GcashScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-
                         Spacer(modifier = Modifier.height(16.dp))
-
                         if (qrCodeBitmap != null) {
                             Image(
                                 bitmap = qrCodeBitmap!!.asImageBitmap(),
@@ -447,9 +392,7 @@ fun GcashScreen(
                                     .padding(8.dp)
                             )
                         }
-
                         Spacer(modifier = Modifier.height(16.dp))
-
                         Text(
                             text = "Scan this QR code with your GCash app",
                             style = MaterialTheme.typography.bodyMedium,
@@ -461,7 +404,6 @@ fun GcashScreen(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Payment status text if any
                 if (paymentStatus.isNotEmpty()) {
                     Text(
                         text = paymentStatus,
@@ -472,10 +414,9 @@ fun GcashScreen(
                     )
                 }
 
-                // Payment buttons
                 Button(
                     onClick = { initiateGCashPayment() },
-                    enabled = !isLoading && cartItems.isNotEmpty(),
+                    enabled = !isLoading && cartItems.any { it.sellerId == ownerId },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -507,22 +448,16 @@ fun GcashScreen(
         }
     }
 
-    // Payment verification dialog
     if (showPaymentDialog) {
         AlertDialog(
             onDismissRequest = {
-                try {
-                    showPaymentDialog = false
-                    paymentStatus = "Payment cancelled"
-                } catch (e: Exception) {
-                    Log.e("GCashScreen", "Dialog dismiss error: ${e.message}")
-                }
+                showPaymentDialog = false
+                paymentStatus = "Payment cancelled"
             },
             title = { Text("Payment Verification (MOCK)") },
             text = {
                 Column {
                     Text("This is a mock payment flow. In a real app, you would complete the payment in the GCash app and return here.")
-
                     if (isLoading) {
                         LinearProgressIndicator(
                             modifier = Modifier
@@ -530,7 +465,6 @@ fun GcashScreen(
                                 .padding(vertical = 16.dp)
                         )
                     }
-
                     if (paymentStatus.isNotEmpty() && !isLoading) {
                         Text(
                             text = paymentStatus,
@@ -543,13 +477,9 @@ fun GcashScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        try {
-                            showPaymentDialog = false
-                            processSuccessfulPayment(transactionId, referenceId, cartItems)
-                        } catch (e: Exception) {
-                            Log.e("GCashScreen", "Payment processing error: ${e.message}")
-                            paymentStatus = "Error processing payment"
-                        }
+                        showPaymentDialog = false
+                        val itemsToProcess = cartItems.filter { it.sellerId == ownerId }
+                        processSuccessfulPayment(transactionId, referenceId, itemsToProcess)
                     },
                     enabled = !isLoading,
                     colors = ButtonDefaults.buttonColors(
@@ -562,12 +492,8 @@ fun GcashScreen(
             dismissButton = {
                 TextButton(
                     onClick = {
-                        try {
-                            showPaymentDialog = false
-                            paymentStatus = "Payment cancelled"
-                        } catch (e: Exception) {
-                            Log.e("GCashScreen", "Dialog cancel error: ${e.message}")
-                        }
+                        showPaymentDialog = false
+                        paymentStatus = "Payment cancelled"
                     },
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = gcashGreen
@@ -579,7 +505,6 @@ fun GcashScreen(
         )
     }
 
-    // Receipt Dialog
     if (showReceiptDialog) {
         Dialog(
             onDismissRequest = { /* Prevent dismissal on outside click */ }
@@ -595,7 +520,6 @@ fun GcashScreen(
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Receipt Header
                     Image(
                         painter = painterResource(id = R.drawable.gcash_icon),
                         contentDescription = "GCash Logo",
@@ -603,17 +527,13 @@ fun GcashScreen(
                             .height(40.dp)
                             .padding(bottom = 8.dp)
                     )
-
                     Text(
                         text = "Payment Receipt",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = gcashGreen
                     )
-
                     Spacer(modifier = Modifier.height(24.dp))
-
-                    // Payment Status
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
@@ -633,7 +553,6 @@ fun GcashScreen(
                             color = gcashGreen
                         )
                     }
-
                     Divider(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -641,28 +560,19 @@ fun GcashScreen(
                         color = Color.LightGray,
                         thickness = 1.dp
                     )
-
-                    // Payment Details
                     Column(
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Date and Time
                         ReceiptRow(
                             label = "Date & Time:",
                             value = paymentTimestamp
                         )
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // Merchant
                         ReceiptRow(
                             label = "Merchant:",
                             value = sellerNames[ownerId] ?: "Merchant"
                         )
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // Amount
                         ReceiptRow(
                             label = "Amount:",
                             value = "₱$totalPrice",
@@ -670,24 +580,17 @@ fun GcashScreen(
                                 fontWeight = FontWeight.Bold
                             )
                         )
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // Transaction ID
                         ReceiptRow(
                             label = "Transaction ID:",
                             value = transactionId
                         )
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // Reference ID
                         ReceiptRow(
                             label = "Reference No:",
                             value = referenceId
                         )
                     }
-
                     Divider(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -695,15 +598,12 @@ fun GcashScreen(
                         color = Color.LightGray,
                         thickness = 1.dp
                     )
-
-                    // Actions
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Back to Home Button
                         OutlinedButton(
                             onClick = {
                                 navController.navigate("farmerdashboard") {
@@ -719,10 +619,7 @@ fun GcashScreen(
                         ) {
                             Text("Home")
                         }
-
                         Spacer(modifier = Modifier.width(16.dp))
-
-                        // Go to Success Screen Button
                         Button(
                             onClick = {
                                 navController.navigate("order") {
@@ -742,8 +639,23 @@ fun GcashScreen(
             }
         }
     }
-}
 
+    if (showErrorDialog) {
+        AlertDialog(
+            onDismissRequest = { showErrorDialog = false },
+            title = { Text("Error") },
+            text = { Text(errorMessage) },
+            confirmButton = {
+                Button(
+                    onClick = { showErrorDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = gcashGreen)
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+}
 @Composable
 private fun ReceiptRow(
     label: String,
