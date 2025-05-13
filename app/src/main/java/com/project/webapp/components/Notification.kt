@@ -98,6 +98,7 @@ import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
+import com.google.firebase.firestore.FieldValue
 import com.project.webapp.datas.Product
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1159,40 +1160,31 @@ fun createSaleNotification(
         }
 }
 
-// Function to create donation notification in Firestore
 fun createDonationNotification(
     firestore: FirebaseFirestore,
     product: Product,
     donatorId: String,
     organizationName: String,
-    quantity: Int = 1,
-    message: String? = null
+    quantity: Int,
+    message: String
 ) {
     val notificationData = hashMapOf(
-        "type" to "product_donated",
-        "productId" to product.prodId,
-        "name" to product.name,
-        "price" to product.price,
+        "userId" to donatorId,
+        "message" to message,
+        "productName" to product.name,
         "quantity" to quantity,
-        "quantityUnit" to product.quantityUnit,
-        "imageUrl" to product.imageUrl,
-        "category" to product.category,
-        "location" to product.cityName,
-        "timestamp" to System.currentTimeMillis(),
-        "userId" to product.ownerId, // The seller who will receive this notification
-        "buyerId" to donatorId,
-        "message" to (message ?: "Your product was donated to $organizationName"),
-        "transactionType" to "donation",
-        "organization" to organizationName
+        "organizationName" to organizationName,
+        "timestamp" to FieldValue.serverTimestamp(),
+        "isRead" to false
     )
 
     firestore.collection("notifications")
         .add(notificationData)
         .addOnSuccessListener {
-            Log.d("Firestore", "Donation notification created with ID: ${it.id}")
+            Log.d("DonationScreen", "Notification created successfully")
         }
         .addOnFailureListener { e ->
-            Log.e("Firestore", "Error creating donation notification", e)
+            Log.e("DonationScreen", "Error creating notification: ${e.message}", e)
         }
 }
 

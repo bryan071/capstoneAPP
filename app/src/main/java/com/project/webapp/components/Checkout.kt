@@ -64,6 +64,7 @@ import com.project.webapp.components.payment.ReceiptScreen
 import com.project.webapp.components.payment.SectionTitle
 import com.project.webapp.datas.CartItem
 import java.net.URLDecoder
+import java.util.UUID
 import kotlin.collections.contains
 import kotlin.collections.forEach
 
@@ -147,7 +148,10 @@ fun CheckoutScreen(
             userType = userType,
             sellerNames = sellerNames,
             paymentMethod = paymentMethod,
-            referenceId = referenceId
+            referenceId = referenceId,
+            organization = null,
+            isDonation = false,
+            orderNumber = UUID.randomUUID().toString().substring(0, 8).uppercase()
         )
     } else {
         Scaffold(

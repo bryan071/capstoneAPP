@@ -1,57 +1,30 @@
 package com.project.webapp.components.payment
 
+import android.graphics.Bitmap
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,17 +32,22 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.project.webapp.R
+import com.project.webapp.Viewmodel.createDonationRecord
 import com.project.webapp.components.createDonationNotification
-import com.project.webapp.datas.CartItem
-import com.project.webapp.datas.Organization
-import com.project.webapp.datas.Product
+import com.project.webapp.components.generateQRCode
+import com.project.webapp.datas.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
-import kotlin.collections.forEach
-import kotlin.random.Random
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,27 +55,122 @@ fun DonationScreen(
     navController: NavController,
     cartViewModel: CartViewModel,
     directBuyProductId: String? = null,
-    directBuyPrice: String? = null
+    directBuyPrice: String? = null,
+    cartItemsJson: String? = null,
+    totalPrice: Double? = null,
+    userTypeNav: String? = null,
+    sellerNamesJson: String? = null,
+    paymentMethod: String? = null,
+    referenceIdNav: String? = null,
+    organizationJson: String? = null,
+    isDonation: Boolean = false,
+    orderNumber: String? = null
 ) {
+    // UI and state setup
     val cartItems by cartViewModel.cartItems.collectAsStateWithLifecycle()
     val cartTotalState by cartViewModel.totalCartPrice.collectAsState()
     val currentUser by cartViewModel.currentUser.collectAsStateWithLifecycle()
+
     val sellerNames = remember { mutableStateMapOf<String, String>() }
-    val userType = if (directBuyProductId != null) "direct_donation" else "cart_donation"
+    val userType = userTypeNav ?: if (directBuyProductId != null) "direct_donation" else "cart_donation"
+
     var directBuyProduct by remember { mutableStateOf<Product?>(null) }
-    var selectedOrganization by remember { mutableStateOf<Organization?>(null) }
-    var showDonationReceipt by remember { mutableStateOf(false) }
+    val selectedOrganization = remember { mutableStateOf<Organization?>(null) }
 
-    // Define the theme color
-    val themeColor = Color.Unspecified
+    var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var paymentStatus by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var referenceId by remember { mutableStateOf(referenceIdNav ?: "") }
+    var paymentTimestamp by remember { mutableStateOf("") }
+    var showErrorDialog by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
-    // Sample list of organizations
+    val themeColor = Color(0xFF0DA54B)
+    val firestore = FirebaseFirestore.getInstance()
+    val transactionId = remember { UUID.randomUUID().toString() }
+    val context = LocalContext.current
+
+    val resolvedTotalPrice = totalPrice ?: directBuyPrice?.toDoubleOrNull() ?: cartTotalState
+
+    val gcashApiConfig = remember {
+        GCashApiConfig(
+            clientId = "mock_client_id",
+            clientSecret = "mock_client_secret",
+            merchantId = "mock_merchant_id",
+            redirectUrl = "com.project.webapp://payment_callback"
+        )
+    }
+
+    // Deserialize navigation arguments
+    val displayItems = remember(cartItemsJson) {
+        cartItemsJson?.let {
+            runCatching {
+                val type = object : TypeToken<List<CartItem>>() {}.type
+                Gson().fromJson<List<CartItem>>(it, type)
+            }.getOrElse {
+                Log.e("DonationScreen", "Error parsing cartItemsJson: ${it.message}", it)
+                emptyList()
+            }
+        } ?: emptyList()
+    }
+
+    val organization = remember(organizationJson) {
+        organizationJson?.let {
+            runCatching {
+                Gson().fromJson(it, Organization::class.java)
+            }.getOrNull()
+        }
+    }
+
+    val sellerNamesMap = remember(sellerNamesJson) {
+        sellerNamesJson?.let {
+            runCatching {
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                Gson().fromJson<Map<String, String>>(it, type)
+            }.getOrDefault(emptyMap())
+        } ?: emptyMap()
+    }
+
+
+    // Update local seller names
+    LaunchedEffect(sellerNamesMap) {
+        sellerNames.clear()
+        sellerNames.putAll(sellerNamesMap)
+    }
+
+    // Handle direct donation receipt view
+    if (isDonation && orderNumber != null) {
+        cartViewModel.getReceiptData(orderNumber)?.let { receiptData ->
+            ReceiptScreen(
+                navController = navController,
+                cartViewModel = cartViewModel,
+                cartItems = receiptData.cartItems ?: emptyList(),
+                totalPrice = receiptData.totalPrice ?: 0.0,
+                userType = receiptData.userType ?: "Unknown",
+                sellerNames = receiptData.sellerNames ?: emptyMap(),
+                paymentMethod = receiptData.paymentMethod ?: "GCash",
+                referenceId = receiptData.referenceId ?: "",
+                organization = receiptData.organization,
+                isDonation = receiptData.isDonation ?: false,
+                orderNumber = orderNumber
+            )
+            return
+        } ?: run {
+            Log.e("DonationScreen", "No receipt data found for orderNumber: $orderNumber")
+            navController.navigate("errorScreen") {
+                popUpTo(navController.graph.startDestinationId)
+            }
+            return
+        }
+    }
+
+    // List of organizations (could be fetched from a repository instead)
     val organizations = remember {
         listOf(
-            Organization("1", "Red Cross", "Humanitarian organization providing emergency assistance", R.drawable.redcross_icon),
-            Organization("2", "Food for the Hungry", "Hungry children urgently need your help. Flip the odds against hunger today.", R.drawable.fh_icon),
-            Organization("3", "Central Kitchen Valenzuela", "Organization providing food for needy families", R.drawable.val_logo),
-            Organization("4", "Angat Kabataan", "Lead the Change, Be the Change", R.drawable.angat_kabataan)
+            Organization("1", "Red Cross", "...", R.drawable.redcross_icon),
+            Organization("2", "Food for the Hungry", "...", R.drawable.fh_icon),
+            Organization("3", "Central Kitchen Valenzuela", "...", R.drawable.val_logo),
+            Organization("4", "Angat Kabataan", "...", R.drawable.angat_kabataan)
         )
     }
 
@@ -110,134 +183,536 @@ fun DonationScreen(
         }
     }
 
-    // Prepare items to display
-    val displayItems: List<CartItem> = remember(directBuyProduct, cartItems) {
-        if (directBuyProduct != null) {
+    // Determine local display items
+    val localDisplayItems: List<CartItem> = remember(directBuyProduct, cartItems) {
+        directBuyProduct?.let {
             listOf(
                 CartItem(
-                    productId = directBuyProduct!!.prodId,
-                    name = directBuyProduct!!.name,
-                    price = directBuyProduct!!.price,
+                    productId = it.prodId,
+                    name = it.name,
+                    price = it.price,
                     quantity = 1,
-                    imageUrl = directBuyProduct!!.imageUrl,
+                    imageUrl = it.imageUrl,
                     isDirectBuy = true
                 )
             )
-        } else {
-            cartItems
-        }
+        } ?: cartItems
     }
 
-    // Fetch seller info for each item and map it by productId
-    LaunchedEffect(displayItems) {
-        displayItems.forEach { item ->
-            cartViewModel.getProductById(item.productId) { product ->
-                product?.let { prod ->
-                    cartViewModel.getUserById(prod.ownerId) { user ->
-                        user?.let {
-                            sellerNames[prod.prodId] = "${it.firstname} ${it.lastname}"
-                        }
+    localDisplayItems.forEach { item ->
+        cartViewModel.getProductById(item.productId) { product ->
+            product?.let { prod ->
+                cartViewModel.getUserById(prod.ownerId) { user ->
+                    user?.let {
+                        sellerNames[prod.prodId] = "${user.firstname} ${user.lastname}"
                     }
                 }
             }
         }
     }
 
-    if (showDonationReceipt) {
-        DonationReceiptScreen(
-            navController = navController,
-            cartViewModel = cartViewModel,
-            cartItems = displayItems,
-            organization = selectedOrganization!!,
-            sellerNames = sellerNames
+//    // Generate QR code
+//    LaunchedEffect(selectedOrganization, resolvedTotalPrice) {
+//        selectedOrganization.value?.let { org ->
+//            try {
+//                qrCodeBitmap = generateQRCode(
+//                    "GCash Donation\nOrganization: ${org.name}\nAmount: ₱$resolvedTotalPrice\nTxnID: $transactionId"
+//                )
+//                if (qrCodeBitmap == null) {
+//                    Log.e("DonationScreen", "QR Code generation returned null")
+//                    errorMessage = "Failed to generate QR code"
+//                    showErrorDialog = true
+//                }
+//            } catch (e: Exception) {
+//                Log.e("DonationScreen", "QR Code generation error: ${e.message}", e)
+//                errorMessage = "QR code generation failed: ${e.message}"
+//                showErrorDialog = true
+//            }
+//        }
+//    }
+
+    fun processSuccessfulDonation(
+        referenceId: String,
+        displayItems: List<CartItem>,
+        organization: Organization,
+        firestore: FirebaseFirestore,
+        cartViewModel: CartViewModel,
+        userType: String,
+        totalPrice: Double,
+        setPaymentStatus: (String) -> Unit,
+        setPaymentTimestamp: (String) -> Unit,
+        setErrorMessage: (String) -> Unit,
+        setIsLoading: (Boolean) -> Unit,
+        setShowErrorDialog: (Boolean) -> Unit,
+        setShowReceiptDialog: (String) -> Unit
+    ) {
+        if (displayItems.isEmpty()) {
+            Log.e("DonationScreen", "Cannot process donation: Empty display items")
+            setPaymentStatus("Error: No items to process")
+            setIsLoading(false)
+            setErrorMessage("Unable to process donation: No items found.")
+            setShowErrorDialog(true)
+            return
+        }
+
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: run {
+            Log.e("DonationScreen", "No authenticated user found")
+            setErrorMessage("Please log in to process the donation")
+            setShowErrorDialog(true)
+            setIsLoading(false)
+            return
+        }
+        val orderNumber = UUID.randomUUID().toString().substring(0, 8).uppercase()
+        val paymentId = "DPAY-$orderNumber"
+        val donationId = "DON-$orderNumber"
+        val transactionId = "TXN-$orderNumber"
+
+        val paymentData = hashMapOf(
+            "donationId" to donationId,
+            "referenceId" to referenceId,
+            "status" to "COMPLETED",
+            "amount" to totalPrice,
+            "organizationId" to organization.id,
+            "organizationName" to organization.name,
+            "timestamp" to FieldValue.serverTimestamp(),
+            "paymentMethod" to "GCash",
+            "userId" to userId
         )
-    } else {
-        Scaffold(
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = { Text("Donation") },
-                    navigationIcon = {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.backbtn),
-                                contentDescription = "Back",
-                                tint = Color.Unspecified
-                            )
+
+        val itemName = if (displayItems.size == 1) {
+            displayItems.first().name
+        } else {
+            displayItems.joinToString(", ") { it.name }
+        }
+        val totalQuantity = displayItems.sumOf { it.quantity }
+        val transactionData = hashMapOf<String, Any?>(
+            "timestamp" to System.currentTimeMillis(),
+            "buyerId" to userId,
+            "status" to "completed",
+            "transactionType" to "donation",
+            "totalAmount" to totalPrice,
+            "item" to itemName,
+            "quantity" to totalQuantity,
+            "organization" to organization.name,
+            "paymentMethod" to "GCash",
+            "referenceId" to referenceId
+        )
+
+        Log.d("DonationScreen", "Processing donation: paymentId=$paymentId, transactionId=$transactionId, items=${displayItems.size}, totalPrice=$totalPrice")
+        displayItems.forEach { item ->
+            Log.d("DonationScreen", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
+        }
+
+        // Save donation payment and transaction
+        firestore.collection("donation_payments")
+            .document(paymentId)
+            .set(paymentData)
+            .addOnSuccessListener {
+                Log.d("DonationScreen", "Donation payment record created successfully: $paymentId")
+                firestore.collection("transactions")
+                    .document(transactionId)
+                    .set(transactionData)
+                    .addOnSuccessListener {
+                        Log.d("DonationScreen", "Transaction saved successfully: $transactionId")
+                        setPaymentStatus("Donation successful!")
+                        val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
+                        setPaymentTimestamp(dateFormat.format(Date()))
+
+                        displayItems.forEach { cartItem ->
+                            cartViewModel.getProductById(cartItem.productId) { product ->
+                                product?.let { prod ->
+                                    createDonationNotification(
+                                        firestore = firestore,
+                                        product = prod,
+                                        donatorId = userId,
+                                        organizationName = organization.name,
+                                        quantity = cartItem.quantity,
+                                        message = "Your product was donated to ${organization.name}. Thank you for your generosity! (Ref: $referenceId)"
+                                    )
+                                    updateProductInventory(prod.prodId, cartItem.quantity)
+                                    createDonationRecord(
+                                        userId = userId,
+                                        productId = prod.prodId,
+                                        productName = prod.name,
+                                        organizationId = organization.id,
+                                        organizationName = organization.name,
+                                        quantity = cartItem.quantity,
+                                        orderNumber = orderNumber,
+                                        firestore = firestore
+                                    )
+                                }
+                            }
                         }
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
+
+                        cartViewModel.completePurchase(userType, "GCash")
+
+                        // Store receipt data in ViewModel
+                        if (displayItems.isNotEmpty() && totalPrice > 0 && sellerNames.isNotEmpty()) {
+                            cartViewModel.setReceiptData(
+                                orderNumber = orderNumber,
+                                cartItems = displayItems,
+                                totalPrice = totalPrice,
+                                userType = userType,
+                                sellerNames = sellerNames.toMap(),
+                                paymentMethod = "GCash",
+                                referenceId = referenceId,
+                                organization = organization,
+                                isDonation = true
+                            )
+                            setShowReceiptDialog(orderNumber)
+                        } else {
+                            setErrorMessage("Invalid donation data for receipt")
+                            setShowErrorDialog(true)
+                            setIsLoading(false)
+                            Log.e("DonationScreen", "Invalid data for receipt: items=${displayItems.size}, totalPrice=$totalPrice, sellerNames=$sellerNames")
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("DonationScreen", "Error saving transaction: ${e.message}", e)
+                        setPaymentStatus("Error saving transaction")
+                        setErrorMessage("Donation processing error: ${e.message}")
+                        setShowErrorDialog(true)
+                        setIsLoading(false)
+                    }
             }
-        ) { innerPadding ->
-            Box(
+            .addOnFailureListener { e ->
+                Log.e("DonationScreen", "Error saving donation payment: ${e.message}", e)
+                setPaymentStatus("Error saving donation record")
+                setErrorMessage("Donation processing error: ${e.message}")
+                setShowErrorDialog(true)
+                setIsLoading(false)
+            }
+    }
+
+    fun initiateGCashDonation() {
+        if (localDisplayItems.isEmpty() || selectedOrganization == null) {
+            Log.e("DonationScreen", "Cannot initiate donation: Empty items (${localDisplayItems.size}) or no organization selected")
+            paymentStatus = "Error: Invalid donation details"
+            errorMessage = "Please select an organization and items"
+            showErrorDialog = true
+            Toast.makeText(context, "Please select an organization and items", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isLoading = true
+        paymentStatus = "Processing..."
+
+        val amountInCents = (totalPrice ?: 0.0) * 100
+        val paymentRequest = GCashPaymentRequest(
+            amount = amountInCents.toInt(),
+            currency = "PHP",
+            description = "Donation to ${selectedOrganization.value?.name ?: "Unknown Organization"}",
+            transactionId = transactionId,
+            merchantId = gcashApiConfig.merchantId
+        )
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                referenceId = "REF_${System.currentTimeMillis()}"
+                delay(1000) // Simulate payment processing
+
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    Toast.makeText(
+                        context,
+                        "Mock: Processing GCash donation of ₱$totalPrice",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    // Access the value of the selectedOrganization correctly
+                    val org = selectedOrganization.value
+                    if (org != null) {  // Proceed only if the organization is selected
+                        if (resolvedTotalPrice <= 0 || localDisplayItems.isEmpty() || localDisplayItems.any { !sellerNames.containsKey(it.productId) }) {
+                            errorMessage = "Invalid donation data: Check items, price, or seller information"
+                            showErrorDialog = true
+                            Log.e("DonationScreen", "Invalid donation data: totalPrice=$resolvedTotalPrice, items=${localDisplayItems.size}, sellerNames=$sellerNames")
+                        }
+
+                        processSuccessfulDonation(
+                            referenceId = referenceId,
+                            displayItems = localDisplayItems,
+                            organization = org,
+                            firestore = firestore,
+                            cartViewModel = cartViewModel,
+                            userType = userType,
+                            totalPrice = resolvedTotalPrice,
+                            setPaymentStatus = { paymentStatus = it },
+                            setPaymentTimestamp = { paymentTimestamp = it },
+                            setErrorMessage = { errorMessage = it },
+                            setIsLoading = { isLoading = it },
+                            setShowErrorDialog = { showErrorDialog = it },
+                            setShowReceiptDialog = { orderNumber ->
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    delay(200) // Delay to stabilize UI
+                                    try {
+                                        navController.navigate("receiptScreen/$orderNumber")
+                                        Log.d("DonationScreen", "Navigated to receiptScreen with orderNumber=$orderNumber")
+                                    } catch (e: Exception) {
+                                        Log.e("DonationScreen", "Navigation to receiptScreen failed: ${e.message}", e)
+                                        errorMessage = "Failed to display receipt: ${e.message}"
+                                        showErrorDialog = true
+                                    }
+                                }
+                            }
+                        )
+                    } else {
+                        errorMessage = "No organization selected"
+                        showErrorDialog = true
+                        Log.e("DonationScreen", "No organization selected for donation")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    paymentStatus = "Error: ${e.localizedMessage}"
+                    errorMessage = "Donation initiation failed: ${e.message}"
+                    showErrorDialog = true
+                    Log.e("DonationScreen", "Donation initiation failed: ${e.message}", e)
+                }
+            }
+        }
+
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Donation") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color(0xFFF8F8F8))
+        ) {
+            Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .background(Color(0xFFF8F8F8))
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                // Donation Introduction
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    // Section: Donation Introduction
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Favorite,
-                                contentDescription = null,
-                                tint = Color.Red,
-                                modifier = Modifier.size(40.dp)
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = Color.Red,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Make a Difference",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Your donation can help someone in need",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                // Items to Donate
+                SectionTitle(title = "Items to Donate (${localDisplayItems.size})")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        localDisplayItems.forEachIndexed { index, item ->
+                            ItemCard(
+                                item = item,
+                                sellerName = sellerNames[item.productId] ?: "Loading seller...",
+                                themeColor = themeColor
                             )
+                            if (index < localDisplayItems.size - 1) {
+                                Divider(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    color = Color(0xFFEEEEEE)
+                                )
+                            }
+                        }
+                    }
+                }
 
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                "Make a Difference",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            Text(
-                                "Your donation can help someone in need",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray
+                // Select Organization
+                SectionTitle(title = "Select an Organization")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        organizations.forEach { org ->
+                            OrganizationItem(
+                                organization = org,
+                                isSelected = selectedOrganization?.value?.id == org.id, // Use `.value` to access the selectedOrganization
+                                themeColor = themeColor,
+                                onSelect = { selectedOrganization?.value = org } // Update the selectedOrganization's value
                             )
                         }
                     }
+                }
 
-                    // Section: Items to donate
-                    SectionTitle(title = "Items to Donate (${displayItems.size})")
-
+                // Donor Information
+                currentUser?.let { user ->
+                    SectionTitle(title = "Your Information")
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        ) {
-                            displayItems.forEachIndexed { index, item ->
-                                ItemCard(
-                                    item = item,
-                                    sellerName = sellerNames[item.productId] ?: "Loading seller...",
-                                    themeColor = themeColor
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = themeColor,
+                                    modifier = Modifier.size(24.dp)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "${user.firstname} ${user.lastname}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Home,
+                                    contentDescription = null,
+                                    tint = themeColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    user.address,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Phone,
+                                    contentDescription = null,
+                                    tint = themeColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    user.phoneNumber,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                }
+                // Seller Information
+                SectionTitle(title = "Seller Information")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Sellers for Donated Items",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        if (selectedOrganization.value != null && localDisplayItems.isNotEmpty()) {
+                            if (localDisplayItems.all { sellerNames.containsKey(it.productId) }) {
+                                localDisplayItems.forEach { item ->
+                                    // Fetch Product for additional details (if needed)
+                                    var product by remember { mutableStateOf<Product?>(null) }
+                                    LaunchedEffect(item.productId) {
+                                        cartViewModel.getProductById(item.productId) { prod ->
+                                            product = prod
+                                            Log.d("DonationScreen", "Fetched product for ${item.productId}: ${prod?.name}")
+                                        }
+                                    }
 
-                                if (index < displayItems.size - 1) {
+                                    val sellerName = sellerNames[item.productId] ?: "Unknown Seller"
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 8.dp)
+                                    ) {
+                                        // Seller Name
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(bottom = 4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = themeColor,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Seller: $sellerName",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                        // Product Details
+                                        Text(
+                                            text = "Item: ${item.name}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = "Price: ₱${item.price}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = "Quantity: ${item.quantity}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray
+                                        )
+
+                                        product?.let { prod ->
+                                            prod.prodId.takeIf { it != item.productId }?.let { id ->
+                                                Text(
+                                                    text = "Product ID: $id",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                            // Add other Product fields if available (e.g., category, stock)
+                                        }
+                                    }
                                     Divider(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -245,192 +720,115 @@ fun DonationScreen(
                                         color = Color(0xFFEEEEEE)
                                     )
                                 }
-                            }
-                        }
-                    }
-
-                    // Section: Select organization
-                    SectionTitle(title = "Select an Organization")
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        ) {
-                            organizations.forEach { org ->
-                                OrganizationItem(
-                                    organization = org,
-                                    isSelected = selectedOrganization?.id == org.id,
-                                    themeColor = themeColor,
-                                    onSelect = { selectedOrganization = org }
+                            } else {
+                                Text(
+                                    text = "Loading seller information...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
                                 )
                             }
-                        }
-                    }
-
-                    // Section: Shipping Info
-                    currentUser?.let { user ->
-                        SectionTitle(title = "Your Information")
-
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = themeColor,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        "${user.firstname} ${user.lastname}",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Home,
-                                        contentDescription = null,
-                                        tint = themeColor,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        user.address,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Phone,
-                                        contentDescription = null,
-                                        tint = themeColor,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        user.phoneNumber,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Donation method (GCash only)
-                    SectionTitle(title = "Donation Method")
-
-                    Button(
-                        onClick = {
-                            if (selectedOrganization != null && displayItems.isNotEmpty()) {
-                                val firstItem = displayItems[0]
-                                cartViewModel.getProductById(firstItem.productId) { product ->
-                                    product?.let {
-                                        val sellerId = it.ownerId
-                                        val priceToPay = directBuyPrice ?: cartTotalState
-                                        navController.navigate("gcashScreen/$priceToPay/$sellerId")
-                                    }
-                                }
-                            }
-                        },
-
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF)),
-                        enabled = selectedOrganization != null
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CreditCard,
-                                contentDescription = null,
-                                tint = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        } else {
                             Text(
-                                "Proceed with GCash",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White
+                                text = "Please select an organization and items",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
-
-// For testing purposes, direct complete button
-                    OutlinedButton(
-                        onClick = {
-                            if (selectedOrganization != null) {
-                                showDonationReceipt = true
-
-                                // Create donation records and notifications when using the test button
-                                val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@OutlinedButton
-                                val firestore = FirebaseFirestore.getInstance()
-
-                                selectedOrganization?.let { organization ->
-                                    displayItems.forEach { cartItem ->
-                                        cartViewModel.getProductById(cartItem.productId) { product ->
-                                            product?.let { prod ->
-                                                // Now use organization instead of selectedOrganization
-                                                createDonationNotification(
-                                                    firestore = firestore,
-                                                    product = prod,
-                                                    donatorId = userId,
-                                                    organizationName = organization.name,
-                                                    quantity = cartItem.quantity,
-                                                    message = "Your product was donated to ${organization.name}. " +
-                                                            "Thank you for supporting sustainable agriculture and helping those in need!"
-                                                )
-
-                                                // Update product inventory
-                                                updateProductInventory(
-                                                    prod.prodId,
-                                                    cartItem.quantity
-                                                )
-
-                                                // Create donation record
-                                                createDonationRecord(
-                                                    userId = userId,
-                                                    productId = prod.prodId,
-                                                    productName = prod.name,
-                                                    organizationId = organization.id,
-                                                    organizationName = organization.name,
-                                                    quantity = cartItem.quantity
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        enabled = selectedOrganization != null
-                    ) {
-                        Text("Complete Donation (For Testing)")
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
+                // Donation Payment
+                SectionTitle(title = "Donation Payment")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Payment Details",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Safely access the name property of the selected organization
+                        ReceiptRow(
+                            label = "Organization:",
+                            value = selectedOrganization?.value?.name ?: "Select an organization"
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        ReceiptRow(label = "Amount:", value = "₱$resolvedTotalPrice")
+                        Spacer(modifier = Modifier.height(4.dp))
+                        ReceiptRow(label = "Transaction ID:", value = transactionId.take(8) + "...")
+                    }
+                }
+
+                if (paymentStatus.isNotEmpty()) {
+                    Text(
+                        text = paymentStatus,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (paymentStatus.contains("successful")) themeColor else
+                            if (paymentStatus.contains("Error")) Color.Red else Color.Blue,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+
+                Button(
+                    onClick = { initiateGCashDonation() },
+                    enabled = !isLoading && selectedOrganization != null && localDisplayItems.isNotEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = themeColor,
+                        contentColor = Color.White
+                    )
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = Color.White
+                        )
+                    } else {
+                        Text("Pay with GCash")
+                    }
+                }
+
+                TextButton(
+                    onClick = { navController.navigateUp() },
+                    modifier = Modifier.padding(top = 8.dp),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = themeColor
+                    )
+                ) {
+                    Text("Cancel Donation")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    if (showErrorDialog) {
+        AlertDialog(
+            onDismissRequest = { showErrorDialog = false },
+            title = { Text("Error") },
+            text = { Text(errorMessage) },
+            confirmButton = {
+                Button(
+                    onClick = { showErrorDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = themeColor)
+                ) {
+                    Text("OK")
+                }
+            }
+        )
     }
 }
 
@@ -465,17 +863,12 @@ fun OrganizationItem(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Organization icon/image
             Image(
                 painter = painterResource(id = organization.iconResId),
                 contentDescription = organization.name,
-                modifier = Modifier
-                    .size(40.dp)
+                modifier = Modifier.size(40.dp)
             )
-
-
             Spacer(modifier = Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = organization.name,
@@ -488,7 +881,6 @@ fun OrganizationItem(
                     color = Color.Gray
                 )
             }
-
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Default.Check,
@@ -500,335 +892,5 @@ fun OrganizationItem(
     }
 }
 
-// Create donation record function
-private fun createDonationRecord(
-    userId: String,
-    productId: String,
-    productName: String,
-    organizationId: String,
-    organizationName: String,
-    quantity: Int
-) {
-    val firestore = FirebaseFirestore.getInstance()
-
-    val donationData = hashMapOf(
-        "userId" to userId,
-        "productId" to productId,
-        "productName" to productName,
-        "organizationId" to organizationId,
-        "organizationName" to organizationName,
-        "quantity" to quantity,
-        "timestamp" to System.currentTimeMillis(),
-        "status" to "completed"
-    )
-
-    firestore.collection("donations")
-        .add(donationData)
-        .addOnSuccessListener { documentReference ->
-            Log.d("Donations", "Donation record created with ID: ${documentReference.id}")
-        }
-        .addOnFailureListener { e ->
-            Log.e("Donations", "Error creating donation record", e)
-        }
-}
 
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DonationReceiptScreen(
-    navController: NavController,
-    cartViewModel: CartViewModel,
-    cartItems: List<CartItem>,
-    organization: Organization,
-    sellerNames: Map<String, String>
-) {
-    // Define the theme color to match other screens
-    val themeColor = Color(0xFF0DA54B)
-    val currentUser by cartViewModel.currentUser.collectAsState()
-
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Donation Complete") },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        navController.navigate("market") {
-                            popUpTo("market") { inclusive = true }
-                        }
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.backbtn),
-                            contentDescription = "Back to market",
-                            tint = Color.Unspecified
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(Color(0xFFF8F8F8))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                // Success card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Favorite,
-                            contentDescription = null,
-                            tint = themeColor,
-                            modifier = Modifier.size(72.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Thank You for Your Donation!",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Your items have been donated to ${organization.name}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-
-                        // Generate random donation number
-                        val donationNumber = remember {
-                            val random = Random.nextInt(100000, 999999)
-                            "DON-$random"
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "Donation #: ",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray
-                            )
-                            Text(
-                                text = donationNumber,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    }
-                }
-
-                // Organization section
-                SectionTitle(title = "Organization Details")
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LocationCity,
-                                contentDescription = null,
-                                tint = themeColor,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                organization.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Text(
-                            organization.description,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-
-                // Donated items section
-                SectionTitle(title = "Donated Items (${cartItems.size})")
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        cartItems.forEachIndexed { index, item ->
-                            val sellerName = sellerNames[item.productId] ?: "Loading..."
-
-                            ReceiptItemCard(
-                                item = item,
-                                sellerName = sellerName,
-                                themeColor = themeColor
-                            )
-
-                            if (index < cartItems.size - 1) {
-                                Divider(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    color = Color(0xFFEEEEEE)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Donor Information
-                currentUser?.let { user ->
-                    SectionTitle(title = "Donor Information")
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = themeColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    "${user.firstname} ${user.lastname}",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Phone,
-                                    contentDescription = null,
-                                    tint = themeColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    user.phoneNumber,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Payment info
-                SectionTitle(title = "Payment Information")
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        PriceLine(
-                            title = "Payment Method",
-                            value = "GCash",
-                            themeColor = themeColor
-                        )
-
-                        PriceLine(
-                            title = "Donation Date",
-                            value = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(Calendar.getInstance().time),
-                            themeColor = themeColor
-                        )
-                    }
-                }
-
-                // Action buttons
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            navController.navigate("market") {
-                                popUpTo("market") { inclusive = true }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = themeColor)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Home,
-                                contentDescription = null,
-                                tint = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Return to Home",
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-    }
-}

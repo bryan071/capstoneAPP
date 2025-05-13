@@ -5,6 +5,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.datas.CartItem
+import com.project.webapp.datas.Transaction
 import java.util.Date
 import java.util.UUID
 
@@ -17,6 +18,10 @@ enum class OrderStatus(val displayName: String) {
     COMPLETED("Completed")
 }
 
+sealed class OrderItem {
+    data class Purchase(val order: Order) : OrderItem()
+    data class Donation(val transaction: Transaction) : OrderItem()
+}
 
 fun createOrderRecord(
     userId: String,
@@ -87,7 +92,38 @@ fun createOrderRecord(
     // IMPORTANT: The cleanup operation has been completely removed from this function
     // as it was potentially interfering with new orders
 }
+fun createDonationRecord(
+    userId: String,
+    productId: String,
+    productName: String,
+    organizationId: String,
+    organizationName: String,
+    quantity: Int,
+    orderNumber: String,
+    firestore: FirebaseFirestore
+) {
+    val donationId = "DON-$orderNumber"
+    val donationData = hashMapOf(
+        "userId" to userId,
+        "productId" to productId,
+        "productName" to productName,
+        "organizationId" to organizationId,
+        "organizationName" to organizationName,
+        "quantity" to quantity,
+        "timestamp" to FieldValue.serverTimestamp(),
+        "status" to "completed"
+    )
 
+    firestore.collection("donations")
+        .document(donationId)
+        .set(donationData)
+        .addOnSuccessListener {
+            Log.d("DonationScreen", "Donation record created successfully: $donationId")
+        }
+        .addOnFailureListener { e ->
+            Log.e("DonationScreen", "Error saving donation record: ${e.message}", e)
+        }
+}
 // Calculate estimated delivery date (3 days from now)
 fun calculateEstimatedDelivery(currentTime: Long): Date {
     val estimatedTimeMillis = currentTime + 3 * 24 * 60 * 60 * 1000 // 3 days

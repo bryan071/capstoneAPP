@@ -1,32 +1,30 @@
-import com.google.firebase.Timestamp
-import com.project.webapp.Viewmodel.OrderStatus
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.vector.ImageVector
+
 
 data class Order(
     val orderId: String = "",
     val buyerId: String = "",
-    val sellerId: String = "",
     val items: List<Map<String, Any>> = emptyList(),
     val totalAmount: Double = 0.0,
-    val status: String = OrderStatus.PAYMENT_RECEIVED.name,
-    val createdAt: Long = 0,
     val paymentMethod: String = "",
     val deliveryAddress: String = "",
-    val trackingNumber: String = "",
-    val estimatedDelivery: Timestamp? = null,  // updated type
-    val updatedAt: Long = 0
-) {
-    constructor() : this(
-        orderId = "",
-        buyerId = "",
-        sellerId = "",
-        items = emptyList(),
-        totalAmount = 0.0,
-        status = OrderStatus.PAYMENT_RECEIVED.name,
-        createdAt = 0,
-        paymentMethod = "",
-        deliveryAddress = "",
-        trackingNumber = "",
-        estimatedDelivery = null,
-        updatedAt = 0
-    )
-}
+    val status: String = "",
+    val createdAt: Long = 0
+)
+
+data class OrderItemDetails(
+    val title: String,
+    val icon: ImageVector,
+    val status: String,
+    val timestamp: Long,
+    val quantity: Int,
+    val details: String
+)
+
+data class DialogDetails(
+    val title: String,
+    val status: String,
+    val timestamp: String,
+    val detailsContent: @Composable () -> Unit
+)

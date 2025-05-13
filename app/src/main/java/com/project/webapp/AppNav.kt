@@ -1,18 +1,28 @@
 package com.project.webapp
 
+
 import FarmerEditProfileScreen
 import SplashScreen
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -27,7 +37,6 @@ import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.components.CartScreen
 import com.project.webapp.components.ChatScreen
 import com.project.webapp.components.CheckoutScreen
-import com.project.webapp.components.payment.DonationScreen
 import com.project.webapp.components.EditProductScreen
 import com.project.webapp.dashboards.BottomNavigationBar
 import com.project.webapp.dashboards.FarmerDashboard
@@ -35,13 +44,20 @@ import com.project.webapp.components.FarmerMarketScreen
 import com.project.webapp.components.payment.GcashScreen
 import com.project.webapp.components.payment.PaymentScreen
 import com.project.webapp.components.ProductDetailsScreen
-import com.project.webapp.components.delivery.OrdersScreen
 import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
 import com.project.webapp.components.profiles.FarmerProfileScreen
 import com.project.webapp.pages.Register
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.navDeepLink
+import com.google.common.reflect.TypeToken
+import com.google.gson.Gson
+import com.project.webapp.components.payment.DonationScreen
+import com.project.webapp.components.payment.OrdersScreen
+import com.project.webapp.components.payment.ReceiptScreen
+import com.project.webapp.datas.CartItem
+import com.project.webapp.datas.Organization
+import java.net.URLDecoder
 
 @SuppressLint("ContextCastToActivity")
 @Composable
@@ -190,20 +206,81 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 )
             }
             composable(
+                route = "receiptScreen/{orderNumber}",
+                arguments = listOf(
+                    navArgument("orderNumber") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val orderNumber = backStackEntry.arguments?.getString("orderNumber")
+
+                Log.d("ReceiptScreen", "Received orderNumber: $orderNumber")
+
+                if (orderNumber == null) {
+                    Log.e("ReceiptScreen", "Missing orderNumber for receiptScreen")
+                    navController.navigate("errorScreen") {
+                        popUpTo(navController.graph.startDestinationId)
+                        launchSingleTop = true
+                    }
+                    return@composable
+                }
+
+                val receiptData = cartViewModel.getReceiptData(orderNumber)
+
+                if (receiptData == null) {
+                    Log.e("ReceiptScreen", "No receipt data found for orderNumber: $orderNumber")
+                    navController.navigate("errorScreen") {
+                        popUpTo(navController.graph.startDestinationId)
+                        launchSingleTop = true
+                    }
+                    return@composable
+                }
+                ReceiptScreen(
+                    navController = navController,
+                    cartViewModel = cartViewModel,
+                    cartItems = receiptData.cartItems ?: emptyList(),
+                    totalPrice = receiptData.totalPrice ?: 0.0,
+                    userType = receiptData.userType ?: "Unknown",
+                    sellerNames = receiptData.sellerNames ?: emptyMap(),
+                    paymentMethod = receiptData.paymentMethod ?: "COD",
+                    referenceId = receiptData.referenceId ?: "",
+                    organization = receiptData.organization,
+                    isDonation = receiptData.isDonation ?: false,
+                    orderNumber = orderNumber
+                )
+            }
+
+            composable("errorScreen") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Something went wrong. Please try again.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Button(onClick = { navController.popBackStack() }) {
+                        Text("Go Back")
+                    }
+                }
+            }
+            composable(
                 route = "gcashScreen/{totalPrice}/{ownerId}",
                 arguments = listOf(
-                    navArgument("totalPrice") { type = NavType.StringType },
+                    navArgument("totalPrice") { type = NavType.FloatType },
                     navArgument("ownerId") { type = NavType.StringType }
                 )
             ) { backStackEntry ->
                 GcashScreen(
                     navController = navController,
-                    totalPrice = backStackEntry.arguments?.getString("totalPrice") ?: "",
+                    totalPrice = backStackEntry.arguments?.getFloat("totalPrice")?.toDouble() ?: 0.0,
                     ownerId = backStackEntry.arguments?.getString("ownerId") ?: "",
                     cartViewModel = viewModel()
                 )
             }
-
 
             composable("chat") {
                 val chatViewModel = viewModel<ChatViewModel>()

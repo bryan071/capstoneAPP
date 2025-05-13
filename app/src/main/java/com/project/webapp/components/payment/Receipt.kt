@@ -1,68 +1,35 @@
 package com.project.webapp.components.payment
 
+import android.util.Log
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import com.project.webapp.BuildConfig
 import com.project.webapp.R
 import com.project.webapp.datas.CartItem
+import com.project.webapp.datas.Organization
+import com.project.webapp.datas.UserData
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
-import kotlin.random.Random
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,402 +40,402 @@ fun ReceiptScreen(
     totalPrice: Double,
     userType: String,
     sellerNames: Map<String, String>,
-    paymentMethod: String = "COD",
-    referenceId: String = ""
+    paymentMethod: String,
+    referenceId: String,
+    organization: Organization?,
+    isDonation: Boolean,
+    orderNumber: String,
+    modifier: Modifier = Modifier
 ) {
-    val currentUser by cartViewModel.currentUser.collectAsState()
-    val themeColor = Color(0xFF0DA54B) // GCash green
-    val currentDate = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(Date())
-    val currentTime = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-    val orderNumber = remember { UUID.randomUUID().toString().substring(0, 8).uppercase() }
+    val currentUser by cartViewModel.currentUser.collectAsStateWithLifecycle()
+    val themeColor = Color(0xFF0DA54B)
+
+    // Cached formatters and date/time
+    val dateFormatter = remember { SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()) }
+    val timeFormatter = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
+    val currentDateTime = remember { Date() }
+    val currentDate = dateFormatter.format(currentDateTime)
+    val currentTime = timeFormatter.format(currentDateTime)
+
+    // Validate inputs early
+    if (!validateInputs(cartItems, totalPrice, orderNumber, isDonation, organization)) {
+        navController.popBackStack()
+        return
+    }
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Receipt") },
+            TopAppBar(
+                title = { Text(if (isDonation) "Donation Receipt" else "Receipt") },
                 navigationIcon = {
-                    IconButton(onClick = { /* No back action here, to enforce "done" button */ }) {
+                    IconButton(onClick = { /* Disabled */ }) {
                         Icon(
                             painter = painterResource(id = R.drawable.backbtn),
-                            contentDescription = "Back",
-                            tint = Color.Transparent // Make invisible
+                            contentDescription = null,
+                            tint = Color.Transparent
                         )
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        }
+        },
+        modifier = modifier
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(innerPadding)
                 .background(Color(0xFFF8F8F8))
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                // Success Icon
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(60.dp)
-                        .background(themeColor, CircleShape)
-                        .padding(12.dp)
-                )
+            SuccessHeader(isDonation = isDonation, themeColor = themeColor)
+            ReceiptCard(
+                isDonation = isDonation,
+                orderNumber = orderNumber,
+                currentDate = currentDate,
+                currentTime = currentTime,
+                currentUser = currentUser,
+                cartItems = cartItems,
+                sellerNames = sellerNames,
+                themeColor = themeColor
+            )
+            if (isDonation && organization == null) {
+                navController.popBackStack()
+                return@Column
+            }
+            PaymentSummaryCard(
+                isDonation = isDonation,
+                organization = organization,
+                totalPrice = totalPrice,
+                paymentMethod = paymentMethod,
+                referenceId = referenceId,
+                themeColor = themeColor
+            )
+            DoneButton(
+                navController = navController,
+                themeColor = themeColor,
+                cartViewModel = cartViewModel
+            )
+        }
+    }
+}
 
+@Composable
+private fun SuccessHeader(isDonation: Boolean, themeColor: Color) {
+    // Adding vertical scrolling to the Column
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .padding(top = 16.dp)
+            .verticalScroll(rememberScrollState())  // Make the column scrollable
+    ) {
+        Text(
+            text = "✓",
+            style = MaterialTheme.typography.headlineLarge,
+            color = themeColor,
+            modifier = Modifier
+                .size(60.dp)
+                .background(Color.White, CircleShape)
+                .padding(12.dp)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = if (isDonation) "Donation Confirmed!" else "Order Confirmed!",
+            style = MaterialTheme.typography.headlineSmall.copy(fontSize = 24.sp),
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = if (isDonation) {
+                "Your donation has been successfully processed."
+            } else {
+                "Your order has been placed successfully."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+
+@Composable
+private fun ReceiptCard(
+    isDonation: Boolean,
+    orderNumber: String,
+    currentDate: String,
+    currentTime: String,
+    currentUser: UserData?,
+    cartItems: List<CartItem>,
+    sellerNames: Map<String, String>,
+    themeColor: Color
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    "Order Confirmed!",
-                    style = MaterialTheme.typography.headlineSmall,
+                    text = if (isDonation) "Donation #$orderNumber" else "Order #$orderNumber",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-
-                Text(
-                    "Your order has been placed successfully.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
-
-                // Receipt Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        // Receipt Header
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Order #$orderNumber",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    currentDate,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
-                                Text(
-                                    currentTime,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
-                            }
-                        }
-
-                        Divider(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            color = Color(0xFFEEEEEE)
-                        )
-
-                        // Customer Information
-                        currentUser?.let { user ->
-                            Text(
-                                "Customer Details",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                "${user.firstname} ${user.lastname}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-
-                            Text(
-                                user.phoneNumber,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray
-                            )
-
-                            Text(
-                                user.address,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray
-                            )
-                        }
-
-                        Divider(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            color = Color(0xFFEEEEEE)
-                        )
-
-                        // Order Items
-                        Text(
-                            "Order Details",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        cartItems.forEach { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(3f)) {
-                                    Text(
-                                        item.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-
-                                    Text(
-                                        "Seller: ${sellerNames[item.productId] ?: "Unknown"}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.Gray
-                                    )
-                                }
-
-                                Text(
-                                    "x${item.quantity}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                    textAlign = TextAlign.Center
-                                )
-
-                                Text(
-                                    "₱${String.format("%.2f", item.price * item.quantity)}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                    textAlign = TextAlign.End
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-
-                        Divider(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            color = Color(0xFFEEEEEE)
-                        )
-
-                        // Payment Summary
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Items Subtotal",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "₱${"%.2f".format(totalPrice - 50.0)}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.End
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Shipping Fee",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "₱50.00",
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.End
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Total",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "₱${"%.2f".format(totalPrice)}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = themeColor,
-                                textAlign = TextAlign.End
-                            )
-                        }
-
-                        Divider(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            color = Color(0xFFEEEEEE)
-                        )
-
-                        // Payment Method
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Payment Method",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                when (paymentMethod) {
-                                    "GCash" -> "GCash"
-                                    else -> "Cash on Delivery"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.End
-                            )
-                        }
-
-                        // Show reference ID for GCash payments
-                        if (paymentMethod == "GCash" && referenceId.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Reference ID",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    referenceId,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    textAlign = TextAlign.End
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Done Button
-                Button(
-                    onClick = {
-                        navController.navigate("farmerdashboard") {
-                            popUpTo("home") { inclusive = true }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = themeColor)
-                ) {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        "Done",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
+                        text = currentDate,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = currentTime,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
                     )
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            Text(
+                text = if (isDonation) "Donor Details" else "Customer Details",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (currentUser != null) {
+                Text(
+                    text = "${currentUser.firstname} ${currentUser.lastname}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = currentUser.phoneNumber,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray
+                )
+                if (!isDonation) {
+                    Text(
+                        text = currentUser.address,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray
+                    )
+                }
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .align(Alignment.CenterHorizontally)
+                )
+                Text(
+                    text = "Loading user information...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            Text(
+                text = if (isDonation) "Donated Items" else "Order Details",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            cartItems.forEach { item ->
+                CartItemRow(
+                    item = item,
+                    sellerNames = sellerNames,
+                    isDonation = isDonation
+                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
 }
 
 @Composable
-fun ReceiptItemCard(
+private fun CartItemRow(
     item: CartItem,
-    sellerName: String,
-    themeColor: Color = MaterialTheme.colorScheme.primary
+    sellerNames: Map<String, String>,
+    isDonation: Boolean
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Product Image
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(item.imageUrl)
-                .crossfade(true)
-                .build(),
-            contentDescription = item.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(64.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFF0F0F0))
-        )
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(3f)) {
             Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                text = item.name.orEmpty(),
+                style = MaterialTheme.typography.bodyMedium
             )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
             Text(
-                text = "Seller: $sellerName",
+                text = if (isDonation) {
+                    "From: ${sellerNames[item.productId].orEmpty()}"
+                } else {
+                    "Seller: ${sellerNames[item.productId].orEmpty()}"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
+        }
+        Text(
+            text = "x${item.quantity}",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "₱${"%.2f".format(item.price * item.quantity)}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End
+        )
+    }
+}
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "₱${String.format("%.2f", item.price)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = themeColor
+@Composable
+private fun PaymentSummaryCard(
+    isDonation: Boolean,
+    organization: Organization?,
+    totalPrice: Double,
+    paymentMethod: String,
+    referenceId: String,
+    themeColor: Color
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (isDonation && organization != null) {
+                SummaryRow(
+                    label = "Organization",
+                    value = organization.name.orEmpty()
                 )
-
-                Text(
-                    text = "Qty: ${item.quantity}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
+                SummaryRow(
+                    label = "Total",
+                    value = "₱${"%.2f".format(totalPrice)}",
+                    valueStyle = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = themeColor
+                    )
+                )
+            } else {
+                SummaryRow(
+                    label = "Items Subtotal",
+                    value = "₱${"%.2f".format(totalPrice - 50.0)}"
+                )
+                SummaryRow(
+                    label = "Shipping Fee",
+                    value = "₱50.00"
+                )
+                SummaryRow(
+                    label = "Total",
+                    value = "₱${"%.2f".format(totalPrice)}",
+                    valueStyle = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = themeColor
+                    )
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SummaryRow(
+                label = "Payment Method",
+                value = if (paymentMethod == "GCash") "GCash" else "Cash on Delivery"
+            )
+            if (paymentMethod == "GCash" && referenceId.isNotEmpty()) {
+                SummaryRow(
+                    label = "Reference ID",
+                    value = referenceId
                 )
             }
         }
     }
+}
+
+@Composable
+private fun SummaryRow(
+    label: String,
+    value: String,
+    valueStyle: TextStyle = MaterialTheme.typography.bodyMedium
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray
+        )
+        Text(
+            text = value,
+            style = valueStyle,
+            textAlign = TextAlign.End
+        )
+    }
+}
+
+@Composable
+private fun DoneButton(
+    navController: NavController,
+    themeColor: Color,
+    cartViewModel: CartViewModel
+) {
+    Button(
+        onClick = {
+            cartViewModel.clearCart()
+            navController.navigate("farmerdashboard") {
+                popUpTo("farmerdashboard") { inclusive = true }
+                launchSingleTop = true
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = themeColor)
+    ) {
+        Text(
+            text = "Done",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White
+        )
+    }
+}
+
+@Composable
+private fun HorizontalDivider(modifier: Modifier = Modifier) {
+    Divider(
+        modifier = modifier.fillMaxWidth(),
+        color = Color(0xFFEEEEEE),
+        thickness = 1.dp
+    )
+}
+
+private fun validateInputs(
+    cartItems: List<CartItem>,
+    totalPrice: Double,
+    orderNumber: String,
+    isDonation: Boolean,
+    organization: Organization?
+): Boolean {
+    if (orderNumber.isEmpty()) return false
+    if (cartItems.isEmpty()) return false
+    if (totalPrice <= 0) return false
+    if (isDonation && organization?.name.isNullOrEmpty()) return false
+    if (!cartItems.all { !it.name.isNullOrEmpty() && !it.productId.isNullOrEmpty() && it.price > 0 }) {
+        return false
+    }
+    return true
 }

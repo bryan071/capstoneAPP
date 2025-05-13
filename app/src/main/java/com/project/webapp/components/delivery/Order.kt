@@ -1,11 +1,11 @@
-package com.project.webapp.components.delivery
+package com.project.webapp.components.payment
 
+import DialogDetails
+import OrderItemDetails
 import android.util.Log
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
-import com.project.webapp.R
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,34 +21,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.LocalShipping
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ShoppingBag
-import androidx.compose.material.icons.filled.ShoppingBasket
-import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,67 +52,89 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.airbnb.lottie.compose.LottieAnimation
-import com.airbnb.lottie.compose.LottieCompositionSpec
-import com.airbnb.lottie.compose.LottieConstants
-import com.airbnb.lottie.compose.rememberLottieComposition
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.project.webapp.Viewmodel.OrderStatus
-import com.project.webapp.components.DetailRow
-import com.project.webapp.components.LoadingAnimation
+import com.project.webapp.Viewmodel.OrderItem
+import com.project.webapp.datas.Transaction
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    showScaffold: Boolean = true // Parameter to control scaffold visibility
+    showScaffold: Boolean = true
 ) {
     val primaryColor = Color(0xFF0DA54B)
     val firestore = FirebaseFirestore.getInstance()
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
-    var orders by remember { mutableStateOf<List<Order>>(emptyList()) }
+    var orderItems by remember { mutableStateOf<List<OrderItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var selectedOrder by remember { mutableStateOf<Order?>(null) }
+    var selectedItem by remember { mutableStateOf<OrderItem?>(null) }
 
-    // Fetch orders for the current user
     LaunchedEffect(currentUserId) {
         if (currentUserId != null) {
+            // Fetch purchases from orders
             firestore.collection("orders")
                 .whereEqualTo("buyerId", currentUserId)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener { snapshot, error ->
-                    isLoading = false
                     if (error != null) {
                         Log.e("Orders", "Error fetching orders", error)
                         return@addSnapshotListener
                     }
 
-                    if (snapshot != null) {
-                        orders = snapshot.documents.mapNotNull { doc ->
-                            doc.toObject(Order::class.java)
+                    val orders = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(Order::class.java)
+                    }?.map { OrderItem.Purchase(it) } ?: emptyList()
+
+                    // Fetch donations from transactions
+                    firestore.collection("transactions")
+                        .whereEqualTo("buyerId", currentUserId)
+                        .whereEqualTo("transactionType", "donation")
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .addSnapshotListener { transactionSnapshot, transactionError ->
+                            isLoading = false
+                            if (transactionError != null) {
+                                Log.e("Orders", "Error fetching donation transactions", transactionError)
+                                return@addSnapshotListener
+                            }
+
+                            val donationTransactions = transactionSnapshot?.documents?.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                Transaction(
+                                    id = doc.id,
+                                    buyerId = data["buyerId"] as? String ?: "",
+                                    item = data["item"] as? String ?: "",
+                                    quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
+                                    totalAmount = (data["totalAmount"] as? Double) ?: 0.0,
+                                    organization = data["organization"] as? String,
+                                    transactionType = data["transactionType"] as? String ?: "",
+                                    status = data["status"] as? String ?: "",
+                                    timestamp = data["timestamp"] as? Long ?: 0,
+                                    paymentMethod = data["paymentMethod"] as? String ?: "",
+                                    referenceId = data["referenceId"] as? String
+                                )
+                            }?.map { OrderItem.Donation(it) } ?: emptyList()
+
+                            orderItems = (orders + donationTransactions).sortedByDescending {
+                                when (it) {
+                                    is OrderItem.Purchase -> it.order.createdAt
+                                    is OrderItem.Donation -> it.transaction.timestamp
+                                }
+                            }
                         }
-                    }
                 }
         } else {
             isLoading = false
@@ -128,11 +144,10 @@ fun OrdersScreen(
     if (showScaffold) {
         Scaffold(
             topBar = {
-                SmallTopAppBar(
+                TopAppBar(
                     title = {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 8.dp)
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ShoppingBag,
@@ -142,7 +157,7 @@ fun OrdersScreen(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "My Orders",
+                                text = "My Orders & Donations",
                                 fontSize = 28.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.DarkGray
@@ -158,11 +173,9 @@ fun OrdersScreen(
                             )
                         }
                     },
-                    colors = TopAppBarDefaults.smallTopAppBarColors(
-                        containerColor = Color.White,
-                        titleContentColor = Color.DarkGray,
-                    ),
-                    modifier = Modifier.shadow(elevation = 4.dp)
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.White
+                    )
                 )
             },
             containerColor = Color(0xFFF7FAF9)
@@ -170,62 +183,87 @@ fun OrdersScreen(
             OrdersContent(
                 paddingValues = paddingValues,
                 isLoading = isLoading,
-                orders = orders,
-                selectedOrder = selectedOrder,
-                onOrderSelected = { selectedOrder = it },
+                orderItems = orderItems,
+                selectedItem = selectedItem,
+                onItemSelected = { selectedItem = it },
                 navController = navController,
                 primaryColor = primaryColor,
                 modifier = modifier
             )
         }
     } else {
-        // When embedded in profile, show just the content without scaffold
         OrdersContent(
             paddingValues = PaddingValues(0.dp),
             isLoading = isLoading,
-            orders = orders,
-            selectedOrder = selectedOrder,
-            onOrderSelected = { selectedOrder = it },
+            orderItems = orderItems,
+            selectedItem = selectedItem,
+            onItemSelected = { selectedItem = it },
             navController = navController,
             primaryColor = primaryColor,
             modifier = modifier
-
         )
     }
 
-    // Show order details dialog when an order is selected
-    selectedOrder?.let { order ->
+    selectedItem?.let { item ->
         OrderDetailsDialog(
-            order = order,
-            onDismiss = { selectedOrder = null },
+            item = item,
+            onDismiss = { selectedItem = null },
             primaryColor = primaryColor
         )
     }
-
 }
 
 @Composable
 private fun OrdersContent(
     paddingValues: PaddingValues,
     isLoading: Boolean,
-    orders: List<Order>,
-    selectedOrder: Order?,
-    onOrderSelected: (Order) -> Unit,
+    orderItems: List<OrderItem>,
+    selectedItem: OrderItem?,
+    onItemSelected: (OrderItem) -> Unit,
     navController: NavController,
     primaryColor: Color,
     modifier: Modifier = Modifier
 ) {
-
-
     Box(
         modifier = modifier
             .padding(paddingValues)
             .fillMaxSize()
     ) {
         if (isLoading) {
-            LoadingAnimation(primaryColor = primaryColor)
-        } else if (orders.isEmpty()) {
-            EmptyOrdersScreen(navController)
+            CircularProgressIndicator(
+                color = primaryColor,
+                modifier = Modifier
+                    .size(50.dp)
+                    .align(Alignment.Center)
+            )
+        } else if (orderItems.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ShoppingBag,
+                    contentDescription = "No Orders",
+                    tint = Color.Gray,
+                    modifier = Modifier.size(80.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No Orders or Donations Yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Start shopping or donating to see your history here!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+            }
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -234,14 +272,12 @@ private fun OrdersContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(orders.size) { index ->
-                    val order = orders[index]
-
+                items(orderItems.size) { index ->
+                    val item = orderItems[index]
                     OrderItem(
-                        order = order,
-                        onClick = { onOrderSelected(order) },
+                        orderItem = item,
+                        onClick = { onItemSelected(item) },
                         primaryColor = primaryColor
-
                     )
                 }
             }
@@ -251,70 +287,64 @@ private fun OrdersContent(
 
 @Composable
 fun OrderItem(
-    order: Order,
+    orderItem: OrderItem,
     onClick: () -> Unit,
     primaryColor: Color
 ) {
-    // Check if items list is empty before attempting to access
-    val hasItems = order.items.isNotEmpty()
-    val firstItem = if (hasItems) order.items.firstOrNull() else null
-
-    // Determine if this is a GCash payment
-    val isGCashPayment = order.paymentMethod.equals("GCash", ignoreCase = true)
-
-    // Determine display name for the order
-    val itemName = when {
-        hasItems && firstItem?.get("name") != null ->
-            firstItem["name"] as? String ?: "Unnamed Product"
-        isGCashPayment ->
-            "GCash Payment #${order.orderId.takeLast(6)}"
-        else ->
-            "Order #${order.orderId.takeLast(6)}"
+    val itemDetails = when (orderItem) {
+        is OrderItem.Purchase -> {
+            val order = orderItem.order
+            val firstItem = order.items.firstOrNull()
+            val itemName = firstItem?.get("name") as? String ?: "Order #${order.orderId.takeLast(6)}"
+            val qty = order.items.sumOf { item ->
+                when (val quantity = item["quantity"]) {
+                    is Number -> quantity.toInt()
+                    else -> {
+                        Log.w("OrderItem", "Invalid quantity for item: $item")
+                        0
+                    }
+                }
+            }
+            Log.d("OrderItem", "Purchase items: ${order.items}, Calculated qty: $qty")
+            OrderItemDetails(
+                title = itemName,
+                icon = Icons.Default.ShoppingBag,
+                status = order.status,
+                timestamp = order.createdAt,
+                quantity = qty,
+                details = "${order.items.size} item(s)"
+            )
+        }
+        is OrderItem.Donation -> {
+            val transaction = orderItem.transaction
+            OrderItemDetails(
+                title = transaction.item,
+                icon = Icons.Default.Favorite,
+                status = transaction.status,
+                timestamp = transaction.timestamp,
+                quantity = transaction.quantity,
+                details = "To: ${transaction.organization ?: "Unknown"}"
+            )
+        }
     }
 
-    val formattedDate = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(order.createdAt))
-    var isPressed by remember { mutableStateOf(false) }
-
-    // Status color and icon mapping
-    val (statusColor, statusIcon) = when (order.status) {
-        OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
-        OrderStatus.TO_SHIP.name -> Color(0xFF0DA54B) to Icons.Default.Inventory
-        OrderStatus.SHIPPING.name -> Color(0xFF0DA54B) to Icons.Default.LocalShipping
-        OrderStatus.TO_DELIVER.name -> Color(0xFF0DA54B) to Icons.Default.LocalShipping
-        OrderStatus.DELIVERED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
-        OrderStatus.COMPLETED.name -> Color(0xFF0DA54B) to Icons.Default.CheckCircle
-        else -> Color.Gray to Icons.Default.Info
+    val formattedDate = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(itemDetails.timestamp))
+    val statusColor = when (itemDetails.status) {
+        "completed", "COMPLETED", "DELIVERED" -> primaryColor
+        else -> Color.Gray
     }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            }
-            .graphicsLayer {
-                scaleX = if (isPressed) 0.98f else 1f
-                scaleY = if (isPressed) 0.98f else 1f
-            }
-            .animateContentSize(),
+            .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp,
-            pressedElevation = 4.dp
-        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
-            // Status header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -326,14 +356,14 @@ fun OrderItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = statusIcon,
-                    contentDescription = order.status,
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = itemDetails.status,
                     tint = statusColor,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = OrderStatus.valueOf(order.status).displayName,
+                    text = itemDetails.status.replaceFirstChar { it.uppercase() },
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
                     fontSize = 14.sp
@@ -345,79 +375,44 @@ fun OrderItem(
                     fontSize = 12.sp
                 )
             }
-
             Spacer(modifier = Modifier.height(12.dp))
-
-            // Order item preview
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Product image
-                val itemImageUrl = if (hasItems && firstItem?.get("imageUrl") != null) {
-                    firstItem["imageUrl"] as? String ?: ""
-                } else {
-                    ""
+                Box(
+                    modifier = Modifier
+                        .size(70.dp)
+                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
+                        .background(Color(0xFFEDF7F0)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = itemDetails.icon,
+                        contentDescription = "Item Icon",
+                        modifier = Modifier.size(40.dp),
+                        tint = primaryColor
+                    )
                 }
-
-                if (itemImageUrl.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .size(70.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(itemImageUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Product Image",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(70.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFEDF7F0)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ShoppingBag,
-                            contentDescription = "Order Icon",
-                            modifier = Modifier.size(40.dp),
-                            tint = primaryColor
-                        )
-                    }
-                }
-
                 Spacer(modifier = Modifier.width(12.dp))
-
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = itemName,
+                        text = itemDetails.title,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-
                     Spacer(modifier = Modifier.height(2.dp))
-
                     Text(
-                        text = if (hasItems) "${order.items.size} item(s)" else "Order details",
+                        text = itemDetails.details,
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
-
                     Spacer(modifier = Modifier.height(4.dp))
-
                     Text(
-                        text = "₱${String.format("%.2f", order.totalAmount)}",
+                        text = "Qty: ${itemDetails.quantity}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = primaryColor
@@ -433,25 +428,226 @@ fun OrderItem(
     }
 }
 
-
 @Composable
 fun OrderDetailsDialog(
-    order: Order,
+    item: OrderItem,
     onDismiss: () -> Unit,
     primaryColor: Color
 ) {
-    val firestore = FirebaseFirestore.getInstance()
-    val scrollState = rememberScrollState()
-    val formattedDate = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(order.createdAt))
+    val dialogDetails = when (item) {
+        is OrderItem.Purchase -> {
+            val order = item.order
+            val formattedDate = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(order.createdAt))
+            DialogDetails(
+                title = "Order #${order.orderId.takeLast(6)}",
+                status = order.status,
+                timestamp = formattedDate,
+                detailsContent = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Order Items (${order.items.size})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                order.items.forEachIndexed { index, item ->
+                                    val name = item["name"] as? String ?: "Unnamed Product"
+                                    val price = (item["price"] as? Number)?.toDouble() ?: 0.0
+                                    val quantity = (item["quantity"] as? Number)?.toInt() ?: 1
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(50.dp)
+                                                .background(Color(0xFFEDF7F0), RoundedCornerShape(6.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ShoppingBag,
+                                                contentDescription = "Product Icon",
+                                                tint = primaryColor,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = name,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "Qty: $quantity",
+                                                fontSize = 13.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                        Text(
+                                            text = "₱${String.format("%.2f", price * quantity)}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = Color.DarkGray
+                                        )
+                                    }
+                                    if (index < order.items.size - 1) {
+                                        Divider(color = Color.LightGray)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Payment Information",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                ReceiptRow(
+                                    label = "Payment Method",
+                                    value = order.paymentMethod
+                                )
+                                ReceiptRow(
+                                    label = "Order Date",
+                                    value = formattedDate
+                                )
+                                val shippingFee = 50.0
+                                val subtotal = order.totalAmount - shippingFee
+                                ReceiptRow(
+                                    label = "Items Subtotal",
+                                    value = "₱${String.format("%.2f", subtotal)}"
+                                )
+                                ReceiptRow(
+                                    label = "Shipping Fee",
+                                    value = "₱${String.format("%.2f", shippingFee)}"
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Total",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                    Text(
+                                        text = "₱${String.format("%.2f", order.totalAmount)}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = primaryColor
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Shipping Information",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = order.deliveryAddress,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        is OrderItem.Donation -> {
+            val transaction = item.transaction
+            val formattedDate = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(transaction.timestamp))
+            DialogDetails(
+                title = "Donation to ${transaction.organization ?: "Unknown"}",
+                status = transaction.status,
+                timestamp = formattedDate,
+                detailsContent = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Donation Details",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                ReceiptRow(
+                                    label = "Item",
+                                    value = transaction.item
+                                )
+                                ReceiptRow(
+                                    label = "Quantity",
+                                    value = transaction.quantity.toString()
+                                )
+                                ReceiptRow(
+                                    label = "Organization",
+                                    value = transaction.organization ?: "Unknown"
+                                )
+                                ReceiptRow(
+                                    label = "Date",
+                                    value = formattedDate
+                                )
+                                ReceiptRow(
+                                    label = "Payment Method",
+                                    value = transaction.paymentMethod
+                                )
+                                if (transaction.referenceId?.isNotEmpty() == true) {
+                                    ReceiptRow(
+                                        label = "Reference ID",
+                                        value = transaction.referenceId
+                                    )
+                                }
+                                ReceiptRow(
+                                    label = "Total",
+                                    value = "₱${String.format("%.2f", transaction.totalAmount)}"
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+        }
+    }
 
-    // Get color for status
-    val statusColor = when (order.status) {
-        OrderStatus.PAYMENT_RECEIVED.name -> Color(0xFF0DA54B)
-        OrderStatus.TO_SHIP.name -> Color(0xFF0DA54B)
-        OrderStatus.SHIPPING.name -> Color(0xFF0DA54B)
-        OrderStatus.TO_DELIVER.name -> Color(0xFF0DA54B)
-        OrderStatus.DELIVERED.name -> Color(0xFF4CAF50)
-        OrderStatus.COMPLETED.name -> Color(0xFF0DA54B)
+    val statusColor = when (dialogDetails.status) {
+        "completed", "COMPLETED", "DELIVERED" -> primaryColor
         else -> Color.Gray
     }
 
@@ -465,14 +661,17 @@ fun OrderDetailsDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
-                    imageVector = Icons.Default.ShoppingBag,
-                    contentDescription = "Order Details",
+                    imageVector = when (item) {
+                        is OrderItem.Purchase -> Icons.Default.ShoppingBag
+                        is OrderItem.Donation -> Icons.Default.Favorite
+                    },
+                    contentDescription = "Details",
                     tint = primaryColor,
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    "Order #${order.orderId.takeLast(6)}",
+                    text = dialogDetails.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp,
                     color = Color.DarkGray
@@ -484,19 +683,8 @@ fun OrderDetailsDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 500.dp)
-                    .verticalScroll(scrollState)
+                    .verticalScroll(rememberScrollState())
             ) {
-                // Add estimated delivery if applicable
-                if (order.status !in listOf(OrderStatus.DELIVERED.name, OrderStatus.COMPLETED.name)) {
-                    DeliveryEstimation(
-                        order = order,
-                        primaryColor = primaryColor
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                // Status card with enhanced tracking
                 Card(
                     colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.1f)),
                     shape = RoundedCornerShape(12.dp),
@@ -507,259 +695,15 @@ fun OrderDetailsDialog(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = OrderStatus.valueOf(order.status).displayName,
+                            text = dialogDetails.status.replaceFirstChar { it.uppercase() },
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = statusColor
                         )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // New detailed timeline for better visualization
-                        OrderStatusTimeline(
-                            currentStatus = order.status,
-                            primaryColor = statusColor
-                        )
                     }
                 }
-
-                // Add tracking information for orders in transit
-                if (order.status in listOf(
-                        OrderStatus.SHIPPING.name,
-                        OrderStatus.TO_DELIVER.name
-                    )
-                ) {
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    TrackingInformation(
-                        order = order,
-                        primaryColor = primaryColor
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(16.dp))
-
-                // Order items
-                // Handle the case where order.items might be empty
-                if (order.items.isNotEmpty()) {
-                    Text(
-                        text = "Items (${order.items.size})",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Color.DarkGray
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            order.items.forEachIndexed { index, item ->
-                                val name = item["name"] as? String ?: "Unnamed Product"
-                                val price = (item["price"] as? Number)?.toDouble() ?: 0.0
-                                val quantity = (item["quantity"] as? Number)?.toInt() ?: 1
-                                val imageUrl = item["imageUrl"] as? String ?: ""
-
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                ) {
-                                    // Product image
-                                    if (imageUrl.isNotEmpty()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(50.dp)
-                                                .clip(RoundedCornerShape(6.dp))
-                                        ) {
-                                            AsyncImage(
-                                                model = ImageRequest.Builder(LocalContext.current)
-                                                    .data(imageUrl)
-                                                    .crossfade(true)
-                                                    .build(),
-                                                contentDescription = "Product Image",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(50.dp)
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(Color(0xFFEDF7F0)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ShoppingBasket,
-                                                contentDescription = "Product Icon",
-                                                tint = primaryColor,
-                                                modifier = Modifier.size(28.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-
-                                        Text(
-                                            text = "Qty: $quantity",
-                                            fontSize = 13.sp,
-                                            color = Color.Gray
-                                        )
-                                    }
-
-                                    Text(
-                                        text = "₱${String.format("%.2f", price * quantity)}",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = Color.DarkGray
-                                    )
-                                }
-
-                                if (index < order.items.size - 1) {
-                                    Divider(color = Color.LightGray)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Handle the case where there are no items
-                    Text(
-                        text = "Order Details",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Color.DarkGray
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "This order doesn't contain detailed item information.",
-                                fontSize = 14.sp,
-                                color = Color.Gray
-                            )
-                        }
-                    }
-                }
-
-                // Rest of the dialog content remains the same...
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Payment information
-                Text(
-                    text = "Payment Information",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color.DarkGray
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        DetailRow(
-                            label = "Payment Method",
-                            value = order.paymentMethod,
-                            icon = Icons.Default.CreditCard,
-                            primaryColor = primaryColor
-                        )
-
-                        DetailRow(
-                            label = "Order Date",
-                            value = formattedDate,
-                            icon = Icons.Default.Schedule,
-                            primaryColor = primaryColor
-                        )
-
-                        // Calculate shipping fee and subtotal
-                        val shippingFee = 50.0 // Fixed shipping fee
-                        val subtotal = order.totalAmount - shippingFee
-
-                        DetailRow(
-                            label = "Items Subtotal",
-                            value = "₱${String.format("%.2f", subtotal)}",
-                            icon = Icons.Default.ShoppingBasket,
-                            primaryColor = primaryColor
-                        )
-
-                        DetailRow(
-                            label = "Shipping Fee",
-                            value = "₱${String.format("%.2f", shippingFee)}",
-                            icon = Icons.Default.LocalShipping,
-                            primaryColor = primaryColor
-                        )
-
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Total",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = Color.DarkGray
-                            )
-
-                            Text(
-                                text = "₱${String.format("%.2f", order.totalAmount)}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = primaryColor
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Shipping information
-                Text(
-                    text = "Shipping Information",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color.DarkGray
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = order.deliveryAddress,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp
-                        )
-                    }
-                }
+                dialogDetails.detailsContent()
             }
         },
         confirmButton = {
@@ -778,123 +722,4 @@ fun OrderDetailsDialog(
             }
         }
     )
-}
-
-@Composable
-fun OrderStatusPoint(
-    status: String,
-    currentStatus: String,
-    label: String
-) {
-    val orderStatusList = OrderStatus.values().map { it.name }
-    val currentStatusIndex = orderStatusList.indexOf(currentStatus)
-    val thisStatusIndex = orderStatusList.indexOf(status)
-
-    val isCompleted = thisStatusIndex <= currentStatusIndex
-    val statusColor = if (isCompleted) Color(0xFF0DA54B) else Color.Gray
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .size(16.dp)
-                .background(
-                    color = if (isCompleted) statusColor else Color.White,
-                    shape = CircleShape
-                )
-                .border(1.dp, statusColor, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isCompleted) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(10.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = statusColor,
-            fontWeight = if (isCompleted) FontWeight.Bold else FontWeight.Normal
-        )
-    }
-}
-
-@Composable
-fun EmptyOrdersScreen(navController: NavController) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        val composition by rememberLottieComposition(
-            LottieCompositionSpec.RawRes(R.raw.empty)
-        )
-
-        // If you don't have a Lottie animation, use this fallback
-        if (composition == null) {
-            Icon(
-                imageVector = Icons.Default.ShoppingBag,
-                contentDescription = "No Orders",
-                tint = Color(0xFF0DA54B),
-                modifier = Modifier.size(100.dp)
-            )
-        } else {
-            LottieAnimation(
-                composition = composition,
-                iterations = LottieConstants.IterateForever,
-                modifier = Modifier.size(200.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            "No orders yet!",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.DarkGray
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            "When you place orders, they will appear here.",
-            fontSize = 16.sp,
-            color = Color.Gray,
-            textAlign = TextAlign.Center,
-            lineHeight = 24.sp
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = { navController.navigate("market") },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF0DA54B)
-            ),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.ShoppingCart,
-                contentDescription = "Shop Now",
-                tint = Color.White
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Start Shopping",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
 }
