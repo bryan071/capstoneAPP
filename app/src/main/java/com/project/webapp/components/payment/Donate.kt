@@ -329,7 +329,6 @@ fun DonationScreen(
                                         quantity = cartItem.quantity,
                                         message = "Your product was donated to ${organization.name}. Thank you for your generosity! (Ref: $referenceId)"
                                     )
-                                    updateProductInventory(prod.prodId, cartItem.quantity)
                                     createDonationRecord(
                                         userId = userId,
                                         productId = prod.prodId,

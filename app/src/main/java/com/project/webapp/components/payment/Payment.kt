@@ -465,7 +465,6 @@
                                             deliveryAddress = userAddress,
                                             message = "Your product was sold!"
                                         )
-                                        updateProductInventory(prod.prodId, cartItem.quantity)
                                     }
                                 }
                             }

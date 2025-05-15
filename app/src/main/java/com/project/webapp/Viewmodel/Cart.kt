@@ -125,16 +125,21 @@ class CartViewModel : ViewModel() {
                 viewModelScope.launch {
                     val invalidDocs = mutableListOf<com.google.firebase.firestore.DocumentReference>()
                     val items = snapshot?.documents?.mapNotNull { doc ->
-                        val item = doc.toObject(CartItem::class.java)?.also { cartItem ->
-                            if (cartItem.productId.isEmpty()) cartItem.productId = doc.id
+                        val cartItem = doc.toObject(CartItem::class.java)
+                        if (cartItem != null) {
+                            if (cartItem.productId.isEmpty()) {
+                                cartItem.productId = doc.id
+                                // 🔧 FIX: update Firestore if productId is missing
+                                doc.reference.update("productId", doc.id)
+                            }
+
                             if (cartItem.price <= 0 || cartItem.quantity <= 0 || cartItem.productId.isEmpty()) {
                                 invalidDocs.add(doc.reference)
                                 null
                             } else {
                                 cartItem
                             }
-                        }
-                        item
+                        } else null
                     } ?: emptyList()
 
                     // Batch delete invalid items

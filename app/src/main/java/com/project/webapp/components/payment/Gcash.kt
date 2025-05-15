@@ -197,7 +197,6 @@
                                             deliveryAddress = userAddress,
                                             message = "Your product was sold! Payment method: GCash (Ref: $referenceId)"
                                         )
-                                        updateProductInventory(prod.prodId, cartItem.quantity)
                                     }
                                 }
                             }

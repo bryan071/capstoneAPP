@@ -16,7 +16,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +49,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -217,7 +220,7 @@ fun FarmerNotificationScreen(
                             notification = notification,
                             firestore = firestore,
                             primaryColor = primaryColor,
-                            onClick = { /* Handle navigation */ },
+                            onClick = {selectedNotification = notification},
                             onDelete = { id ->
                                 notifications.removeAll { it["id"] == id }
                             }
@@ -391,16 +394,11 @@ fun NotificationItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            }
+            .clickable(
+                onClick = onClick,
+                indication = rememberRipple(),
+                interactionSource = remember { MutableInteractionSource() }
+            )
             .graphicsLayer {
                 scaleX = if (isPressed) 0.98f else 1f
                 scaleY = if (isPressed) 0.98f else 1f
@@ -488,16 +486,6 @@ fun NotificationItem(
                     "product_donated" -> {
                         Text(
                             text = if (buyerName.isNotEmpty()) "Donated to $buyerName" else "You donated $name!",
-                            fontSize = 14.sp,
-                            color = Color.DarkGray,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 20.sp
-                        )
-                    }
-                    else -> {
-                        Text(
-                            text = message,
                             fontSize = 14.sp,
                             color = Color.DarkGray,
                             maxLines = 2,
