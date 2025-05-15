@@ -463,7 +463,7 @@
                                             quantity = cartItem.quantity,
                                             paymentMethod = "COD",
                                             deliveryAddress = userAddress,
-                                            message = "Your product was sold! Payment method: COD"
+                                            message = "Your product was sold!"
                                         )
                                         updateProductInventory(prod.prodId, cartItem.quantity)
                                     }

@@ -158,7 +158,7 @@ fun OrdersScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = "My Orders & Donations",
-                                fontSize = 28.sp,
+                                fontSize = 25.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.DarkGray
                             )
