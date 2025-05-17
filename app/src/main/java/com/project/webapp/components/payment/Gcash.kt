@@ -203,6 +203,21 @@
                             createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), userAddress)
                             cartViewModel.completePurchase(userType, "GCash", referenceId)
 
+                            val activity = hashMapOf(
+                                "userId" to userId,
+                                "description" to "Placed an order worth ₱${totalPrice.toInt()} via Gcash.",
+                                "timestamp" to System.currentTimeMillis()
+                            )
+
+                            firestore.collection("activities")
+                                .add(activity)
+                                .addOnSuccessListener {
+                                    Log.d("RecentActivity", "Activity logged successfully.")
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.e("RecentActivity", "Failed to log activity: ${e.message}")
+                                }
+
                             // Pass orderItems as a JSON string
                             val itemsJson = Gson().toJson(orderItems)
                             val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")

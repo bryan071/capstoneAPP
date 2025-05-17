@@ -343,6 +343,20 @@ fun DonationScreen(
                         }
 
                         cartViewModel.completePurchase(userType, "GCash")
+                        val activity = hashMapOf(
+                            "userId" to userId,
+                            "description" to "Donate an order worth ₱${totalPrice.toInt()} via Gcash.",
+                            "timestamp" to System.currentTimeMillis()
+                        )
+
+                        firestore.collection("activities")
+                            .add(activity)
+                            .addOnSuccessListener {
+                                Log.d("RecentActivity", "Activity logged successfully.")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("RecentActivity", "Failed to log activity: ${e.message}")
+                            }
 
                         // Store receipt data in ViewModel
                         if (displayItems.isNotEmpty() && totalPrice > 0 && sellerNames.isNotEmpty()) {
@@ -690,25 +704,27 @@ fun DonationScreen(
                                             color = Color.Gray
                                         )
                                         Text(
-                                            text = "Price: ₱${item.price}",
+                                            text = "Price: ₱${item.price}0",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = Color.Gray
                                         )
-                                        Text(
-                                            text = "Quantity: ${item.quantity}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color.Gray
-                                        )
-
+                                        // Product details from fetched Product object
                                         product?.let { prod ->
-                                            prod.prodId.takeIf { it != item.productId }?.let { id ->
-                                                Text(
-                                                    text = "Product ID: $id",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = Color.Gray
-                                                )
-                                            }
-                                            // Add other Product fields if available (e.g., category, stock)
+                                            Text(
+                                                text = "Category: ${prod.category}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray
+                                            )
+                                            Text(
+                                                text = "Quantity: ${prod.quantity.toInt()}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray
+                                            )
+                                            Text(
+                                                text = "Unit: ${prod.quantityUnit}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray
+                                            )
                                         }
                                     }
                                     Divider(

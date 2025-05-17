@@ -48,16 +48,11 @@ import com.project.webapp.pages.ForgotPass
 import com.project.webapp.pages.Login
 import com.project.webapp.components.profiles.FarmerProfileScreen
 import com.project.webapp.pages.Register
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.navDeepLink
-import com.google.common.reflect.TypeToken
-import com.google.gson.Gson
 import com.project.webapp.components.payment.DonationScreen
 import com.project.webapp.components.payment.OrdersScreen
 import com.project.webapp.components.payment.ReceiptScreen
-import com.project.webapp.datas.CartItem
-import com.project.webapp.datas.Organization
-import java.net.URLDecoder
+import com.project.webapp.components.profiles.RecentActivityScreen
 
 @SuppressLint("ContextCastToActivity")
 @Composable
@@ -293,6 +288,21 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 val chatViewModel = viewModel<ChatViewModel>()  // Ensure ViewModel is provided
                 ChatScreen(navController = navController, viewModel = chatViewModel, chatRoomId = chatRoomId, isAdmin = false)
             }
+
+            composable("recent_activity_screen") {
+                val state = authViewModel.authState.observeAsState().value
+
+                if (state is AuthState.Authenticated) {
+                    RecentActivityScreen(
+                        userType = state.userType,
+                        userId = state.userId
+                    )
+                } else {
+                    // Show fallback or error
+                    Text("User not authenticated")
+                }
+            }
+
         }
     }
 }

@@ -471,6 +471,21 @@
                             createOrderRecord(userId, orderItems, "COD", totalPrice, userAddress)
                             cartViewModel.completePurchase(userType, "COD")
 
+                            val activity = hashMapOf(
+                                "userId" to userId,
+                                "description" to "Placed an order worth ₱${totalPrice.toInt()} via Cash on Delivery.",
+                                "timestamp" to System.currentTimeMillis()
+                            )
+
+                            firestore.collection("activities")
+                                .add(activity)
+                                .addOnSuccessListener {
+                                    Log.d("RecentActivity", "Activity logged successfully.")
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.e("RecentActivity", "Failed to log activity: ${e.message}")
+                                }
+
                             val itemsJson = Gson().toJson(orderItems)
                             val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
                             navController.navigate(

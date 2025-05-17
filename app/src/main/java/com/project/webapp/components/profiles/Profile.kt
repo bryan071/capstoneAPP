@@ -532,7 +532,7 @@ fun ProfileTabContent(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     ProfileOption("Settings", R.drawable.setting, primaryColor) {}
                     Divider(color = Color.LightGray.copy(alpha = 0.5f))
-                    ProfileOption("Recent Activity", R.drawable.history, primaryColor) {}
+                    ProfileOption("Recent Activity", R.drawable.history, primaryColor) { navController.navigate("recent_activity_screen") }
                     Divider(color = Color.LightGray.copy(alpha = 0.5f))
                     ProfileOption("Logout", R.drawable.logout, Color.Red) { onShowLogoutDialog() }
                 }

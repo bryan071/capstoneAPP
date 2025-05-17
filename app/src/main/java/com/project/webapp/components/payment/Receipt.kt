@@ -101,8 +101,7 @@ fun ReceiptScreen(
                 currentUser = currentUser,
                 cartItems = cartItems,
                 sellerNames = sellerNames,
-                themeColor = themeColor,
-                organization = organization
+                themeColor = themeColor
             )
             if (isDonation && organization == null) {
                 navController.popBackStack()
@@ -172,8 +171,8 @@ private fun ReceiptCard(
     currentUser: UserData?,
     cartItems: List<CartItem>,
     sellerNames: Map<String, String>,
-    themeColor: Color,
-    organization: Organization?
+    themeColor: Color
+
 
 ) {
     Surface(
@@ -205,16 +204,18 @@ private fun ReceiptCard(
                 }
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-            Text(
-                text = if (isDonation) "Donor Details" else "Customer Details",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
             Spacer(modifier = Modifier.height(8.dp))
             if (currentUser != null) {
+                Text(
+                    text = if (isDonation) "Donor Details" else "Customer Details",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
                 if (isDonation) {
                     Text(
-                        text = organization!!.name,
+                        text = "${currentUser.firstname} ${currentUser.lastname}",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 } else {
