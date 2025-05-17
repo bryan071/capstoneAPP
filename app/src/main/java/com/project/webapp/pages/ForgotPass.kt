@@ -63,41 +63,6 @@ val PrimaryColor = Color(0xFF0DA54B)
 val backgroundColor = Color(0xFFF5F5F5)
 val cardColor = Color.White
 
-// Function to generate a secure nonce for Play Integrity API
-fun generateNonce(): String {
-    val random = SecureRandom()
-    val bytes = ByteArray(16) // 128-bit nonce
-    random.nextBytes(bytes)
-    return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-}
-
-// Function to request Play Integrity token
-fun requestIntegrityToken(
-    context: Context,
-    nonce: String,
-    onResult: (String?, String?) -> Unit
-) {
-    // Create an IntegrityManager instance
-    val integrityManager = IntegrityManagerFactory.create(context)
-
-    // Build the integrity token request
-    val request: IntegrityTokenRequest = IntegrityTokenRequest.builder()
-        .setNonce(nonce)
-        .build()
-
-    // Request the integrity token
-    integrityManager.requestIntegrityToken(request)
-        .addOnSuccessListener { response ->
-            val token = response.token()
-            Log.d("PlayIntegrity", "Integrity token: $token")
-            onResult(token, null)
-        }
-        .addOnFailureListener { exception ->
-            Log.e("PlayIntegrity", "Failed to get integrity token: ${exception.message}", exception)
-            onResult(null, exception.message)
-        }
-}
-
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ForgotPass(
@@ -126,34 +91,16 @@ fun ForgotPass(
     var canResendOtp by remember { mutableStateOf(false) }
     var resendToken by remember { mutableStateOf<PhoneAuthProvider.ForceResendingToken?>(null) }
     var userType by remember { mutableStateOf<String?>(null) }
-    var integrityToken by remember { mutableStateOf<String?>(null) }
 
     val auth = FirebaseAuth.getInstance()
     val scrollState = rememberScrollState()
 
-    // OTP input focus requesters
     val otpFocusRequesters = List(6) { remember { FocusRequester() } }
     val otpValues = remember { mutableStateListOf("", "", "", "", "", "") }
 
-    // Password validation states
     var isPasswordValid by remember { mutableStateOf(false) }
     var passwordsMatch by remember { mutableStateOf(false) }
 
-    // Request Play Integrity token on screen load
-    LaunchedEffect(Unit) {
-        val nonce = generateNonce()
-        requestIntegrityToken(context, nonce) { token, error ->
-            if (token != null) {
-                integrityToken = token
-                Log.d("ForgotPass", "Play Integrity token obtained: $token")
-            } else {
-                errorMessage = error ?: "Failed to verify app integrity"
-                Log.e("ForgotPass", "Play Integrity error: $error")
-            }
-        }
-    }
-
-    // Track countdown for OTP resending
     LaunchedEffect(key1 = step, key2 = canResendOtp) {
         if (step == 2 && !canResendOtp) {
             countdown = 60
@@ -165,7 +112,6 @@ fun ForgotPass(
         }
     }
 
-    // Get user type if user is logged in
     LaunchedEffect(Unit) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid
         userId?.let {
@@ -178,12 +124,10 @@ fun ForgotPass(
         }
     }
 
-    // Check if we should validate password
     LaunchedEffect(newPassword) {
         isPasswordValid = validatePassword(newPassword)
     }
 
-    // Check if passwords match
     LaunchedEffect(newPassword, confirmPassword) {
         passwordsMatch = newPassword == confirmPassword
     }
@@ -196,7 +140,6 @@ fun ForgotPass(
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Show TopBar only when userType is available
             userType?.let { type ->
                 TopBar(navController, cartViewModel, userType = type)
             } ?: run {
@@ -207,18 +150,13 @@ fun ForgotPass(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = {
-                        if (step > 1) {
-                            step--
-                        } else {
-                            navController.navigate(Route.LOGIN)
-                        }
+                        if (step > 1) step-- else navController.navigate(Route.LOGIN)
                     }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Back"
                         )
                     }
-
                     Text(
                         text = "Forgot Password",
                         fontSize = 18.sp,
@@ -246,7 +184,6 @@ fun ForgotPass(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Step indicator
             StepIndicator(currentStep = step)
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -256,10 +193,6 @@ fun ForgotPass(
                     phoneNumber = phoneNumber,
                     onPhoneChanged = { phoneNumber = it },
                     onSubmit = {
-                        if (integrityToken == null) {
-                            errorMessage = "App integrity verification failed. Please try again."
-                            return@PhoneStep
-                        }
                         keyboardController?.hide()
                         focusManager.clearFocus()
                         isLoading = true
@@ -287,13 +220,9 @@ fun ForgotPass(
                     onOtpChanged = { index, value ->
                         if (value.length <= 1) {
                             otpValues[index] = value
-
-                            // Auto-advance focus
                             if (value.isNotEmpty() && index < 5) {
                                 otpFocusRequesters[index + 1].requestFocus()
                             }
-
-                            // Combine OTP values
                             otp = otpValues.joinToString("")
                         }
                     },
@@ -324,10 +253,6 @@ fun ForgotPass(
                     countdown = countdown,
                     canResend = canResendOtp,
                     onResend = {
-                        if (integrityToken == null) {
-                            errorMessage = "App integrity verification failed. Please try again."
-                            return@OTPStep
-                        }
                         resendVerificationCode(
                             phoneNumber = phoneNumber,
                             resendToken = resendToken,
@@ -393,27 +318,16 @@ fun ForgotPass(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            AnimatedVisibility(
-                visible = step != 3,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
+            AnimatedVisibility(visible = step != 3, enter = fadeIn(), exit = fadeOut()) {
                 TextButton(onClick = { navController.navigate(Route.LOGIN) }) {
-                    Text(
-                        "Back to Login",
-                        color = PrimaryColor
-                    )
+                    Text("Back to Login", color = PrimaryColor)
                 }
             }
         }
 
-        // Loading indicator
-        if (isLoading) {
-            LoadingDialog()
-        }
+        if (isLoading) LoadingDialog()
     }
 
-    // Show alert dialog if there is an error
     if (errorMessage != null) {
         AlertDialog(
             onDismissRequest = { errorMessage = null },
@@ -427,6 +341,7 @@ fun ForgotPass(
         )
     }
 }
+
 
 @Composable
 fun StepIndicator(currentStep: Int) {

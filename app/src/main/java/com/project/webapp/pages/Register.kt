@@ -1,6 +1,9 @@
 package com.project.webapp.pages
 
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -78,6 +81,13 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
 
     var authState = authViewModel.authState.observeAsState()
     val context = LocalContext.current
+    var certificateUri by remember { mutableStateOf<Uri?>(null) }
+
+    val certificatePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        certificateUri = uri
+    }
 
     LaunchedEffect(authState.value) {
         when (val state = authState.value) {
@@ -321,6 +331,34 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Upload Certificate or ID",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 16.sp,
+                        color = primaryColor,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+
+                    Button(
+                        onClick = { certificatePickerLauncher.launch("image/*") },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD9D9D9)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Text(text = if (certificateUri != null) "Change File" else "Choose File")
+                    }
+
+                    certificateUri?.let {
+                        Text(
+                            text = "File selected: ${it.lastPathSegment}",
+                            fontSize = 14.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -365,7 +403,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                                 } else if (firstname.isEmpty() || lastname.isEmpty() || email.isEmpty() || address.isEmpty()) {
                                     Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    authViewModel.signup(email, password, firstname, lastname, address, formattedPhone, userType, confirmpass)
+                                    authViewModel.signup(email, password, firstname, lastname, address, formattedPhone, userType, confirmpass, certificateUri, context)
                                 }
                             }
                         },
