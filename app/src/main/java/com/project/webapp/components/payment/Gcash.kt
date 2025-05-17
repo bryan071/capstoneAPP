@@ -192,10 +192,9 @@
                                             firestore = firestore,
                                             product = prod,
                                             buyerId = userId,
-                                            quantity = cartItem.quantity,
                                             paymentMethod = "GCash",
-                                            deliveryAddress = userAddress,
-                                            message = "Your product was sold! Payment method: GCash (Ref: $referenceId)"
+                                            deliveryAddress = userAddress
+
                                         )
                                     }
                                 }

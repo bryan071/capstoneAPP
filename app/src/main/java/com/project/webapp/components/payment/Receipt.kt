@@ -101,7 +101,8 @@ fun ReceiptScreen(
                 currentUser = currentUser,
                 cartItems = cartItems,
                 sellerNames = sellerNames,
-                themeColor = themeColor
+                themeColor = themeColor,
+                organization = organization
             )
             if (isDonation && organization == null) {
                 navController.popBackStack()
@@ -171,7 +172,9 @@ private fun ReceiptCard(
     currentUser: UserData?,
     cartItems: List<CartItem>,
     sellerNames: Map<String, String>,
-    themeColor: Color
+    themeColor: Color,
+    organization: Organization?
+
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -209,16 +212,21 @@ private fun ReceiptCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             if (currentUser != null) {
-                Text(
-                    text = "${currentUser.firstname} ${currentUser.lastname}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    text = currentUser.phoneNumber,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.Gray
-                )
-                if (!isDonation) {
+                if (isDonation) {
+                    Text(
+                        text = organization!!.name,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Text(
+                        text = "${currentUser.firstname} ${currentUser.lastname}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = currentUser.phoneNumber,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray
+                    )
                     Text(
                         text = currentUser.address,
                         style = MaterialTheme.typography.bodyMedium,

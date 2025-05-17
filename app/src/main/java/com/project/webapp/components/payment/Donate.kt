@@ -325,9 +325,8 @@ fun DonationScreen(
                                         firestore = firestore,
                                         product = prod,
                                         donatorId = userId,
-                                        organizationName = organization.name,
-                                        quantity = cartItem.quantity,
-                                        message = "Your product was donated to ${organization.name}. Thank you for your generosity! (Ref: $referenceId)"
+                                        organizationName = organization.name
+
                                     )
                                     createDonationRecord(
                                         userId = userId,

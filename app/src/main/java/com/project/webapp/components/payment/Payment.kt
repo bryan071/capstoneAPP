@@ -460,10 +460,9 @@
                                             firestore = firestore,
                                             product = prod,
                                             buyerId = userId,
-                                            quantity = cartItem.quantity,
                                             paymentMethod = "COD",
-                                            deliveryAddress = userAddress,
-                                            message = "Your product was sold!"
+                                            deliveryAddress = userAddress
+
                                         )
                                     }
                                 }
