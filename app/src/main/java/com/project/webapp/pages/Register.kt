@@ -355,7 +355,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                         Text(
                             text = "File selected: ${it.lastPathSegment}",
                             fontSize = 14.sp,
-                            color = Color.Gray,
+                            color = primaryColor,
                             modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }

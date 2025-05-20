@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
@@ -50,6 +51,7 @@ import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.R
 import com.project.webapp.Route
 import com.project.webapp.Route.ORDERS
+import com.project.webapp.Viewmodel.FarmStatisticsScreen
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.UserData
 import kotlinx.coroutines.MainScope
@@ -471,6 +473,9 @@ fun ProfileTabContent(
     onShowLogoutDialog: () -> Unit,
     profileUserId: String?
 ) {
+    // State to toggle farm stats visibility
+    var showFarmStatsDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -487,25 +492,28 @@ fun ProfileTabContent(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text("View your order here", color = Color.White)
-
             }
         } else {
-            // Farmer Statistics
-            Text(
-                "Farmer Statistics",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .padding(start = 8.dp, bottom = 12.dp)
-            )
+            Column {
+                Text(
+                    "Farmer Statistics",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 12.dp)
+                )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                ProfileStatCard("Products", userData?.productsListed ?: 0, primaryColor, lightGreen)
-                ProfileStatCard("Sales", userData?.salesCompleted ?: 0, primaryColor, lightGreen)
-                ProfileStatCard("Rating", 4.8, primaryColor, lightGreen)
+                Button(
+                    onClick = { showFarmStatsDialog = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = com.project.webapp.components.profiles.primaryColor,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Text("Show Farmer Statistics")
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -532,9 +540,13 @@ fun ProfileTabContent(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     ProfileOption("Settings", R.drawable.setting, primaryColor) {}
                     Divider(color = Color.LightGray.copy(alpha = 0.5f))
-                    ProfileOption("Recent Activity", R.drawable.history, primaryColor) { navController.navigate("recent_activity_screen") }
+                    ProfileOption("Recent Activity", R.drawable.history, primaryColor) {
+                        navController.navigate("recent_activity_screen")
+                    }
                     Divider(color = Color.LightGray.copy(alpha = 0.5f))
-                    ProfileOption("Logout", R.drawable.logout, Color.Red) { onShowLogoutDialog() }
+                    ProfileOption("Logout", R.drawable.logout, Color.Red) {
+                        onShowLogoutDialog()
+                    }
                 }
             }
         } else {
@@ -572,6 +584,52 @@ fun ProfileTabContent(
                     ) {
                         Text("Browse Products")
                     }
+                }
+            }
+        }
+    }
+
+    // Dialog for Farmer Statistics
+    if (showFarmStatsDialog) {
+        Dialog(
+            onDismissRequest = { showFarmStatsDialog = false }
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.8f)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Farmer Statistics",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
+                        IconButton(onClick = { showFarmStatsDialog = false }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close"
+                            )
+                        }
+                    }
+
+                    Divider()
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    FarmStatisticsScreen()
                 }
             }
         }

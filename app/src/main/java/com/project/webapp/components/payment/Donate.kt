@@ -270,7 +270,7 @@ fun DonationScreen(
         val paymentData = hashMapOf(
             "donationId" to donationId,
             "referenceId" to referenceId,
-            "status" to "COMPLETED",
+            "status" to "Completed",
             "amount" to totalPrice,
             "organizationId" to organization.id,
             "organizationName" to organization.name,

@@ -17,3 +17,4 @@ data class UserData(
     val salesCompleted: Int = 0,
     val createdAt: Long = System.currentTimeMillis() // Timestamp for user creation
 ) : Parcelable
+
