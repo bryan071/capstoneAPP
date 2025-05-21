@@ -108,7 +108,8 @@ fun FarmerNotificationScreen(
     navController: NavController,
     authViewModel: AuthViewModel,
     firestore: FirebaseFirestore,
-    cartViewModel: CartViewModel
+    cartViewModel: CartViewModel,
+
 ) {
     val notifications = remember { mutableStateListOf<Map<String, Any>>() }
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
@@ -1174,6 +1175,7 @@ fun createSaleNotification(
     buyerId: String,
     paymentMethod: String? = null,
     deliveryAddress: String? = null,
+
 ) {
     val notificationData = hashMapOf(
         "type" to "product_sold",
@@ -1190,6 +1192,7 @@ fun createSaleNotification(
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
         "transactionType" to "sale"
+
     )
 
     notificationData["paymentMethod"] = paymentMethod ?: "Not specified"
@@ -1211,6 +1214,8 @@ fun createDonationNotification(
     product: Product,
     donatorId: String,
     organizationName: String
+
+
 ) {
     val timestamp = System.currentTimeMillis()
 
@@ -1230,7 +1235,9 @@ fun createDonationNotification(
         "buyerId" to donatorId,
         "message" to "You donated ${product.name} to $organizationName!",
         "transactionType" to "donation",
-        "organizationName" to organizationName
+        "organizationName" to organizationName,
+
+
     )
 
     // Notification for seller (product owner)

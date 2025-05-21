@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
@@ -36,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,11 +48,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.launch
 import com.project.webapp.Viewmodel.AuthViewModel
@@ -61,6 +66,7 @@ import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
 import com.project.webapp.components.SearchBar
+import com.project.webapp.datas.Announcement
 import com.project.webapp.datas.UserData
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
@@ -689,6 +695,9 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
     var isPostSubmitting by remember { mutableStateOf(false) }
     var showPostSuccess by remember { mutableStateOf(false) }
     var userData by remember { mutableStateOf<UserData?>(null) }
+    var announcements by remember { mutableStateOf<List<Announcement>>(emptyList()) }
+    var isAnnouncementsLoading by remember { mutableStateOf(true) }
+
 
     val userId = auth.currentUser?.uid ?: ""
     val currentUserId = userId
@@ -737,6 +746,51 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
             isPostsLoading = false
         }
     }
+
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@LaunchedEffect
+        val userDocRef = db.collection("users").document(userId)
+
+        try {
+            userDocRef.get()
+                .addOnSuccessListener { userSnapshot ->
+                    val userType = userSnapshot.getString("userType")?.replaceFirstChar { it.uppercase() }
+                    if (userType != null) {
+                        val queries = listOf("All Users", userType).map { audience ->
+                            db.collection("announcements")
+                                .whereEqualTo("audience", audience)
+                                .orderBy("date", Query.Direction.DESCENDING)
+                                .get()
+                        }
+
+                        Tasks.whenAllSuccess<QuerySnapshot>(queries)
+                            .addOnSuccessListener { results ->
+                                announcements = results
+                                    .flatMap { it.documents }
+                                    .mapNotNull { it.toObject(Announcement::class.java) }
+                                    .sortedByDescending { it.date } // merge + sort
+                                isAnnouncementsLoading = false
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("CommunityFeedDialog", "Error fetching announcements", e)
+                                isAnnouncementsLoading = false
+                            }
+                    } else {
+                        Log.e("CommunityFeedDialog", "User type is null")
+                        isAnnouncementsLoading = false
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e("CommunityFeedDialog", "Error fetching user data", e)
+                    isAnnouncementsLoading = false
+                }
+        } catch (e: Exception) {
+            Log.e("CommunityFeedDialog", "Unexpected error", e)
+            isAnnouncementsLoading = false
+        }
+    }
+
+
 
     // Function to create a new post
     fun createNewPost() {
@@ -796,6 +850,7 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
                 // Dialog Header
                 Row(
@@ -984,6 +1039,50 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
                         Text("Post", fontWeight = FontWeight.Bold)
                     }
                 }
+                Text(
+                    "Admin Announcements",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = primaryColor,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+
+                if (isAnnouncementsLoading) {
+                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.padding(8.dp))
+                } else if (announcements.isEmpty()) {
+                    Text(
+                        "No announcements at the moment.",
+                        color = Color.Gray,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        announcements.forEach { announcement ->
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = lightGreen.copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(announcement.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(announcement.message)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    val formattedDate = SimpleDateFormat("MMM dd, yyyy hh:mm a", Locale.getDefault())
+                                        .format(announcement.date!!.toDate())
+
+                                    Text(
+                                        "Sent on: $formattedDate",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+
+                                }
+                            }
+                        }
+                    }
+                }
 
                 Divider(
                     color = Color.LightGray.copy(alpha = 0.5f),
@@ -999,62 +1098,67 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Posts feed
-                if (isPostsLoading) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = primaryColor)
-                    }
-                } else if (posts.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(lightGreen.copy(alpha = 0.5f))
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.post),
-                                contentDescription = "No Posts",
-                                tint = primaryColor,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "No posts yet",
-                                fontWeight = FontWeight.Medium,
-                                color = Color.DarkGray
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "Be the first to share with the community!",
-                                fontSize = 14.sp,
-                                color = Color.Gray,
-                                textAlign = TextAlign.Center
-                            )
+// Scrollable Posts Feed
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 100.dp, max = 400.dp) // adjust height as needed
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    when {
+                        isPostsLoading -> {
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = primaryColor)
+                            }
                         }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(posts) { post ->
-                            PostItem(
-                                post = post,
-                                currentUserId = currentUserId,
-                                firestore = db,
-                                onCommentClick = { /* Navigate to post details */ },
-                                onLikeUpdated = { /* Let snapshot listener handle updates */ },
-                                primaryColor = primaryColor
-                            )
+                        posts.isEmpty() -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(lightGreen.copy(alpha = 0.5f))
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.post),
+                                    contentDescription = "No Posts",
+                                    tint = primaryColor,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "No posts yet",
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.DarkGray
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Be the first to share with the community!",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                        else -> {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                posts.forEach { post ->
+                                    PostItem(
+                                        post = post,
+                                        currentUserId = currentUserId,
+                                        firestore = db,
+                                        onCommentClick = { /* Navigate to post details */ },
+                                        onLikeUpdated = { /* Let snapshot listener handle updates */ },
+                                        primaryColor = primaryColor
+                                    )
+                                }
+                            }
                         }
                     }
                 }
