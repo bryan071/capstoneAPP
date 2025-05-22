@@ -325,9 +325,10 @@ fun DonationScreen(
                                         firestore = firestore,
                                         product = prod,
                                         donatorId = userId,
-                                        organizationName = organization.name
-
+                                        organizationName = organization.name,
+                                        transactionId = transactionId
                                     )
+
                                     createDonationRecord(
                                         userId = userId,
                                         productId = prod.prodId,

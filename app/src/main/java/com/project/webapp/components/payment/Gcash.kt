@@ -154,6 +154,7 @@ fun GcashScreen(
         val orderNumber = UUID.randomUUID().toString().substring(0, 8).uppercase()
         val transactionId = "TXN-$orderNumber"
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val userAddress = cartViewModel.currentUser.value?.address ?: "No address provided"
         val userType = if (displayItems.any { it.isDirectBuy }) "direct_buying" else "cart_checkout"
         val paymentData = hashMapOf(
             "transactionId" to transactionId,
@@ -202,6 +203,21 @@ fun GcashScreen(
                     .set(transactionData)
                     .addOnSuccessListener {
                         Log.d("Transaction", "Transaction record added successfully.")
+                        displayItems.forEach { cartItem ->
+                            cartViewModel.getProductById(cartItem.productId) { product ->
+                                product?.let { prod ->
+                                    createSaleNotification(
+                                        firestore = firestore,
+                                        product = prod,
+                                        buyerId = userId,
+                                        paymentMethod = "GCash",
+                                        deliveryAddress = userAddress,
+                                        transactionId = transactionId
+
+                                    )
+                                }
+                            }
+                        }
                     }
                     .addOnFailureListener { e ->
                         Log.e("Transaction", "Failed to save transaction record: ${e.message}")
@@ -216,21 +232,6 @@ fun GcashScreen(
                         val orderItems = displayItems.toList()
 
                         Log.d("GCashDebug", "Creating order with ${orderItems.size} items")
-
-                        displayItems.forEach { cartItem ->
-                            cartViewModel.getProductById(cartItem.productId) { product ->
-                                product?.let { prod ->
-                                    createSaleNotification(
-                                        firestore = firestore,
-                                        product = prod,
-                                        buyerId = userId,
-                                        paymentMethod = "GCash",
-                                        deliveryAddress = userAddress
-
-                                    )
-                                }
-                            }
-                        }
 
                         createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), userAddress)
                         cartViewModel.completePurchase(userType, "GCash", referenceId)

@@ -99,6 +99,7 @@ import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
+import com.google.firebase.Timestamp
 import com.project.webapp.datas.Product
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1174,8 +1175,8 @@ fun createSaleNotification(
     product: Product,
     buyerId: String,
     paymentMethod: String? = null,
-    deliveryAddress: String? = null
-
+    deliveryAddress: String? = null,
+    transactionId: String? = null
 ) {
     val notificationData = hashMapOf(
         "type" to "product_sold",
@@ -1187,33 +1188,35 @@ fun createSaleNotification(
         "imageUrl" to product.imageUrl,
         "category" to product.category,
         "location" to product.cityName,
-        "timestamp" to System.currentTimeMillis(),
+        "timestamp" to Timestamp.now(),
         "userId" to product.ownerId,
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
         "transactionType" to "sale"
-
     )
 
     notificationData["paymentMethod"] = paymentMethod ?: "Not specified"
     deliveryAddress?.let { notificationData["deliveryAddress"] = it }
+    transactionId?.let { notificationData["transactionId"] = it }
 
     firestore.collection("notifications")
         .add(notificationData)
         .addOnSuccessListener {
             Log.d("Firestore", "Sale notification created with ID: ${it.id}")
-            Log.d("PaymentDebug", "Notification saved with payment: ${notificationData["paymentMethod"]}")
+            Log.d("PaymentDebug", "Notification saved with payment: ${notificationData["paymentMethod"]} and transactionId: ${notificationData["transactionId"]}")
         }
         .addOnFailureListener { e ->
             Log.e("Firestore", "Error creating sale notification", e)
         }
 }
 
+
 fun createDonationNotification(
     firestore: FirebaseFirestore,
     product: Product,
     donatorId: String,
-    organizationName: String
+    organizationName: String,
+    transactionId: String? = null
 
 
 ) {
@@ -1230,7 +1233,7 @@ fun createDonationNotification(
         "imageUrl" to product.imageUrl,
         "category" to product.category,
         "location" to product.cityName,
-        "timestamp" to timestamp,
+        "timestamp" to Timestamp.now(),
         "userId" to donatorId, // recipient
         "buyerId" to donatorId,
         "message" to "You donated ${product.name} to $organizationName!",
@@ -1239,7 +1242,7 @@ fun createDonationNotification(
 
 
     )
-
+    transactionId?.let { buyerNotification["transactionId"] = it }
     // Notification for seller (product owner)
     val sellerNotification = buyerNotification.toMutableMap().apply {
         this["userId"] = product.ownerId // now the seller is the recipient

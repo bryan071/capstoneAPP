@@ -472,6 +472,22 @@ fun processCodPayment(
                 .set(transactionData)
                 .addOnSuccessListener {
                     Log.d("Transaction", "Transaction record added successfully.")
+
+                    // Create notifications here, inside transaction success callback to ensure transaction is saved
+                    displayItems.forEach { cartItem ->
+                        cartViewModel.getProductById(cartItem.productId) { product ->
+                            product?.let { prod ->
+                                createSaleNotification(
+                                    firestore = firestore,
+                                    product = prod,
+                                    buyerId = userId,
+                                    paymentMethod = "COD",
+                                    deliveryAddress = userAddress,
+                                    transactionId = transactionId // Pass transactionId here
+                                )
+                            }
+                        }
+                    }
                 }
                 .addOnFailureListener { e ->
                     Log.e("Transaction", "Failed to save transaction record: ${e.message}")
@@ -485,21 +501,6 @@ fun processCodPayment(
                     val orderItems = displayItems.toList()
 
                     Log.d("PaymentDebug", "Creating order with ${orderItems.size} items")
-
-                    displayItems.forEach { cartItem ->
-                        cartViewModel.getProductById(cartItem.productId) { product ->
-                            product?.let { prod ->
-                                createSaleNotification(
-                                    firestore = firestore,
-                                    product = prod,
-                                    buyerId = userId,
-                                    paymentMethod = "COD",
-                                    deliveryAddress = userAddress
-
-                                )
-                            }
-                        }
-                    }
 
                     createOrderRecord(userId, orderItems, "COD", totalPrice, userAddress)
                     cartViewModel.completePurchase(userType, "COD")
