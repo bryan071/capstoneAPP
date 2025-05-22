@@ -1174,7 +1174,7 @@ fun createSaleNotification(
     product: Product,
     buyerId: String,
     paymentMethod: String? = null,
-    deliveryAddress: String? = null,
+    deliveryAddress: String? = null
 
 ) {
     val notificationData = hashMapOf(
@@ -1188,7 +1188,7 @@ fun createSaleNotification(
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to System.currentTimeMillis(),
-        "userId" to product.ownerId, // The seller who will receive this notification
+        "userId" to product.ownerId,
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
         "transactionType" to "sale"

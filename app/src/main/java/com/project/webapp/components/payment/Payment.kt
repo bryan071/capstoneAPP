@@ -457,6 +457,7 @@ fun processCodPayment(
                 "items" to displayItems.map { item ->
                     mapOf(
                         "productId" to item.productId,
+                        "ownerId" to item.sellerId,
                         "name" to item.name,
                         "price" to item.price,
                         "quantity" to item.quantity,

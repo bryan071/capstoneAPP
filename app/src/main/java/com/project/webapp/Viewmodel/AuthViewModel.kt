@@ -8,6 +8,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
@@ -82,8 +83,8 @@ class AuthViewModel : ViewModel() {
         phoneNumber: String,
         userType: String,
         confirmpass: String,
-        certificateUri: Uri?, // <-- Add this
-        context: Context // optional, for Toast if needed
+        certificateUri: Uri?,
+        context: Context
     ) {
         if (password != confirmpass) {
             _authState.postValue(AuthState.Error("Passwords do not match"))
@@ -115,8 +116,11 @@ class AuthViewModel : ViewModel() {
                                 "address" to address,
                                 "phoneNumber" to phoneNumber,
                                 "userType" to userType,
-                                "certificateUrl" to downloadUrl.toString() // <-- Store URL
+                                "certificateUrl" to downloadUrl.toString(),
+                                "status" to "Pending",
+                                "dateJoined" to Timestamp.now()
                             )
+
 
                             firestore.collection("users").document(userId).set(userMap)
                                 .addOnSuccessListener {

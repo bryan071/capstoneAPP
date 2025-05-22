@@ -139,7 +139,6 @@ fun GcashScreen(
     }
 
     fun processSuccessfulPayment(
-        transactionId: String,
         referenceId: String,
         displayItems: List<CartItem>
     ) {
@@ -320,7 +319,7 @@ fun GcashScreen(
 
                     val itemsForProcessing = itemsToProcess.toList()
                     Log.d("GCashDebug", "About to process payment with ${itemsForProcessing.size} items")
-                    processSuccessfulPayment(transactionId, referenceId, itemsForProcessing)
+                    processSuccessfulPayment(referenceId, itemsForProcessing)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -525,7 +524,7 @@ fun GcashScreen(
                     onClick = {
                         showPaymentDialog = false
                         val itemsToProcess = cartItems.filter { it.sellerId == ownerId }
-                        processSuccessfulPayment(transactionId, referenceId, itemsToProcess)
+                        processSuccessfulPayment( referenceId, itemsToProcess)
                     },
                     enabled = !isLoading,
                     colors = ButtonDefaults.buttonColors(
