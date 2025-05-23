@@ -1,5 +1,6 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.google.firebase.Timestamp
 
 
 data class Order(
@@ -10,14 +11,14 @@ data class Order(
     val paymentMethod: String = "",
     val deliveryAddress: String = "",
     val status: String = "",
-    val createdAt: Long = 0
+    val timestamp: Timestamp = Timestamp.now()
 )
 
 data class OrderItemDetails(
     val title: String,
     val icon: ImageVector,
     val status: String,
-    val timestamp: Long,
+    val timestamp: Timestamp = Timestamp.now(),
     val quantity: Int,
     val details: String
 )

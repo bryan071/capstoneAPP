@@ -2,6 +2,7 @@ package com.project.webapp.Viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.project.webapp.components.ChatRepository
 import com.project.webapp.datas.ChatMessage
@@ -41,7 +42,7 @@ class ChatViewModel : ViewModel() {
             id = UUID.randomUUID().toString(),
             senderId = senderId,
             message = text,
-            timestamp = System.currentTimeMillis()
+            timestamp = Timestamp.now()
         )
         chatRepo.sendMessage(chatRoomId, msg)
     }

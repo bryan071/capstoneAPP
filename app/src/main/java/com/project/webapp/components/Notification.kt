@@ -91,9 +91,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.project.webapp.Viewmodel.AuthViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import com.project.webapp.R
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
@@ -101,6 +98,8 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.google.firebase.Timestamp
 import com.project.webapp.datas.Product
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -314,15 +313,12 @@ fun NotificationItem(
     val price = (notification["price"] as? Number)?.toDouble() ?: 0.0
     val quantity = (notification["quantity"] as? Number)?.toInt() ?: 0
     val quantityUnit = notification["quantityUnit"] as? String ?: "Unknown"
-    val timestamp = notification["timestamp"] as? Long ?: 0L
+    val timestamp = notification["timestamp"] as? Timestamp ?: null
     val userId = notification["userId"] as? String
     val buyerId = notification["buyerId"] as? String
     val notificationId = notification["id"] as? String
     val transactionType = notification["transactionType"] as? String ?: notificationType
-    val organizationName = notification["organizationName"] as? String // Added for donation notifications
-
-    val formattedDate = SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(timestamp))
-    val formattedTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+    val organizationName = notification["organizationName"] as? String
 
     var ownerName by remember { mutableStateOf("Loading...") }
     var buyerName by remember { mutableStateOf("") }
@@ -582,7 +578,7 @@ fun NotificationItem(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "$formattedDate at $formattedTime",
+                        text = Timestamp.now().toDate().toString(),
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
@@ -637,7 +633,7 @@ fun NotificationDetailsDialog(
     val location = notification["location"] as? String ?: "Location not available"
     val userId = notification["userId"] as? String ?: "Unknown"
     val buyerId = notification["buyerId"] as? String
-    val timestamp = notification["timestamp"] as? Long ?: 0L
+    val timestamp = notification["timestamp"] as? Timestamp ?: null
     val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
     val paymentMethod = notification["paymentMethod"] as? String
     val deliveryAddress = notification["deliveryAddress"] as? String
@@ -645,7 +641,7 @@ fun NotificationDetailsDialog(
 
     Log.d("PaymentDebug", "Retrieved payment method from notification: $paymentMethod")
 
-    val formattedTime = SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
+    val formattedTime = timestamp
     var ownerName by remember { mutableStateOf("Loading...") }
     var buyerName by remember { mutableStateOf("Loading...") }
     var isImageLoading by remember { mutableStateOf(true) }
@@ -985,7 +981,7 @@ fun NotificationDetailsDialog(
                         DetailRow(
                             icon = Icons.Default.Schedule,
                             label = if (notificationType == "product_added") "Posted on" else "Date",
-                            value = formattedTime,
+                            value = Timestamp.now().toDate().toString(),
                             primaryColor = dialogColor
                         )
 
@@ -1220,7 +1216,7 @@ fun createDonationNotification(
 
 
 ) {
-    val timestamp = System.currentTimeMillis()
+
 
     // Notification for donator (buyer)
     val buyerNotification = hashMapOf(
@@ -1234,7 +1230,7 @@ fun createDonationNotification(
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to donatorId, // recipient
+        "userId" to donatorId,
         "buyerId" to donatorId,
         "message" to "You donated ${product.name} to $organizationName!",
         "transactionType" to "donation",

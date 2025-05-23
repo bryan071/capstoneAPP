@@ -30,7 +30,7 @@ fun DeliveryEstimation(
 ) {
     // Calculate estimated delivery based on order status
     val calendar = Calendar.getInstance()
-    calendar.time = Date(order.createdAt)
+    calendar.time = order.timestamp.toDate()
 
     // Add days based on status
     val daysToAdd = when(order.status) {

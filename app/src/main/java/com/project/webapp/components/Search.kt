@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.R
 import com.project.webapp.datas.Product
@@ -348,7 +349,7 @@ fun searchProducts(
                         quantity = doc.getDouble("quantity") ?: 0.0,
                         quantityUnit = doc.getString("quantityUnit") ?: "unit",
                         cityName = doc.getString("cityName") ?: "Unknown",
-                        listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
+                        timestamp = doc.getTimestamp("listedAt") ?: Timestamp.now() // <-- this line fixed
                     )
 
                     // Check if product matches search query

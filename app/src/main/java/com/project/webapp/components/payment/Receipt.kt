@@ -88,6 +88,7 @@ fun ReceiptScreen(
                 .fillMaxWidth()
                 .padding(innerPadding)
                 .background(Color(0xFFF8F8F8))
+                .verticalScroll(rememberScrollState()) // Scroll modifier added
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -104,6 +105,7 @@ fun ReceiptScreen(
                 themeColor = themeColor
             )
             if (isDonation && organization == null) {
+                Log.e("ReceiptScreen", "Donation mode but organization is null")
                 navController.popBackStack()
                 return@Column
             }
@@ -126,12 +128,10 @@ fun ReceiptScreen(
 
 @Composable
 private fun SuccessHeader(isDonation: Boolean, themeColor: Color) {
-    // Adding vertical scrolling to the Column
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .padding(top = 16.dp)
-            .verticalScroll(rememberScrollState())  // Make the column scrollable
     ) {
         Text(
             text = "✓",

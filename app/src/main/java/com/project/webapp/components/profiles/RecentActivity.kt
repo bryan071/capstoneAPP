@@ -152,9 +152,9 @@ fun RecentActivityScreen(userType: String, userId: String) {
 
 @Composable
 fun ActivityItem(activity: UserActivity, primaryColor: Color) {
-    val timestamp = activity.getTimestampAsLong()
-    val formattedDate = SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(timestamp))
-    val formattedTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+    val timestamp = activity.timestamp.toDate()
+    val formattedDate = SimpleDateFormat("MMM dd", Locale.getDefault()).format(timestamp)
+    val formattedTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(timestamp)
     var isPressed by remember { mutableStateOf(false) }
 
     Card(

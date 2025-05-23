@@ -49,6 +49,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
@@ -549,7 +550,7 @@ fun fetchProducts(firestore: FirebaseFirestore, onProductsFetched: (List<Product
                         quantity = doc.getDouble("quantity") ?: 0.0,
                         quantityUnit = doc.getString("quantityUnit") ?: "unit",
                         cityName = doc.getString("cityName") ?: "Unknown",
-                        listedAt = doc.getLong("listedAt") ?: System.currentTimeMillis()
+                        timestamp = doc.getTimestamp("listedAt") ?: Timestamp.now()
                     )
                 } catch (e: Exception) {
                     Log.e("FirestoreDebug", "Error parsing product data: ${e.message}", e)
@@ -803,7 +804,7 @@ fun CommunityFeedDialog(onDismiss: () -> Unit) {
                 userImage = userData?.profilePicture ?: "",
                 content = newPost,
                 imageUrl = null,
-                timestamp = System.currentTimeMillis(),
+                timestamp = Timestamp.now(),
                 likes = 0,
                 comments = 0
             )
@@ -1383,10 +1384,10 @@ fun deletePost(postsCollection: CollectionReference, postId: String) {
         .addOnFailureListener { e -> Log.e("Firestore", "Error deleting post", e) }
 }
 
-fun formatTimestamp(timestamp: Long): String {
+fun formatTimestamp(timestamp: Timestamp): String {
     return try {
         val sdf = SimpleDateFormat("MMM dd, yyyy • h:mm a", Locale.getDefault())
-        sdf.format(Date(timestamp))
+        sdf.format(timestamp.toDate())
     } catch (e: Exception) {
         "Unknown time"
     }

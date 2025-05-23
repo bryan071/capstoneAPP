@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -274,7 +275,7 @@ fun DonationScreen(
             "amount" to totalPrice,
             "organizationId" to organization.id,
             "organizationName" to organization.name,
-            "timestamp" to FieldValue.serverTimestamp(),
+            "timestamp" to Timestamp.now(),
             "paymentMethod" to "GCash",
             "userId" to userId
         )
@@ -285,10 +286,12 @@ fun DonationScreen(
             displayItems.joinToString(", ") { it.name }
         }
         val totalQuantity = displayItems.sumOf { it.quantity }
+
         val transactionData = hashMapOf<String, Any?>(
-            "timestamp" to System.currentTimeMillis(),
+            "timestamp" to Timestamp.now(),
             "buyerId" to userId,
-            "status" to "completed",
+            "sellerId" to sellerNames,
+            "status" to "Completed",
             "transactionType" to "donation",
             "totalAmount" to totalPrice,
             "item" to itemName,
@@ -347,7 +350,7 @@ fun DonationScreen(
                         val activity = hashMapOf(
                             "userId" to userId,
                             "description" to "Donate an order worth ₱${totalPrice.toInt()} via Gcash.",
-                            "timestamp" to System.currentTimeMillis()
+                            "timestamp" to Timestamp.now()
                         )
 
                         firestore.collection("activities")
@@ -428,7 +431,7 @@ fun DonationScreen(
                     isLoading = false
                     Toast.makeText(
                         context,
-                        "Mock: Processing GCash donation of ₱$totalPrice",
+                        "Mock: Processing GCash donation.",
                         Toast.LENGTH_SHORT
                     ).show()
 

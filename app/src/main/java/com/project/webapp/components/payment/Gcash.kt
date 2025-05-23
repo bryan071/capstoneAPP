@@ -58,6 +58,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -162,7 +163,7 @@ fun GcashScreen(
             "status" to "Completed",
             "amount" to totalPrice,
             "seller" to ownerId,
-            "timestamp" to FieldValue.serverTimestamp(),
+            "timestamp" to Timestamp.now(),
             "paymentMethod" to "GCash"
         )
 
@@ -183,9 +184,10 @@ fun GcashScreen(
                     "buyerId" to userId,
                     "sellerId" to ownerId,
                     "amount" to totalPrice,
-                    "paymentMethod" to "Gcash   ",
+                    "paymentMethod" to "Gcash",
                     "status" to "PENDING",
-                    "timestamp" to FieldValue.serverTimestamp(),
+                    "transactionType" to "purchased",
+                    "timestamp" to Timestamp.now(),
                     "items" to displayItems.map { item ->
                         mapOf(
                             "productId" to item.productId,
@@ -239,7 +241,7 @@ fun GcashScreen(
                         val activity = hashMapOf(
                             "userId" to userId,
                             "description" to "Placed an order worth ₱${totalPrice.toInt()} via Gcash.",
-                            "timestamp" to System.currentTimeMillis()
+                            "timestamp" to Timestamp.now()
                         )
 
                         firestore.collection("activities")

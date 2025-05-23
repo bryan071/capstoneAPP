@@ -20,14 +20,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.datas.ChatMessage
@@ -307,7 +306,7 @@ fun MessageInputField(
 }
 
 // Function to format timestamp
-fun formatTimestamp(timestamp: Long): String {
+fun formatTimestamp(timestamp: Timestamp): String {
     val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-    return sdf.format(Date(timestamp))
+    return sdf.format((timestamp))
 }

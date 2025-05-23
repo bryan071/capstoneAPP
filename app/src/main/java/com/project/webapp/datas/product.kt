@@ -1,5 +1,7 @@
 package com.project.webapp.datas
 
+import com.google.firebase.Timestamp
+
 data class Product(
     var prodId: String = "",
     val ownerId: String = "",
@@ -8,11 +10,9 @@ data class Product(
     val name: String = "",
     val description: String = "",
     val quantity: Double = 0.0,
-    val quantityUnit: String = "",
+    val quantityUnit: String = "unit",
     val price: Double = 0.0,
     val cityName: String = "",
-    val listedAt: Long = System.currentTimeMillis()
-) {
-    // Empty constructor needed for Firebase
-    constructor() : this("", "", "", "", "", "",0.0, "", 0.0, "", 0L)
-}
+    val timestamp: Timestamp = Timestamp.now()
+)
+

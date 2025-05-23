@@ -44,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -164,7 +165,7 @@ fun FarmerProfileScreen(
                 userImage = userData?.profilePicture ?: "",
                 content = newPostText,
                 imageUrl = null,
-                timestamp = System.currentTimeMillis(),
+                timestamp = Timestamp.now(),
                 likes = 0,
                 comments = 0
             )
@@ -538,8 +539,6 @@ fun ProfileTabContent(
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    ProfileOption("Settings", R.drawable.setting, primaryColor) {}
-                    Divider(color = Color.LightGray.copy(alpha = 0.5f))
                     ProfileOption("Recent Activity", R.drawable.history, primaryColor) {
                         navController.navigate("recent_activity_screen")
                     }
@@ -980,7 +979,7 @@ fun PostItem(
     primaryColor: Color
 ) {
     val timeFormat = SimpleDateFormat("MMM dd, yyyy 'at' h:mm a", Locale.getDefault())
-    val formattedTime = timeFormat.format(Date(post.timestamp))
+    val formattedTime = timeFormat.format(post.timestamp.toDate())
     var isLiked by remember { mutableStateOf(false) }
     var likeCount by remember { mutableStateOf(post.likes) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }

@@ -1,5 +1,7 @@
 package com.project.webapp.datas
 
+import com.google.firebase.Timestamp
+
 data class Donation(
     val id: String = "",
     val userId: String = "",
@@ -8,6 +10,6 @@ data class Donation(
     val organizationId: String = "",
     val organizationName: String = "",
     val quantity: Int = 0,
-    val timestamp: Long = 0,
+    val timestamp: Timestamp = Timestamp.now(),
     val status: String = ""
 )

@@ -29,8 +29,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.gson.Gson
 import com.project.webapp.Viewmodel.createOrderRecord
@@ -401,150 +401,151 @@ fun PaymentScreen(
     }
 }
 
-fun processCodPayment(
-    firestore: FirebaseFirestore,
-    cartViewModel: CartViewModel,
-    navController: NavController,
-    transactionId: String,
-    displayItems: List<CartItem>,
-    totalPrice: Float,
-    ownerId: String,
-    userType: String,
-    onPaymentStatus: (String) -> Unit,
-    onError: (String) -> Unit
-) {
-    if (displayItems.isEmpty()) {
-        Log.e("PaymentDebug", "Cannot process COD payment with empty items!")
-        onPaymentStatus("Error: No items to process")
-        onError("Unable to process payment: No items found.")
-        return
-    }
-    val orderNumber = UUID.randomUUID().toString().substring(0, 8).uppercase()
-    val transactionId = "TXN-$orderNumber"
-    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
-    val userAddress = cartViewModel.currentUser.value?.address ?: "No address provided"
-    val paymentData = hashMapOf(
-        "transactionId" to transactionId,
-        "userId" to userId,
-        "status" to "PENDING",
-        "amount" to totalPrice,
-        "seller" to ownerId,
-        "timestamp" to FieldValue.serverTimestamp(),
-        "paymentMethod" to "COD",
-        "deliveryAddress" to userAddress
-    )
+    fun processCodPayment(
+        firestore: FirebaseFirestore,
+        cartViewModel: CartViewModel,
+        navController: NavController,
+        transactionId: String,
+        displayItems: List<CartItem>,
+        totalPrice: Float,
+        ownerId: String,
+        userType: String,
+        onPaymentStatus: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (displayItems.isEmpty()) {
+            Log.e("PaymentDebug", "Cannot process COD payment with empty items!")
+            onPaymentStatus("Error: No items to process")
+            onError("Unable to process payment: No items found.")
+            return
+        }
+        val orderNumber = UUID.randomUUID().toString().substring(0, 8).uppercase()
+        val transactionId = "TXN-$orderNumber"
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val userAddress = cartViewModel.currentUser.value?.address ?: "No address provided"
+        val paymentData = hashMapOf(
+            "transactionId" to transactionId,
+            "userId" to userId,
+            "status" to "PENDING",
+            "amount" to totalPrice,
+            "seller" to ownerId,
+            "timestamp" to Timestamp.now(),
+            "paymentMethod" to "COD",
+            "deliveryAddress" to userAddress
+        )
 
-    Log.d("PaymentDebug", "Processing COD payment with ${displayItems.size} items")
-    displayItems.forEach { item ->
-        Log.d("PaymentDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}")
-    }
+        Log.d("PaymentDebug", "Processing COD payment with ${displayItems.size} items")
+        displayItems.forEach { item ->
+            Log.d("PaymentDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}")
+        }
 
-    firestore.collection("payments")
-        .document(transactionId)
-        .set(paymentData)
-        .addOnSuccessListener {
-            Log.d("PaymentScreen", "COD payment record created successfully")
-            onPaymentStatus("Order placed successfully!")
+        firestore.collection("payments")
+            .document(transactionId)
+            .set(paymentData)
+            .addOnSuccessListener {
+                Log.d("PaymentScreen", "COD payment record created successfully")
+                onPaymentStatus("Order placed successfully!")
 
-            val transactionData = hashMapOf(
-                "transactionId" to transactionId,
-                "buyerId" to userId,
-                "sellerId" to ownerId,
-                "amount" to totalPrice,
-                "paymentMethod" to "COD",
-                "status" to "Completed",
-                "timestamp" to FieldValue.serverTimestamp(),
-                "items" to displayItems.map { item ->
-                    mapOf(
-                        "productId" to item.productId,
-                        "ownerId" to item.sellerId,
-                        "name" to item.name,
-                        "price" to item.price,
-                        "quantity" to item.quantity,
-                        "unit" to item.unit,
-                        "weight" to item.weight
-                    )
-                }
-            )
+                val transactionData = hashMapOf(
+                    "transactionId" to transactionId,
+                    "buyerId" to userId,
+                    "sellerId" to ownerId,
+                    "amount" to totalPrice,
+                    "paymentMethod" to "COD",
+                    "status" to "Completed",
+                    "timestamp" to Timestamp.now(),
+                    "transactionType" to "purchased",
+                    "items" to displayItems.map { item ->
+                        mapOf(
+                            "productId" to item.productId,
+                            "ownerId" to item.sellerId,
+                            "name" to item.name,
+                            "price" to item.price,
+                            "quantity" to item.quantity,
+                            "unit" to item.unit,
+                            "weight" to item.weight
+                        )
+                    }
+                )
 
-            firestore.collection("transactions")
-                .document(transactionId)
-                .set(transactionData)
-                .addOnSuccessListener {
-                    Log.d("Transaction", "Transaction record added successfully.")
+                firestore.collection("transactions")
+                    .document(transactionId)
+                    .set(transactionData)
+                    .addOnSuccessListener {
+                        Log.d("Transaction", "Transaction record added successfully.")
 
-                    // Create notifications here, inside transaction success callback to ensure transaction is saved
-                    displayItems.forEach { cartItem ->
-                        cartViewModel.getProductById(cartItem.productId) { product ->
-                            product?.let { prod ->
-                                createSaleNotification(
-                                    firestore = firestore,
-                                    product = prod,
-                                    buyerId = userId,
-                                    paymentMethod = "COD",
-                                    deliveryAddress = userAddress,
-                                    transactionId = transactionId // Pass transactionId here
-                                )
+                        // Create notifications here, inside transaction success callback to ensure transaction is saved
+                        displayItems.forEach { cartItem ->
+                            cartViewModel.getProductById(cartItem.productId) { product ->
+                                product?.let { prod ->
+                                    createSaleNotification(
+                                        firestore = firestore,
+                                        product = prod,
+                                        buyerId = userId,
+                                        paymentMethod = "COD",
+                                        deliveryAddress = userAddress,
+                                        transactionId = transactionId // Pass transactionId here
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                .addOnFailureListener { e ->
-                    Log.e("Transaction", "Failed to save transaction record: ${e.message}")
-                }
+                    .addOnFailureListener { e ->
+                        Log.e("Transaction", "Failed to save transaction record: ${e.message}")
+                    }
 
-            val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
-            val paymentTimestamp = dateFormat.format(Date())
+                val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
+                val paymentTimestamp = dateFormat.format(Date())
 
-            firestore.collection("users").document(userId).get()
-                .addOnSuccessListener { userDocument ->
-                    val orderItems = displayItems.toList()
+                firestore.collection("users").document(userId).get()
+                    .addOnSuccessListener { userDocument ->
+                        val orderItems = displayItems.toList()
 
-                    Log.d("PaymentDebug", "Creating order with ${orderItems.size} items")
+                        Log.d("PaymentDebug", "Creating order with ${orderItems.size} items")
 
-                    createOrderRecord(userId, orderItems, "COD", totalPrice, userAddress)
-                    cartViewModel.completePurchase(userType, "COD")
+                        createOrderRecord(userId, orderItems, "COD", totalPrice, userAddress)
+                        cartViewModel.completePurchase(userType, "COD")
 
-                    val activity = hashMapOf(
-                        "userId" to userId,
-                        "description" to "Placed an order worth ₱${totalPrice.toInt()} via Cash on Delivery.",
-                        "timestamp" to System.currentTimeMillis()
-                    )
+                        val activity = hashMapOf(
+                            "userId" to userId,
+                            "description" to "Placed an order worth ₱${totalPrice.toInt()} via Cash on Delivery.",
+                            "timestamp" to Timestamp.now()
+                        )
 
-                    firestore.collection("activities")
-                        .add(activity)
-                        .addOnSuccessListener {
-                            Log.d("RecentActivity", "Activity logged successfully.")
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e("RecentActivity", "Failed to log activity: ${e.message}")
-                        }
+                        firestore.collection("activities")
+                            .add(activity)
+                            .addOnSuccessListener {
+                                Log.d("RecentActivity", "Activity logged successfully.")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("RecentActivity", "Failed to log activity: ${e.message}")
+                            }
 
-                    val itemsJson = Gson().toJson(orderItems)
-                    val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
-                    navController.navigate(
-                        "checkoutScreen/$userType/$totalPrice?paymentMethod=COD&referenceId=&items=$encodedItems"
-                    )
-                }
-                .addOnFailureListener { e ->
-                    Log.e("PaymentScreen", "Error fetching user data", e)
-                    val orderItems = displayItems.toList()
-                    createOrderRecord(userId, orderItems, "COD", totalPrice, "No address provided")
-                    cartViewModel.completePurchase(userType, "COD")
+                        val itemsJson = Gson().toJson(orderItems)
+                        val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
+                        navController.navigate(
+                            "checkoutScreen/$userType/$totalPrice?paymentMethod=COD&referenceId=&items=$encodedItems"
+                        )
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("PaymentScreen", "Error fetching user data", e)
+                        val orderItems = displayItems.toList()
+                        createOrderRecord(userId, orderItems, "COD", totalPrice, "No address provided")
+                        cartViewModel.completePurchase(userType, "COD")
 
-                    val itemsJson = Gson().toJson(orderItems)
-                    val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
-                    navController.navigate(
-                        "checkoutScreen/$userType/$totalPrice?paymentMethod=COD&referenceId=&items=$encodedItems"
-                    )
-                }
-        }
-        .addOnFailureListener { e ->
-            Log.e("PaymentScreen", "Error saving COD payment: ${e.message}")
-            onPaymentStatus("Error saving order")
-            onError("Order processing error: ${e.message}")
-        }
-}
+                        val itemsJson = Gson().toJson(orderItems)
+                        val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
+                        navController.navigate(
+                            "checkoutScreen/$userType/$totalPrice?paymentMethod=COD&referenceId=&items=$encodedItems"
+                        )
+                    }
+            }
+            .addOnFailureListener { e ->
+                Log.e("PaymentScreen", "Error saving COD payment: ${e.message}")
+                onPaymentStatus("Error saving order")
+                onError("Order processing error: ${e.message}")
+            }
+    }
 
 @Composable
 fun SectionTitle(title: String) {

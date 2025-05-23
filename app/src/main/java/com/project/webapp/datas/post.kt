@@ -1,6 +1,7 @@
 package com.project.webapp.datas
 
 import android.os.Parcelable
+import com.google.firebase.Timestamp
 import kotlinx.android.parcel.Parcelize
 
 @Parcelize
@@ -11,7 +12,7 @@ data class Post(
     val userImage: String = "",
     val content: String = "",
     val imageUrl: String? = null,
-    val timestamp: Long = 0,     // Using Long type as in your UI code
+    val timestamp: Timestamp = Timestamp.now(),
     val likes: Int = 0,
     val comments: Int = 0
 ) : Parcelable

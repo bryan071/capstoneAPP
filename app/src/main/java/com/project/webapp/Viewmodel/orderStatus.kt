@@ -32,7 +32,7 @@ fun createOrderRecord(
 ) {
     val firestore = FirebaseFirestore.getInstance()
     val orderId = UUID.randomUUID().toString()
-    val currentTime = System.currentTimeMillis()
+    val currentTimestamp = Timestamp.now() // Use Firebase Timestamp instead of Long
 
     // Add debug logs to trace the items being saved
     Log.d("OrderDebug", "Creating order for payment method: $paymentMethod")
@@ -73,9 +73,9 @@ fun createOrderRecord(
         "paymentMethod" to paymentMethod,
         "totalAmount" to totalAmount,
         "deliveryAddress" to deliveryAddress,
-        "createdAt" to currentTime,
-        "updatedAt" to currentTime,
-        "estimatedDelivery" to Timestamp(calculateEstimatedDelivery(currentTime))
+        "timestamp" to currentTimestamp,
+        "updatedAt" to currentTimestamp,
+        "estimatedDelivery" to Timestamp(calculateEstimatedDelivery(currentTimestamp.toDate().time))
     )
 
     // Add the order to Firestore
@@ -83,15 +83,13 @@ fun createOrderRecord(
         .set(orderData)
         .addOnSuccessListener {
             Log.d("Order", "Order record created successfully with ID: $orderId")
-            createOrderStatusHistory(orderId, OrderStatus.PAYMENT_RECEIVED.name, currentTime)
+            createOrderStatusHistory(orderId, OrderStatus.PAYMENT_RECEIVED.name, currentTimestamp)
         }
         .addOnFailureListener { e ->
             Log.e("Order", "Error creating order record", e)
         }
-
-    // IMPORTANT: The cleanup operation has been completely removed from this function
-    // as it was potentially interfering with new orders
 }
+
 fun createDonationRecord(
     userId: String,
     productId: String,
@@ -110,7 +108,7 @@ fun createDonationRecord(
         "organizationId" to organizationId,
         "organizationName" to organizationName,
         "quantity" to quantity,
-        "timestamp" to FieldValue.serverTimestamp(),
+        "timestamp" to Timestamp.now(),
         "status" to "completed"
     )
 
@@ -124,18 +122,19 @@ fun createDonationRecord(
             Log.e("DonationScreen", "Error saving donation record: ${e.message}", e)
         }
 }
+
 // Calculate estimated delivery date (3 days from now)
 fun calculateEstimatedDelivery(currentTime: Long): Date {
     val estimatedTimeMillis = currentTime + 3 * 24 * 60 * 60 * 1000 // 3 days
     return Date(estimatedTimeMillis)
 }
 
-// Create order status history entry
-fun createOrderStatusHistory(orderId: String, status: String, timestamp: Long) {
+// Create order status history entry - Updated to use Timestamp
+fun createOrderStatusHistory(orderId: String, status: String, timestamp: Timestamp) {
     val firestore = FirebaseFirestore.getInstance()
     val historyEntry = hashMapOf(
         "status" to status,
-        "timestamp" to timestamp,
+        "timestamp" to timestamp, // Now using Timestamp instead of Long
         "notes" to when(status) {
             OrderStatus.PAYMENT_RECEIVED.name -> "Payment has been received and order is confirmed"
             OrderStatus.TO_SHIP.name -> "Order is being prepared for shipping"
@@ -158,7 +157,6 @@ fun createOrderStatusHistory(orderId: String, status: String, timestamp: Long) {
         }
 }
 
-
 // Helper function to get a message based on order status
 private fun getStatusMessage(status: String, orderId: String): String {
     return when (status) {
@@ -171,4 +169,3 @@ private fun getStatusMessage(status: String, orderId: String): String {
         else -> "Status updated for your order #${orderId.takeLast(6)}."
     }
 }
-
