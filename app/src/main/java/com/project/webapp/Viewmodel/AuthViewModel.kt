@@ -66,11 +66,31 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = auth.signInWithEmailAndPassword(email, password).await()
-                result.user?.uid?.let { fetchUserType(it) }
-                    ?: run { _authState.value = AuthState.Error("User ID is null.") }
+                result.user?.uid?.let { uid ->
+                    // Check user status before proceeding
+                    checkUserStatus(uid) { status ->
+                        if (status == "Disabled") {
+                            _authState.value = AuthState.Error("Your account has been disabled. Please contact support.")
+                        } else {
+                            fetchUserType(uid)
+                        }
+                    }
+                } ?: run { _authState.value = AuthState.Error("User ID is null.") }
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.message ?: "Something went wrong.")
             }
+        }
+    }
+
+    // Helper function to check user status from Firestore
+    private suspend fun checkUserStatus(uid: String, callback: (String?) -> Unit) {
+        try {
+            val document = firestore.collection("users").document(uid).get().await()
+            val status = document.getString("status")
+            callback(status)
+        } catch (e: Exception) {
+            // If we can't fetch status, assume user is active and proceed
+            callback("Active")
         }
     }
 
