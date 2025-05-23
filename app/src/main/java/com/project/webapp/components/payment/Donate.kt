@@ -314,11 +314,11 @@ fun DonationScreen(
                     val product = products[index]
                     mapOf(
                         "productId" to cartItem.productId,
+                        "sellerId" to (product?.ownerId),
                         "price" to cartItem.price,
                         "name" to cartItem.name,
                         "quantity" to cartItem.quantity,
                         "unit" to (product?.quantity ?: ""),
-                        "sellerId" to (product?.ownerId),
                         "weight" to (product?.quantityUnit ?: 0)
                     )
                 }
