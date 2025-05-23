@@ -192,6 +192,7 @@ fun GcashScreen(
                         mapOf(
                             "productId" to item.productId,
                             "name" to item.name,
+                            "sellerId" to item.sellerId,
                             "price" to item.price,
                             "quantity" to item.quantity,
                             "unit" to item.unit,
