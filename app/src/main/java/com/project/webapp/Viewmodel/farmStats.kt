@@ -2,22 +2,44 @@ package com.project.webapp.Viewmodel
 
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Divider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -33,8 +55,6 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.State
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.Dispatchers
 
 class FarmStatsViewModel : ViewModel() {
@@ -204,18 +224,22 @@ class FarmStatsViewModel : ViewModel() {
     }
 }
 
-
 // --- Data Classes ---
 data class Product(val name: String, val id: String = "")
-data class WeeklySalesData(val weekRange: String, val quantity: Int,  val totalSalesAmount: Double)
+data class WeeklySalesData(val weekRange: String, val quantity: Int, val totalSalesAmount: Double)
 
-// --- Composable UI ---
+// --- Enhanced Color Palette ---
 val PrimaryGreen = Color(0xFF2E7D32)
-val LightGreen = Color(0xFFC8E6C9)
-val AccentYellow = Color(0xFFFFF59D)
-val Background = Color(0xFFF1F8E9)
+val DarkGreen = Color(0xFF1B5E20)
+val LightGreen = Color(0xFFE8F5E8)
+val AccentGreen = Color(0xFF4CAF50)
+val AccentYellow = Color(0xFFFFEB3B)
+val GoldAccent = Color(0xFFFFC107)
+val Background = Color(0xFFF8FDF8)
+val CardBackground = Color(0xFFFFFFFF)
 val BarFill = Color(0xFF66BB6A)
-val BarBackground = Color(0xFFD7EDD4)
+val BarBackground = Color(0xFFE8F5E8)
+val TextSecondary = Color(0xFF757575)
 
 @Composable
 fun FarmStatisticsScreen(viewModel: FarmStatsViewModel = viewModel()) {
@@ -224,42 +248,195 @@ fun FarmStatisticsScreen(viewModel: FarmStatsViewModel = viewModel()) {
 
     Column(
         modifier = Modifier
-            .padding(20.dp)
             .fillMaxWidth()
-            .background(Background, shape = RoundedCornerShape(16.dp))
-            .padding(24.dp)
+            .background(Background)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Header Section
         Text(
-            "Total Products Posted",
-            style = MaterialTheme.typography.titleMedium.copy(color = PrimaryGreen)
-        )
-        Text(
-            "$productCount",
-            style = MaterialTheme.typography.displaySmall.copy(
-                fontWeight = FontWeight.ExtraBold,
-                color = PrimaryGreen
+            text = "Farm Statistics",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = DarkGreen
             ),
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(vertical = 8.dp)
         )
 
-        Divider(color = PrimaryGreen.copy(alpha = 0.3f), thickness = 1.dp)
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            "Weekly Product Sales",
-            style = MaterialTheme.typography.titleMedium.copy(color = PrimaryGreen),
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        if (weeklySales.isEmpty()) {
-            Text(
-                "No sales data available",
-                style = MaterialTheme.typography.bodyMedium.copy(color = PrimaryGreen.copy(alpha = 0.7f)),
-                modifier = Modifier.padding(top = 20.dp)
+        // Stats Cards Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            StatCard(
+                title = "Total Products",
+                value = productCount.toString(),
+                icon = Icons.Default.Inventory,
+                iconColor = AccentGreen,
+                modifier = Modifier.weight(1f)
             )
-        } else {
-            WeeklySalesChart(weeklySales)
+
+            StatCard(
+                title = "Weekly Analytics",
+                value = "${weeklySales.size}",
+                icon = Icons.Default.Assessment,
+                iconColor = GoldAccent,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Weekly Sales Section
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(4.dp, RoundedCornerShape(16.dp)),
+            colors = CardDefaults.cardColors(containerColor = CardBackground),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(AccentGreen.copy(alpha = 0.2f), AccentGreen.copy(alpha = 0.1f))
+                                ),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = null,
+                            tint = AccentGreen,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Text(
+                        text = "Weekly Sales Performance",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = DarkGreen
+                        )
+                    )
+                }
+
+                if (weeklySales.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Assessment,
+                                contentDescription = null,
+                                tint = TextSecondary.copy(alpha = 0.5f),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "No sales data available",
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    color = TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                            Text(
+                                text = "Start selling to see your analytics here",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = TextSecondary.copy(alpha = 0.7f)
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    WeeklySalesChart(weeklySales)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StatCard(
+    title: String,
+    value: String,
+    subtitle: String? = null,
+    icon: ImageVector,
+    iconColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .shadow(2.dp, RoundedCornerShape(12.dp)),
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(iconColor.copy(alpha = 0.2f), iconColor.copy(alpha = 0.1f))
+                        ),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = DarkGreen
+                ),
+                fontSize = 24.sp
+            )
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = TextSecondary.copy(alpha = 0.7f),
+                        fontSize = 10.sp
+                    )
+                )
+            }
         }
     }
 }
@@ -268,56 +445,225 @@ fun FarmStatisticsScreen(viewModel: FarmStatsViewModel = viewModel()) {
 fun WeeklySalesChart(data: List<WeeklySalesData>) {
     val maxQuantity = data.maxOfOrNull { it.quantity } ?: 1
     val maxSales = data.maxOfOrNull { it.totalSalesAmount } ?: 1.0
+    val totalQuantity = data.sumOf { it.quantity }
+    val totalSales = data.sumOf { it.totalSalesAmount }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Summary Cards
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SummaryCard(
+                title = "Total Quantity",
+                value = totalQuantity.toString(),
+                subtitle = "items sold",
+                backgroundColor = AccentGreen.copy(alpha = 0.1f),
+                textColor = AccentGreen,
+                modifier = Modifier.weight(1f)
+            )
+
+            SummaryCard(
+                title = "Total Revenue",
+                value = "₱${"%.0f".format(totalSales)}",
+                subtitle = "earnings",
+                backgroundColor = GoldAccent.copy(alpha = 0.1f),
+                textColor = GoldAccent.copy(red = 0.8f),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Divider(
+            color = LightGreen,
+            thickness = 1.dp,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+
+        // Weekly Data
         data.forEach { weekData ->
-            Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                Text(
-                    text = weekData.weekRange,
-                    style = MaterialTheme.typography.bodySmall.copy(color = PrimaryGreen),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-
-                // Quantity bar
-                Text("Quantity Sold: ${weekData.quantity}", color = PrimaryGreen)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(20.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(BarBackground)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((weekData.quantity / maxQuantity.toFloat()).coerceIn(0f, 1f))
-                            .height(20.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(BarFill)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Sales amount bar
-                Text("Total Sales: ₱${"%.2f".format(weekData.totalSalesAmount)}", color = PrimaryGreen)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(20.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(BarBackground)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((weekData.totalSalesAmount / maxSales).toFloat().coerceIn(0f, 1f))
-                            .height(20.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(AccentYellow)
-                    )
-                }
-            }
+            WeeklyDataItem(
+                weekData = weekData,
+                maxQuantity = maxQuantity,
+                maxSales = maxSales
+            )
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
+@Composable
+fun SummaryCard(
+    title: String,
+    value: String,
+    subtitle: String,
+    backgroundColor: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .background(backgroundColor, RoundedCornerShape(8.dp))
+            .padding(12.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = textColor.copy(alpha = 0.8f),
+                    fontWeight = FontWeight.Medium
+                )
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = textColor.copy(alpha = 0.6f),
+                    fontSize = 10.sp
+                )
+            )
+        }
+    }
+}
 
+@Composable
+fun WeeklyDataItem(
+    weekData: WeeklySalesData,
+    maxQuantity: Int,
+    maxSales: Double
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(LightGreen.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = weekData.weekRange,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    color = DarkGreen
+                )
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.TrendingUp,
+                    contentDescription = null,
+                    tint = AccentGreen,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "${weekData.quantity} sold",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = AccentGreen,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Quantity Bar with Icon
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Inventory,
+                contentDescription = null,
+                tint = AccentGreen,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Quantity: ${weekData.quantity}",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = DarkGreen,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+        }
+
+        ProgressBar(
+            progress = (weekData.quantity / maxQuantity.toFloat()).coerceIn(0f, 1f),
+            backgroundColor = BarBackground,
+            fillColor = BarFill
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Sales Bar with Icon
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.AttachMoney,
+                contentDescription = null,
+                tint = GoldAccent.copy(red = 0.8f),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Revenue: ₱${"%.2f".format(weekData.totalSalesAmount)}",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = DarkGreen,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+        }
+
+        ProgressBar(
+            progress = (weekData.totalSalesAmount / maxSales).toFloat().coerceIn(0f, 1f),
+            backgroundColor = BarBackground,
+            fillColor = GoldAccent
+        )
+    }
+}
+
+@Composable
+fun ProgressBar(
+    progress: Float,
+    backgroundColor: Color,
+    fillColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(backgroundColor)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(progress)
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(fillColor.copy(alpha = 0.8f), fillColor)
+                    )
+                )
+        )
+    }
+}

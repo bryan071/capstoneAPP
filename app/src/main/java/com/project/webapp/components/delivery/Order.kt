@@ -84,10 +84,9 @@
         var orderItems by remember { mutableStateOf<List<OrderItem>>(emptyList()) }
         var isLoading by remember { mutableStateOf(true) }
         var selectedItem by remember { mutableStateOf<OrderItem?>(null) }
-
         LaunchedEffect(currentUserId) {
             if (currentUserId != null) {
-                // Fetch purchases from orders
+                // Fetch purchases from orders (this part should work fine)
                 firestore.collection("orders")
                     .whereEqualTo("buyerId", currentUserId)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -101,11 +100,11 @@
                             doc.toObject(Order::class.java)
                         }?.map { OrderItem.Purchase(it) } ?: emptyList()
 
-                        // Fetch donations from transactions
+                        // FIXED: Fetch donations without orderBy to avoid composite index requirement
                         firestore.collection("transactions")
                             .whereEqualTo("buyerId", currentUserId)
                             .whereEqualTo("transactionType", "donation")
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            // Remove the orderBy line that was causing the index requirement
                             .addSnapshotListener { transactionSnapshot, transactionError ->
                                 isLoading = false
                                 if (transactionError != null) {
@@ -124,12 +123,13 @@
                                         organization = data["organization"] as? String,
                                         transactionType = data["transactionType"] as? String ?: "",
                                         status = data["status"] as? String ?: "",
-                                        timestamp = doc.getTimestamp("timestamp")?: Timestamp.now(),
+                                        timestamp = doc.getTimestamp("timestamp") ?: Timestamp.now(),
                                         paymentMethod = data["paymentMethod"] as? String ?: "",
                                         referenceId = data["referenceId"] as? String
                                     )
                                 }?.map { OrderItem.Donation(it) } ?: emptyList()
 
+                                // Sort the combined list in memory instead of in the query
                                 orderItems = (orders + donationTransactions).sortedByDescending {
                                     when (it) {
                                         is OrderItem.Purchase -> it.order.timestamp
@@ -318,6 +318,7 @@
                 )
             }
             is OrderItem.Donation -> {
+
                 val transaction = orderItem.transaction
                 OrderItemDetails(
                     title = transaction.item,

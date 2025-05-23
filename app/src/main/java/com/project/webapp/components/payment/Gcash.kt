@@ -185,7 +185,7 @@ fun GcashScreen(
                     "sellerId" to ownerId,
                     "amount" to totalPrice,
                     "paymentMethod" to "Gcash",
-                    "status" to "PENDING",
+                    "status" to "Pending",
                     "transactionType" to "purchased",
                     "timestamp" to Timestamp.now(),
                     "items" to displayItems.map { item ->

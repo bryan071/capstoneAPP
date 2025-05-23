@@ -426,7 +426,7 @@ fun PaymentScreen(
         val paymentData = hashMapOf(
             "transactionId" to transactionId,
             "userId" to userId,
-            "status" to "PENDING",
+            "status" to "Pending",
             "amount" to totalPrice,
             "seller" to ownerId,
             "timestamp" to Timestamp.now(),
@@ -454,11 +454,10 @@ fun PaymentScreen(
                     "paymentMethod" to "COD",
                     "status" to "Completed",
                     "timestamp" to Timestamp.now(),
-                    "transactionType" to "purchased",
+                    "transactionType" to "sale",
                     "items" to displayItems.map { item ->
                         mapOf(
                             "productId" to item.productId,
-                            "ownerId" to item.sellerId,
                             "name" to item.name,
                             "price" to item.price,
                             "quantity" to item.quantity,

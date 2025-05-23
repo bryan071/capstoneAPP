@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -44,8 +45,11 @@ import com.project.webapp.components.generateQRCode
 import com.project.webapp.datas.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
@@ -263,6 +267,7 @@ fun DonationScreen(
             setIsLoading(false)
             return
         }
+
         val orderNumber = UUID.randomUUID().toString().substring(0, 8).uppercase()
         val paymentId = "DPAY-$orderNumber"
         val donationId = "DON-$orderNumber"
@@ -287,117 +292,155 @@ fun DonationScreen(
         }
         val totalQuantity = displayItems.sumOf { it.quantity }
 
-        val transactionData = hashMapOf<String, Any?>(
-            "timestamp" to Timestamp.now(),
-            "buyerId" to userId,
-            "sellerId" to sellerNames,
-            "status" to "Completed",
-            "transactionType" to "donation",
-            "totalAmount" to totalPrice,
-            "item" to itemName,
-            "quantity" to totalQuantity,
-            "organization" to organization.name,
-            "paymentMethod" to "GCash",
-            "referenceId" to referenceId
-        )
+        // Launch coroutine to fetch full product info for all items
+        cartViewModel.viewModelScope.launch {
+            try {
+                // Suspend function version of getProductById (needs to be implemented in your ViewModel)
+                suspend fun getProductByIdSuspend(productId: String): Product? {
+                    return try {
+                        val doc = firestore.collection("products").document(productId).get().await()
+                        doc.toObject(Product::class.java)?.apply { prodId = doc.id }
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
 
-        Log.d("DonationScreen", "Processing donation: paymentId=$paymentId, transactionId=$transactionId, items=${displayItems.size}, totalPrice=$totalPrice")
-        displayItems.forEach { item ->
-            Log.d("DonationScreen", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
-        }
+                val products = displayItems.map { item ->
+                    async { getProductByIdSuspend(item.productId) }
+                }.awaitAll()
 
-        // Save donation payment and transaction
-        firestore.collection("donation_payments")
-            .document(paymentId)
-            .set(paymentData)
-            .addOnSuccessListener {
-                Log.d("DonationScreen", "Donation payment record created successfully: $paymentId")
-                firestore.collection("transactions")
-                    .document(transactionId)
-                    .set(transactionData)
+                // Build transaction items with full product data for unit and weight
+                val transactionItems = displayItems.mapIndexed { index, cartItem ->
+                    val product = products[index]
+                    mapOf(
+                        "productId" to cartItem.productId,
+                        "price" to cartItem.price,
+                        "name" to cartItem.name,
+                        "quantity" to cartItem.quantity,
+                        "unit" to (product?.quantity ?: ""),
+                        "sellerId" to (product?.ownerId),
+                        "weight" to (product?.quantityUnit ?: 0)
+                    )
+                }
+
+                val transactionData = hashMapOf<String, Any?>(
+                    "timestamp" to Timestamp.now(),
+                    "buyerId" to userId,
+                    "status" to "Completed",
+                    "transactionType" to "donation",
+                    "totalAmount" to totalPrice,
+                    "quantity" to totalQuantity,
+                    "organization" to organization.name,
+                    "paymentMethod" to "GCash",
+                    "referenceId" to referenceId,
+                    "item" to itemName,
+                    "items" to transactionItems
+                )
+
+                Log.d("DonationScreen", "Processing donation: paymentId=$paymentId, transactionId=$transactionId, items=${displayItems.size}, totalPrice=$totalPrice")
+                displayItems.forEach { item ->
+                    Log.d("DonationScreen", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}, Unit: ${item.unit}, Weight: ${item.weight}")
+                }
+
+                // Save donation payment
+                firestore.collection("donation_payments")
+                    .document(paymentId)
+                    .set(paymentData)
                     .addOnSuccessListener {
-                        Log.d("DonationScreen", "Transaction saved successfully: $transactionId")
-                        setPaymentStatus("Donation successful!")
-                        val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
-                        setPaymentTimestamp(dateFormat.format(Date()))
+                        Log.d("DonationScreen", "Donation payment record created successfully: $paymentId")
+                        // Save transaction with full items
+                        firestore.collection("transactions")
+                            .document(transactionId)
+                            .set(transactionData)
+                            .addOnSuccessListener {
+                                Log.d("DonationScreen", "Transaction saved successfully: $transactionId")
+                                setPaymentStatus("Donation successful!")
+                                val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
+                                setPaymentTimestamp(dateFormat.format(Date()))
 
-                        displayItems.forEach { cartItem ->
-                            cartViewModel.getProductById(cartItem.productId) { product ->
-                                product?.let { prod ->
-                                    createDonationNotification(
-                                        firestore = firestore,
-                                        product = prod,
-                                        donatorId = userId,
-                                        organizationName = organization.name,
-                                        transactionId = transactionId
-                                    )
+                                // Create notifications and donation records
+                                displayItems.forEachIndexed { idx, cartItem ->
+                                    val product = products[idx]
+                                    product?.let { prod ->
+                                        createDonationNotification(
+                                            firestore = firestore,
+                                            product = prod,
+                                            donatorId = userId,
+                                            organizationName = organization.name,
+                                            transactionId = transactionId
+                                        )
+                                        createDonationRecord(
+                                            userId = userId,
+                                            productId = prod.prodId,
+                                            productName = prod.name,
+                                            organizationId = organization.id,
+                                            organizationName = organization.name,
+                                            quantity = cartItem.quantity,
+                                            orderNumber = orderNumber,
+                                            firestore = firestore
+                                        )
+                                    }
+                                }
 
-                                    createDonationRecord(
-                                        userId = userId,
-                                        productId = prod.prodId,
-                                        productName = prod.name,
-                                        organizationId = organization.id,
-                                        organizationName = organization.name,
-                                        quantity = cartItem.quantity,
+                                cartViewModel.completePurchase(userType, "GCash")
+                                val activity = hashMapOf(
+                                    "userId" to userId,
+                                    "description" to "Donate an order worth ₱${totalPrice.toInt()} via Gcash.",
+                                    "timestamp" to Timestamp.now()
+                                )
+
+                                firestore.collection("activities")
+                                    .add(activity)
+                                    .addOnSuccessListener {
+                                        Log.d("RecentActivity", "Activity logged successfully.")
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Log.e("RecentActivity", "Failed to log activity: ${e.message}")
+                                    }
+
+                                if (displayItems.isNotEmpty() && totalPrice > 0 && sellerNames.isNotEmpty()) {
+                                    cartViewModel.setReceiptData(
                                         orderNumber = orderNumber,
-                                        firestore = firestore
+                                        cartItems = displayItems,
+                                        totalPrice = totalPrice,
+                                        userType = userType,
+                                        sellerNames = sellerNames.toMap(),
+                                        paymentMethod = "GCash",
+                                        referenceId = referenceId,
+                                        organization = organization,
+                                        isDonation = true
                                     )
+                                    setShowReceiptDialog(orderNumber)
+                                } else {
+                                    setErrorMessage("Invalid donation data for receipt")
+                                    setShowErrorDialog(true)
+                                    setIsLoading(false)
+                                    Log.e("DonationScreen", "Invalid data for receipt: items=${displayItems.size}, totalPrice=$totalPrice, sellerNames=$sellerNames")
                                 }
                             }
-                        }
-
-                        cartViewModel.completePurchase(userType, "GCash")
-                        val activity = hashMapOf(
-                            "userId" to userId,
-                            "description" to "Donate an order worth ₱${totalPrice.toInt()} via Gcash.",
-                            "timestamp" to Timestamp.now()
-                        )
-
-                        firestore.collection("activities")
-                            .add(activity)
-                            .addOnSuccessListener {
-                                Log.d("RecentActivity", "Activity logged successfully.")
-                            }
                             .addOnFailureListener { e ->
-                                Log.e("RecentActivity", "Failed to log activity: ${e.message}")
+                                Log.e("DonationScreen", "Error saving transaction: ${e.message}", e)
+                                setPaymentStatus("Error saving transaction")
+                                setErrorMessage("Donation processing error: ${e.message}")
+                                setShowErrorDialog(true)
+                                setIsLoading(false)
                             }
-
-                        // Store receipt data in ViewModel
-                        if (displayItems.isNotEmpty() && totalPrice > 0 && sellerNames.isNotEmpty()) {
-                            cartViewModel.setReceiptData(
-                                orderNumber = orderNumber,
-                                cartItems = displayItems,
-                                totalPrice = totalPrice,
-                                userType = userType,
-                                sellerNames = sellerNames.toMap(),
-                                paymentMethod = "GCash",
-                                referenceId = referenceId,
-                                organization = organization,
-                                isDonation = true
-                            )
-                            setShowReceiptDialog(orderNumber)
-                        } else {
-                            setErrorMessage("Invalid donation data for receipt")
-                            setShowErrorDialog(true)
-                            setIsLoading(false)
-                            Log.e("DonationScreen", "Invalid data for receipt: items=${displayItems.size}, totalPrice=$totalPrice, sellerNames=$sellerNames")
-                        }
                     }
                     .addOnFailureListener { e ->
-                        Log.e("DonationScreen", "Error saving transaction: ${e.message}", e)
-                        setPaymentStatus("Error saving transaction")
+                        Log.e("DonationScreen", "Error saving donation payment: ${e.message}", e)
+                        setPaymentStatus("Error saving donation record")
                         setErrorMessage("Donation processing error: ${e.message}")
                         setShowErrorDialog(true)
                         setIsLoading(false)
                     }
-            }
-            .addOnFailureListener { e ->
-                Log.e("DonationScreen", "Error saving donation payment: ${e.message}", e)
-                setPaymentStatus("Error saving donation record")
-                setErrorMessage("Donation processing error: ${e.message}")
+            } catch (e: Exception) {
+                Log.e("DonationScreen", "Error fetching product details: ${e.message}", e)
+                setPaymentStatus("Error processing donation")
+                setErrorMessage("Error fetching product details: ${e.message}")
                 setShowErrorDialog(true)
                 setIsLoading(false)
             }
+        }
     }
 
     fun initiateGCashDonation() {

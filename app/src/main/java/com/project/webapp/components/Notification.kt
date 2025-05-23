@@ -327,7 +327,8 @@ fun NotificationItem(
     // Determine notification icon and color based on type
     val (notificationIcon, notificationIconTint) = when (notificationType) {
         "product_sold" -> Icons.Default.ShoppingCart to Color(0xFF0DA54B) // Blue for sales
-        "product_donated" -> Icons.Default.Favorite to Color(0xFFE91E63) // Pink for donations
+        "product_donated" -> Icons.Default.Favorite to Color(0xFFE91E63)
+        "product_added"-> Icons.Default.Notifications to Color(0xFFE91E63)// Pink for donations
         else -> Icons.Default.Notifications to primaryColor // Default green for new products
     }
 
