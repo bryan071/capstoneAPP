@@ -318,8 +318,8 @@ fun DonationScreen(
                         "price" to cartItem.price,
                         "name" to cartItem.name,
                         "quantity" to cartItem.quantity,
-                        "unit" to (product?.quantity ?: ""),
-                        "weight" to (product?.quantityUnit ?: 0)
+                        "unit" to (product?.quantityUnit ?: ""),
+                        "weight" to (product?.quantity ?: 0)
                     )
                 }
 
