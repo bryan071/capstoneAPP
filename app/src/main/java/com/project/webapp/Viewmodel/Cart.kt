@@ -63,6 +63,10 @@ class CartViewModel : ViewModel() {
     // Receipt data storage
     private val receiptDataMap = mutableMapOf<String, ReceiptData>()
 
+    private val _cartDiscountPercent = MutableStateFlow(0.0)
+    val cartDiscountPercent: StateFlow<Double> = _cartDiscountPercent.asStateFlow()
+
+
     init {
         loadCurrentUser()
         loadCartItems()
@@ -129,7 +133,6 @@ class CartViewModel : ViewModel() {
                         if (cartItem != null) {
                             if (cartItem.productId.isEmpty()) {
                                 cartItem.productId = doc.id
-                                // 🔧 FIX: update Firestore if productId is missing
                                 doc.reference.update("productId", doc.id)
                             }
 
@@ -142,7 +145,7 @@ class CartViewModel : ViewModel() {
                         } else null
                     } ?: emptyList()
 
-                    // Batch delete invalid items
+                    // Remove invalid items
                     if (invalidDocs.isNotEmpty()) {
                         val batch = firestore.batch()
                         invalidDocs.forEach { batch.delete(it) }
@@ -150,8 +153,30 @@ class CartViewModel : ViewModel() {
                     }
 
                     _cartItems.value = items
-                    _totalCartPrice.value = items.sumOf { it.price * it.quantity }
                     _checkoutItems.value = items
+
+                    // Calculate base price
+                    val baseTotal = items.sumOf { it.price * it.quantity }
+
+                    // Calculate discounts
+                    val totalUniqueProducts = items.size
+                    val totalQuantity = items.sumOf { it.quantity }
+
+                    var discount = 0.0
+
+                    if (totalUniqueProducts >= 5) {
+                        discount = 0.05  // 5% discount
+                    }
+
+                    if (totalQuantity >= 10) {
+                        discount = maxOf(discount, 0.10)  // Up to 10% discount
+                    }
+
+                    _cartDiscountPercent.value = discount
+
+                    val finalTotal = baseTotal * (1 - discount)
+                    _totalCartPrice.value = finalTotal
+
                     _isCartLoading.value = false
                 }
             }

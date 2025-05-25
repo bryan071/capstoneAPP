@@ -301,7 +301,7 @@ fun ProductDetailsScreen(
                                             )
                                         }
                                     }
-                                } else if (userType == "market") {
+                                } else if (userType in listOf("business", "household")) {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         Button(
                                             onClick = {
@@ -362,20 +362,6 @@ fun ProductDetailsScreen(
                                                 color = Color.White
                                             )
                                         }
-                                    }
-                                } else if (userType == "organization") {
-                                    Card(
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFECB3)),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            "Organizations cannot buy or sell products.",
-                                            fontSize = 16.sp,
-                                            color = Color(0xFF7D6608),
-                                            modifier = Modifier.padding(16.dp),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                        )
                                     }
                                 }
                             }

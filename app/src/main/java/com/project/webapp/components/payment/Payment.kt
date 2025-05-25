@@ -452,7 +452,7 @@ fun PaymentScreen(
                     "sellerId" to ownerId,
                     "amount" to totalPrice,
                     "paymentMethod" to "COD",
-                    "status" to "Completed",
+                    "status" to "Pending",
                     "timestamp" to Timestamp.now(),
                     "transactionType" to "sale",
                     "items" to displayItems.map { item ->

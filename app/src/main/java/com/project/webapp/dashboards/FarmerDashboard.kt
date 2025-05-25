@@ -1,6 +1,7 @@
 package com.project.webapp.dashboards
 
 import WeatherSection
+import android.net.Uri
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -89,7 +90,7 @@ fun FarmerDashboard(
 
     val context = LocalContext.current
     var userType by remember { mutableStateOf<String?>(null) }
-    val unreadCount by chatViewModel.unreadMessagesCount.collectAsState(initial = 0)
+    var unreadCount by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
     val firestore = FirebaseFirestore.getInstance()
@@ -117,6 +118,13 @@ fun FarmerDashboard(
                     loading = false
                 }
         } ?: run { loading = false }
+    }
+
+    // Listen for unread admin messages
+    LaunchedEffect(Unit) {
+        chatViewModel.getAdminChatUnreadCount { count ->
+            unreadCount = count
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -177,13 +185,22 @@ fun FarmerDashboard(
             }
         }
 
-        // Chat FAB with pulse animation effect
         ChatFab(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
             unreadCount = unreadCount,
-            onClick = { navController.navigate("chat") }
+            onClick = {
+                chatViewModel.createOrGetAdminChatRoom { chatRoomId ->
+                    if (chatRoomId.isNotEmpty()) {
+                        val encodedChatRoomId = Uri.encode(chatRoomId)
+                        navController.navigate("chat/$encodedChatRoomId/false")
+                        Log.d("NavDebug", "Navigating to chat/$chatRoomId/false")
+                    } else {
+                        Log.e("FarmerDashboard", "ChatRoomId is empty!")
+                    }
+                }
+            }
         )
     }
 }
@@ -192,7 +209,8 @@ fun FarmerDashboard(
 fun ChatFab(
     modifier: Modifier = Modifier,
     unreadCount: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    chatViewModel: ChatViewModel? = null
 ) {
     // Pulse animation for when there are unread messages
     val pulseState = remember { mutableStateOf(false) }
@@ -223,7 +241,7 @@ fun ChatFab(
         ) {
             Icon(
                 Icons.Outlined.Chat,
-                contentDescription = "Chat",
+                contentDescription = "Chat with Admin",
                 modifier = Modifier.size(24.dp)
             )
         }
@@ -249,7 +267,6 @@ fun ChatFab(
         }
     }
 }
-
 
 @Composable
 fun HeroBanner() {

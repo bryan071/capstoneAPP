@@ -482,7 +482,7 @@ fun ProfileTabContent(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
     ) {
-        if (userData?.userType?.trim()?.lowercase() == "market") {
+        if (userData?.userType?.trim()?.lowercase() in listOf("business", "household")) {
 
             Button(
                 onClick = { navController.navigate(ORDERS) },

@@ -277,17 +277,28 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 )
             }
 
-            composable("chat") {
-                val chatViewModel = viewModel<ChatViewModel>()
-                val defaultChatRoomId = "default_room" // Define a default chat room
-                ChatScreen(navController = navController, viewModel = chatViewModel, chatRoomId = defaultChatRoomId, isAdmin = false)
+            composable(
+                route = "chat/{chatRoomId}/{isAdmin}",
+                arguments = listOf(
+                    navArgument("chatRoomId") { type = NavType.StringType },
+                    navArgument("isAdmin") { type = NavType.BoolType }
+                )
+            ) { backStackEntry ->
+                Log.d("NavDebug", "Entered ChatScreen with chatRoomId=${backStackEntry.arguments?.getString("chatRoomId")}")
+                val chatRoomId = backStackEntry.arguments?.getString("chatRoomId") ?: ""
+                val isAdmin = backStackEntry.arguments?.getBoolean("isAdmin") ?: false
+
+                val chatViewModel: ChatViewModel = viewModel()
+
+                ChatScreen(
+                    navController = navController,
+                    viewModel = chatViewModel,
+                    chatRoomId = chatRoomId,
+                    isAdmin = isAdmin
+                )
             }
 
-            composable("chat/{chatRoomId}") { backStackEntry ->
-                val chatRoomId = backStackEntry.arguments?.getString("chatRoomId") ?: "default_room"
-                val chatViewModel = viewModel<ChatViewModel>()  // Ensure ViewModel is provided
-                ChatScreen(navController = navController, viewModel = chatViewModel, chatRoomId = chatRoomId, isAdmin = false)
-            }
+
 
             composable("recent_activity_screen") {
                 val state = authViewModel.authState.observeAsState().value

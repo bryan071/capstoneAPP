@@ -59,7 +59,7 @@ fun Login(
                         "farmer" -> navController.navigate(Route.FARMER_DASHBOARD) {
                             popUpTo(Route.LOGIN) { inclusive = true }
                         }
-                        "market" -> navController.navigate(Route.FARMER_DASHBOARD) {
+                        "business", "household" -> navController.navigate(Route.FARMER_DASHBOARD) {
                             popUpTo(Route.LOGIN) { inclusive = true }
                         }
                         else -> Toast.makeText(

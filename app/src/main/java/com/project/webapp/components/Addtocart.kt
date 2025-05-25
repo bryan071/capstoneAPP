@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,8 +43,10 @@ import com.project.webapp.datas.CartItem
 fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
     val cartItems by cartViewModel.cartItems.collectAsStateWithLifecycle()
     val subtotalPrice by cartViewModel.totalCartPrice.collectAsStateWithLifecycle()
+    val cartDiscountPercent by cartViewModel.cartDiscountPercent.collectAsStateWithLifecycle()
     var showDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+
 
     val primaryGreen = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF5F5F5)
@@ -161,7 +164,7 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     items(cartItems) { item ->
-                        CartItemRow(cartItem = item, cartViewModel = cartViewModel)
+                        CartItemRow(cartItem = item,  discountPercent = cartDiscountPercent, cartViewModel = cartViewModel)
                     }
                 }
 
@@ -267,9 +270,11 @@ fun CartScreen(cartViewModel: CartViewModel, navController: NavController) {
 @Composable
 fun CartItemRow(
     cartItem: CartItem,
+    discountPercent: Double = 0.0,
     sellerName: String = "",
     cartViewModel: CartViewModel? = null
 ) {
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -303,12 +308,41 @@ fun CartItemRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "₱${cartItem.price}0",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF0DA54B)
-                )
+
+                val discountedPrice = cartItem.price * (1 - discountPercent)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (discountPercent > 0) {
+                        Text(
+                            text = "₱${"%.2f".format(cartItem.price)}",
+                            fontSize = 14.sp,
+                            color = Color.Gray,
+                            style = LocalTextStyle.current.copy(textDecoration = TextDecoration.LineThrough)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "₱${"%.2f".format(discountedPrice)}",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF0DA54B)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${(discountPercent * 100).toInt()}% OFF",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Red
+                        )
+                    } else {
+                        Text(
+                            text = "₱${"%.2f".format(cartItem.price)}",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF0DA54B)
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "${cartItem.weight.toInt()} ${cartItem.unit}",

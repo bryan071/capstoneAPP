@@ -160,7 +160,7 @@ fun GcashScreen(
         val paymentData = hashMapOf(
             "transactionId" to transactionId,
             "referenceId" to referenceId,
-            "status" to "Completed",
+            "status" to "Pending",
             "amount" to totalPrice,
             "seller" to ownerId,
             "timestamp" to Timestamp.now(),

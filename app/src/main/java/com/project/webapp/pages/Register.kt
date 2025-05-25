@@ -287,46 +287,76 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                // Farmer option
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (userType == "Farmer") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
-                                        .padding(8.dp)
-                                        .clickable { userType = "Farmer" }
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
                                 ) {
-                                    RadioButton(
-                                        selected = userType == "Farmer",
-                                        onClick = { userType = "Farmer" },
-                                        colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
-                                    )
-                                    Text("Farmer", fontSize = 14.sp)
+                                    // Farmer option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (userType == "Farmer") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
+                                            .padding(8.dp)
+                                            .clickable { userType = "Farmer" }
+                                    ) {
+                                        RadioButton(
+                                            selected = userType == "Farmer",
+                                            onClick = { userType = "Farmer" },
+                                            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
+                                        )
+                                        Text("Farmer", fontSize = 14.sp)
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Business option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (userType == "Business") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
+                                            .padding(8.dp)
+                                            .clickable { userType = "Business" }
+                                    ) {
+                                        RadioButton(
+                                            selected = userType == "Business",
+                                            onClick = { userType = "Business" },
+                                            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
+                                        )
+                                        Text("Business", fontSize = 14.sp)
+                                    }
                                 }
 
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                                // Market option
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (userType == "Market") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
-                                        .padding(8.dp)
-                                        .clickable { userType = "Market" }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
-                                    RadioButton(
-                                        selected = userType == "Market",
-                                        onClick = { userType = "Market" },
-                                        colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
-                                    )
-                                    Text("Market", fontSize = 14.sp)
+                                    // Household option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (userType == "Household") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
+                                            .padding(8.dp)
+                                            .clickable { userType = "Household" }
+                                    ) {
+                                        RadioButton(
+                                            selected = userType == "Household",
+                                            onClick = { userType = "Household" },
+                                            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
+                                        )
+                                        Text("Household", fontSize = 14.sp)
+                                    }
+
+                                    // Empty space to center the Household option
+                                    Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
                         }

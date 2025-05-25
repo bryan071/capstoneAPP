@@ -47,14 +47,16 @@ fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomI
     val backgroundColor = Color(0xFFF8F9FA)
     val adminColor = Color(0xFFFFB74D)
 
-    // Set chat room when entering
+    // Set chat room when entering and mark as read
     LaunchedEffect(Unit) {
         viewModel.setChatRoomId(chatRoomId)
+        viewModel.markMessagesAsRead()
     }
 
-    // Scroll to bottom when new messages arrive
+    // Mark as read when messages change (user is actively viewing)
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
+            viewModel.markMessagesAsRead()
             delay(100) // Short delay to ensure UI is updated
             coroutineScope.launch {
                 listState.animateScrollToItem(0)
@@ -74,7 +76,7 @@ fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomI
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Chat",
+                                text = if (chatRoomId.startsWith("admin_chat_")) "Admin Support" else "Chat",
                                 fontWeight = FontWeight.Bold
                             )
                             if (isAdmin) {
@@ -305,8 +307,7 @@ fun MessageInputField(
     }
 }
 
-// Function to format timestamp
 fun formatTimestamp(timestamp: Timestamp): String {
     val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-    return sdf.format((timestamp))
+    return sdf.format(timestamp.toDate())
 }

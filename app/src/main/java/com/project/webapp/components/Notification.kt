@@ -638,14 +638,64 @@ fun NotificationDetailsDialog(
     val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
     val paymentMethod = notification["paymentMethod"] as? String
     val deliveryAddress = notification["deliveryAddress"] as? String
-    val organizationName = notification["organizationName"] as? String // Added for donation notifications
+    val organizationName = notification["organizationName"] as? String
+    val transactionId = notification["transactionId"] as? String
+    val notificationId = notification["id"] as? String
+
+    // Get payment status from notification instead of transaction
+    var paymentStatus by remember { mutableStateOf(notification["paymentStatus"] as? String ?: "Payment Pending") }
+    var isUpdatingPayment by remember { mutableStateOf(false) }
 
     Log.d("PaymentDebug", "Retrieved payment method from notification: $paymentMethod")
+    Log.d("PaymentDebug", "Payment status from notification: $paymentStatus")
+    Log.d("PaymentDebug", "Transaction ID: $transactionId")
 
     val formattedTime = timestamp
     var ownerName by remember { mutableStateOf("Loading...") }
     var buyerName by remember { mutableStateOf("Loading...") }
     var isImageLoading by remember { mutableStateOf(true) }
+
+    // Function to update payment status in notification
+    fun confirmPaymentReceived() {
+        if (notificationId.isNullOrEmpty()) {
+            Log.e("PaymentDebug", "No notification ID available")
+            return
+        }
+
+        isUpdatingPayment = true
+
+        // Update both notification and transaction (if exists)
+        val updates = hashMapOf<String, Any>(
+            "paymentStatus" to "Payment Received"
+        )
+
+        firestore.collection("notifications")
+            .document(notificationId)
+            .update(updates)
+            .addOnSuccessListener {
+                paymentStatus = "Payment Received"
+                Log.d("PaymentDebug", "Notification payment status updated successfully")
+
+                // Also update transaction if transactionId exists
+                if (!transactionId.isNullOrEmpty()) {
+                    firestore.collection("transactions")
+                        .document(transactionId)
+                        .update("Payment_received", true)
+                        .addOnSuccessListener {
+                            Log.d("PaymentDebug", "Transaction payment status also updated")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("PaymentDebug", "Error updating transaction payment status", e)
+                        }
+                }
+
+                isUpdatingPayment = false
+            }
+            .addOnFailureListener { e ->
+                isUpdatingPayment = false
+                Log.e("PaymentDebug", "Error updating notification payment status", e)
+            }
+    }
 
     // Determine notification icon and color based on type
     val (dialogIcon, dialogTitle, dialogColor) = when (notificationType) {
@@ -737,7 +787,7 @@ fun NotificationDetailsDialog(
         }
     }
 
-        AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(20.dp),
         containerColor = Color.White,
@@ -914,7 +964,6 @@ fun NotificationDetailsDialog(
                             primaryColor = dialogColor
                         )
 
-
                         val (labelText, nameValue) = when (notificationType) {
                             "product_added" -> "Posted by" to ownerName
                             "product_sold" -> "Seller" to ownerName
@@ -929,25 +978,24 @@ fun NotificationDetailsDialog(
                             primaryColor = dialogColor
                         )
 
-
                         when (notificationType) {
                             "product_sold" -> {
-                            DetailRow(
-                                icon = Icons.Default.ShoppingCart,
-                                label = "Buyer",
-                                value = buyerName,
-                                primaryColor = dialogColor
-                            )
-                        }
-                            "product_donated" -> {
-                            DetailRow(
-                                icon = Icons.Default.Favorite,
-                                label = "Donated to",
-                                value = organizationName ?: "Unknown Organization",
-                                primaryColor = dialogColor
-                            )
-                        }
+                                DetailRow(
+                                    icon = Icons.Default.ShoppingCart,
+                                    label = "Buyer",
+                                    value = buyerName,
+                                    primaryColor = dialogColor
+                                )
                             }
+                            "product_donated" -> {
+                                DetailRow(
+                                    icon = Icons.Default.Favorite,
+                                    label = "Donated to",
+                                    value = organizationName ?: "Unknown Organization",
+                                    primaryColor = dialogColor
+                                )
+                            }
+                        }
 
                         if (notificationType == "product_sold" || notificationType == "product_donated") {
                             if (notificationType == "product_sold") {
@@ -957,6 +1005,49 @@ fun NotificationDetailsDialog(
                                     value = paymentMethod ?: "Not specified",
                                     primaryColor = dialogColor
                                 )
+
+                                // Payment status row - now using paymentStatus from notification
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CreditCard,
+                                        contentDescription = "Payment Status",
+                                        tint = if (paymentStatus == "Payment Received") Color(0xFF4CAF50) else Color.Gray,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Text(
+                                        text = "Status:",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color.DarkGray,
+                                        modifier = Modifier.width(80.dp)
+                                    )
+
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (paymentStatus == "Payment Received")
+                                                Color(0xFF4CAF50).copy(alpha = 0.1f)
+                                            else
+                                                Color.Red.copy(alpha = 0.1f)
+                                        ),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = paymentStatus,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (paymentStatus == "Payment Received") Color(0xFF4CAF50) else Color.Red,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
 
                                 if (paymentMethod?.equals("GCash", ignoreCase = true) == true) {
                                     DetailRow(
@@ -982,7 +1073,7 @@ fun NotificationDetailsDialog(
                         DetailRow(
                             icon = Icons.Default.Schedule,
                             label = if (notificationType == "product_added") "Posted on" else "Date",
-                            value = Timestamp.now().toDate().toString(),
+                            value = timestamp?.toDate()?.toString() ?: "Unknown",
                             primaryColor = dialogColor
                         )
 
@@ -1018,18 +1109,63 @@ fun NotificationDetailsDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = dialogColor),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 12.dp)
-            ) {
-                Text(
-                    "Close",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+            Column {
+                // Show Confirm Payment button only for sale details and if payment not yet confirmed
+                if (notificationType == "product_sold" && paymentStatus != "Payment Received" && userId == currentUserId) {
+                    Button(
+                        onClick = { confirmPaymentReceived() },
+                        enabled = !isUpdatingPayment,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF4CAF50),
+                            disabledContainerColor = Color.Gray
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp)
+                    ) {
+                        if (isUpdatingPayment) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Confirming...",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.CreditCard,
+                                contentDescription = "Confirm Payment",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Confirm Payment Received",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = dialogColor),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Text(
+                        "Close",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     )
@@ -1166,6 +1302,7 @@ fun EmptyNotificationScreen() {
         }
     }
 }
+
 // Function to create sale notification in Firestore
 fun createSaleNotification(
     firestore: FirebaseFirestore,
@@ -1189,7 +1326,8 @@ fun createSaleNotification(
         "userId" to product.ownerId,
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
-        "transactionType" to "sale"
+        "transactionType" to "sale",
+        "paymentStatus" to "Payment Pending"
     )
 
     notificationData["paymentMethod"] = paymentMethod ?: "Not specified"

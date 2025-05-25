@@ -50,8 +50,8 @@ fun TopBar(navController: NavController, cartViewModel: CartViewModel, userType:
             modifier = Modifier.size(150.dp)
         )
 
-        // Show cart icon only if userType is "market"
-        if (userType == "market") {
+        // Show cart icon for "business" and "household" users
+        if (userType == "business" || userType == "household") {
             Row(modifier = Modifier, horizontalArrangement = Arrangement.End) {
                 Box(modifier = Modifier.wrapContentSize()) {
                     IconButton(onClick = { navController.navigate("cart") }) {

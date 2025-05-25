@@ -173,7 +173,7 @@ fun FarmerMarketScreen(
                     .fillMaxSize()
                     .padding(16.dp)
             ) {
-                TopBar(navController, cartViewModel, userType = userType ?: "market")
+                TopBar(navController, cartViewModel, userType = userType ?: "business")
 
                 // Enhanced header section
                 Row(

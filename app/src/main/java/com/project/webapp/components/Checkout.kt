@@ -22,11 +22,13 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +67,7 @@ import com.project.webapp.components.payment.PriceLine
 import com.project.webapp.components.payment.ReceiptScreen
 import com.project.webapp.components.payment.SectionTitle
 import com.project.webapp.datas.CartItem
+import kotlinx.coroutines.launch
 import java.net.URLDecoder
 import java.util.UUID
 import kotlin.collections.contains
@@ -77,11 +82,16 @@ fun CheckoutScreen(
     userType: String,
     paymentMethod: String = "COD",
     referenceId: String = "",
-    itemsJson: String? = null // JSON string from navigation
+    itemsJson: String? = null
 ) {
     var showReceipt by remember { mutableStateOf(false) }
     val sellerNames = remember { mutableStateMapOf<String, String>() }
     val currentUser by cartViewModel.currentUser.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+
+    var shippingFeePaid by remember { mutableStateOf(false) }
+    var showShippingFeeDialog by remember { mutableStateOf(false) }
+    var isPayingShippingFee by remember { mutableStateOf(false) } // for loading simulation
 
     // Parse cartItems from JSON
     val cartItems: List<CartItem>? = remember(itemsJson) {
@@ -98,9 +108,15 @@ fun CheckoutScreen(
 
     // Debug log for tracking data flow
     LaunchedEffect(key1 = Unit) {
-        Log.d("CheckoutScreen", "Initial params - paymentMethod: $paymentMethod, referenceId: $referenceId")
+        Log.d(
+            "CheckoutScreen",
+            "Initial params - paymentMethod: $paymentMethod, referenceId: $referenceId"
+        )
         Log.d("CheckoutScreen", "Direct cartItems size: ${cartItems?.size ?: 0}")
-        Log.d("CheckoutScreen", "ViewModel purchasedItems size: ${cartViewModel.purchasedItems.value.size}")
+        Log.d(
+            "CheckoutScreen",
+            "ViewModel purchasedItems size: ${cartViewModel.purchasedItems.value.size}"
+        )
         Log.d("CheckoutScreen", "ViewModel cartItems size: ${cartViewModel.cartItems.value.size}")
     }
 
@@ -399,9 +415,13 @@ fun CheckoutScreen(
                     // Confirmation Button
                     Button(
                         onClick = {
-                            cartViewModel.completePurchase(userType, paymentMethod, referenceId)
-                            cartViewModel.clearPurchasedItems() // Clear purchased items after confirmation
-                            showReceipt = true
+                            if (paymentMethod == "COD" && !shippingFeePaid) {
+                                showShippingFeeDialog = true
+                            } else {
+                                cartViewModel.completePurchase(userType, paymentMethod, referenceId)
+                                cartViewModel.clearPurchasedItems()
+                                showReceipt = true
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -427,8 +447,57 @@ fun CheckoutScreen(
                             )
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                if (showShippingFeeDialog) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            if (!isPayingShippingFee) showShippingFeeDialog = false
+                        },
+                        title = { Text(text = "Pay Shipping Fee") },
+                        text = {
+                            if (isPayingShippingFee) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    CircularProgressIndicator()
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Text("Processing payment...")
+                                }
+                            } else {
+                                Text("You need to pay the shipping fee of ₱50.00 before confirming your order.")
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    isPayingShippingFee = true
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(2000) // simulate delay
+                                        shippingFeePaid = true
+                                        isPayingShippingFee = false
+                                        showShippingFeeDialog = false
+                                    }
+                                },
+                                enabled = !isPayingShippingFee,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B))
+                            ) {
+                                Text("Pay ₱50.00")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    if (!isPayingShippingFee) showShippingFeeDialog = false
+                                },
+                                enabled = !isPayingShippingFee
+                            ) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
                 }
             }
         }
