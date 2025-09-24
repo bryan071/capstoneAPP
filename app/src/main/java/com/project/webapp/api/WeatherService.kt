@@ -46,7 +46,7 @@ fun WeatherSection(context: Context) {
     val fusedLocationProviderClient =
         remember { LocationServices.getFusedLocationProviderClient(context) }
     val scope = rememberCoroutineScope()
-    val apiKey = "5b7853c5cd0b459f87a63035253003"
+    val apiKey = "a40a45c906a747b5a57123318251808"
 
     var cityName by remember { mutableStateOf("Fetching location...") }
     var temperature by remember { mutableStateOf("Fetching...") }
