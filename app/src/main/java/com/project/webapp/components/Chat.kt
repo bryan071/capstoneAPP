@@ -1,5 +1,6 @@
 package com.project.webapp.components
 
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -37,7 +38,13 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomId: String, isAdmin: Boolean) {
+fun ChatScreen(
+    navController: NavController,
+    viewModel: ChatViewModel,
+    chatRoomId: String,
+    isAdmin: Boolean = false,
+    notificationId: String? = null
+) {
     val messages by viewModel.messages.collectAsState(initial = emptyList())
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -47,17 +54,37 @@ fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomI
     val backgroundColor = Color(0xFFF8F9FA)
     val adminColor = Color(0xFFFFB74D)
 
-    // Set chat room when entering and mark as read
+    // Dynamic title based on chat type
+    var chatTitle by remember { mutableStateOf("Chat") }
+
+    // Get the other participant's ID for transaction chats
+    var otherParticipantId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(chatRoomId) {
+        viewModel.getChatRoomTitle(chatRoomId) { title ->
+            chatTitle = title
+        }
+
+        // Get other participant ID from chat room
+        if (!chatRoomId.startsWith("admin_chat_")) {
+            viewModel.getOtherParticipantId(chatRoomId) { participantId ->
+                otherParticipantId = participantId
+                Log.d("ChatScreen", "Other participant ID: $participantId")
+            }
+        }
+    }
+
+    // Set chat room and mark as read
     LaunchedEffect(Unit) {
         viewModel.setChatRoomId(chatRoomId)
         viewModel.markMessagesAsRead()
     }
 
-    // Mark as read when messages change (user is actively viewing)
+    // Auto-scroll to bottom
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             viewModel.markMessagesAsRead()
-            delay(100) // Short delay to ensure UI is updated
+            delay(100)
             coroutineScope.launch {
                 listState.animateScrollToItem(0)
             }
@@ -66,17 +93,12 @@ fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomI
 
     Scaffold(
         topBar = {
-            Surface(
-                shadowElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surface
-            ) {
+            Surface(shadowElevation = 4.dp, color = MaterialTheme.colorScheme.surface) {
                 CenterAlignedTopAppBar(
                     title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = if (chatRoomId.startsWith("admin_chat_")) "Admin Support" else "Chat",
+                                text = chatTitle,
                                 fontWeight = FontWeight.Bold
                             )
                             if (isAdmin) {
@@ -101,11 +123,6 @@ fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomI
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
                         }
-                    },
-                    actions = {
-                        IconButton(onClick = { /* Show chat info */ }) {
-                            Icon(Icons.Outlined.Info, contentDescription = "Chat Information")
-                        }
                     }
                 )
             }
@@ -122,28 +139,35 @@ fun ChatScreen(navController: NavController, viewModel: ChatViewModel, chatRoomI
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = 80.dp),
-                    reverseLayout = true, // Messages appear from bottom to top
+                    reverseLayout = true,
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
                     items(messages.reversed(), key = { it.timestamp }) { msg ->
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn(tween(300)) + slideInVertically(
-                                initialOffsetY = { it / 2 },
-                                animationSpec = tween(300)
-                            )
-                        ) {
-                            ChatBubble(msg, primaryColor, adminColor)
-                        }
+                        ChatBubble(msg, primaryColor, adminColor)
                     }
                 }
 
+                // Message input with proper receiver ID
                 MessageInputField(
                     messageText = messageText,
                     onMessageChange = { messageText = it },
                     onSendClick = {
                         if (messageText.isNotBlank()) {
-                            viewModel.sendMessage(messageText, isAdmin)
+                            Log.d("ChatScreen", "Send clicked. ChatRoomId: $chatRoomId")
+                            if (chatRoomId.startsWith("admin_chat_")) {
+                                Log.d("ChatScreen", "Sending admin message")
+                                // Admin chat - use the admin flag method
+                                viewModel.sendMessage(messageText, false)
+                            } else {
+                                // Transaction chat - send to the other participant
+                                val receiverId = otherParticipantId ?: ""
+                                Log.d("ChatScreen", "Sending to participant: $receiverId")
+                                if (receiverId.isNotEmpty()) {
+                                    viewModel.sendMessageToParticipant(messageText, receiverId)
+                                } else {
+                                    Log.e("ChatScreen", "Receiver ID is empty!")
+                                }
+                            }
                             messageText = ""
                         }
                     },

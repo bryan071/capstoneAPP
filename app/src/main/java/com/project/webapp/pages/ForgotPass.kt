@@ -1,5 +1,6 @@
 package com.project.webapp.pages
 
+import CartViewModel
 import android.app.Activity
 import android.content.Context
 import android.util.Base64
@@ -440,7 +441,7 @@ fun PhoneStep(
                 }
             },
             label = { Text("Phone Number") },
-            placeholder = { Text("+639123456789") },
+            placeholder = { Text("") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Phone,
@@ -925,31 +926,22 @@ fun verifyOTP(
         onError("Verification ID is missing. Please request a new OTP.")
         return
     }
-    if (otp.length != 6 || !otp.all { it.isDigit() }) {
-        onError("Please enter a valid 6-digit OTP.")
-        return
-    }
 
-    try {
-        val credential = PhoneAuthProvider.getCredential(verificationId, otp)
-        auth.signInWithCredential(credential).addOnCompleteListener { task ->
+    val credential = PhoneAuthProvider.getCredential(verificationId, otp)
+
+    // We sign in temporarily to verify the OTP
+    auth.signInWithCredential(credential)
+        .addOnCompleteListener { task ->
             if (task.isSuccessful) {
-                Log.d("ForgotPass", "OTP Verified Successfully")
+                Log.d("ForgotPass", "OTP verification successful")
                 onSuccess()
             } else {
-                Log.e("ForgotPass", "OTP Verification Failed: ${task.exception?.message}")
-                when (task.exception) {
-                    is FirebaseAuthInvalidCredentialsException -> onError("Invalid verification code. Please try again.")
-                    is FirebaseAuthException -> onError("Authentication error: ${task.exception?.message}")
-                    else -> onError("Verification failed: ${task.exception?.message ?: "Unknown error"}")
-                }
+                Log.e("ForgotPass", "OTP verification failed", task.exception)
+                onError("Invalid OTP. Please try again.")
             }
         }
-    } catch (e: Exception) {
-        Log.e("ForgotPass", "OTP Verification Error: ${e.message}")
-        onError("Error verifying code: ${e.message}")
-    }
 }
+
 
 fun resetPassword(
     auth: FirebaseAuth,
@@ -958,58 +950,21 @@ fun resetPassword(
     onComplete: () -> Unit,
     onError: (String) -> Unit
 ) {
-    if (!validatePassword(newPassword)) {
-        onError("Password does not meet requirements")
-        return
-    }
-
     val user = auth.currentUser
-    if (user == null) {
-        onError("No authenticated user found. Please try again from the beginning.")
-        return
-    }
-
-    user.updatePassword(newPassword)
-        .addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                Log.d("ForgotPass", "Password Reset Successful")
-
-                // Update password in Firestore if needed
-                user.uid.let { userId ->
-                    // Optional: Update password reset timestamp in Firestore
-                    val updates = hashMapOf<String, Any>(
-                        "passwordLastUpdated" to System.currentTimeMillis()
-                    )
-
-                    FirebaseFirestore.getInstance()
-                        .collection("users")
-                        .document(userId)
-                        .update(updates)
-                        .addOnSuccessListener {
-                            Log.d("ForgotPass", "User document updated")
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e("ForgotPass", "Error updating user document: ${e.message}")
-                            // We don't fail the overall operation for this
-                        }
-                }
-
-                onComplete()
-            } else {
-                Log.e("ForgotPass", "Password Reset Failed: ${task.exception?.message}")
-                when (val exception = task.exception) {
-                    is FirebaseAuthRecentLoginRequiredException -> {
-                        onError("Session expired. Please restart the password reset process.")
-                    }
-                    is FirebaseAuthWeakPasswordException -> {
-                        onError("Password is too weak. Please choose a stronger password.")
-                    }
-                    else -> {
-                        onError("Failed to reset password: ${exception?.message ?: "Unknown error"}")
-                    }
+    if (user != null) {
+        user.updatePassword(newPassword)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    Log.d("ForgotPass", "Password updated successfully")
+                    onComplete()
+                } else {
+                    Log.e("ForgotPass", "Password update failed", task.exception)
+                    onError("Failed to reset password. Please try again.")
                 }
             }
-        }
+    } else {
+        onError("No user signed in. Please verify again.")
+    }
 }
 
 fun checkPhoneNumberExists(
@@ -1020,66 +975,50 @@ fun checkPhoneNumberExists(
     onSuccess: (String, PhoneAuthProvider.ForceResendingToken?) -> Unit,
     onError: (String) -> Unit
 ) {
-    if (!isValidPhoneNumber(phoneNumber)) {
-        onError("Invalid phone number format. Please use +63XXXXXXXXXX")
-        return
-    }
+    val firestore = FirebaseFirestore.getInstance()
 
-    val db = FirebaseFirestore.getInstance()
-    val formattedPhone = phoneNumber.trim()
-
-    Log.d("FirestoreCheck", "Checking phone number: $formattedPhone")
-
-    db.collection("users")
-        .whereEqualTo("phoneNumber", formattedPhone)
+    firestore.collection("users")
+        .whereEqualTo("phoneNumber", phoneNumber)
         .get()
-        .addOnSuccessListener { documents ->
-            if (!documents.isEmpty) {
-                Log.d("FirestoreCheck", "Phone number found in Firestore!")
+        .addOnSuccessListener { result ->
+            if (!result.isEmpty) {
+                // Phone number exists, send verification code
                 sendVerificationCode(
-                    phoneNumber = formattedPhone,
+                    phoneNumber = phoneNumber,
                     auth = auth,
                     activity = activity,
-                    onCodeSent = onSuccess,
-                    onError = onError
+                    onCodeSent = { verificationId, token ->
+                        onSuccess(verificationId, token)
+                    },
+                    onError = { error ->
+                        onError(error)
+                    }
                 )
             } else {
-                Log.e("FirestoreCheck", "Phone number NOT found in Firestore.")
-                onError("This phone number is not linked to any account.")
+                onError("This phone number is not registered.")
             }
         }
-        .addOnFailureListener {
-            Log.e("FirestoreCheck", "Firestore query failed: ${it.message}")
-            onError("Failed to check phone number: ${it.message}")
+        .addOnFailureListener { e ->
+            Log.e("ForgotPass", "Failed to check phone number", e)
+            onError("Something went wrong. Please try again.")
         }
 }
 
 // Helper functions
 
 fun isValidPhoneNumber(phoneNumber: String): Boolean {
-    // Philippine phone number format: +639XXXXXXXXX
-    val phonePattern = Pattern.compile("^\\+63\\d{10}$")
-    return phonePattern.matcher(phoneNumber).matches()
+    val regex = Regex("^\\+639\\d{9}$")
+    return regex.matches(phoneNumber)
 }
 
 fun validatePassword(password: String): Boolean {
-    // At least 8 characters
-    // Contains at least one letter and one digit
     return password.length >= 8 && hasLetterAndDigit(password)
 }
 
 fun hasLetterAndDigit(password: String): Boolean {
-    var hasLetter = false
-    var hasDigit = false
-
-    for (char in password) {
-        if (char.isLetter()) hasLetter = true
-        if (char.isDigit()) hasDigit = true
-
-        if (hasLetter && hasDigit) return true
-    }
-
-    return false
+    val letterPattern = Pattern.compile("[A-Za-z]")
+    val digitPattern = Pattern.compile("[0-9]")
+    return letterPattern.matcher(password).find() && digitPattern.matcher(password).find()
 }
 
 @Composable

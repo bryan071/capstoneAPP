@@ -1,6 +1,7 @@
 package com.project.webapp
 
 
+import CartViewModel
 import FarmerEditProfileScreen
 import SplashScreen
 import android.annotation.SuppressLint
@@ -60,6 +61,9 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
     val navController = rememberNavController()
     val authState = authViewModel.authState.observeAsState().value
 
+    // CREATE chatViewModel HERE so it's accessible to all composables
+    val chatViewModel: ChatViewModel = viewModel()
+
     // State to control visibility of the bottom navigation
     val isBottomNavVisible = remember { mutableStateOf(true) }
 
@@ -83,7 +87,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
     ) { paddingValues ->
         NavHost(
             navController = navController,
-            startDestination = Route.LOGIN, // Updated reference
+            startDestination = Route.LOGIN,
             modifier = Modifier.padding(paddingValues)
         ) {
             composable(Route.SPLASH) {
@@ -96,11 +100,10 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 Register(modifier, navController, authViewModel)
             }
             composable(Route.FORGOT_PASSWORD) {
-                val activity = LocalContext.current as Activity // Get the current activity
+                val activity = LocalContext.current as Activity
                 ForgotPass(modifier, navController, authViewModel, activity, cartViewModel)
             }
             composable(Route.FARMER_DASHBOARD) {
-                val chatViewModel: ChatViewModel = viewModel()
                 FarmerDashboard(modifier, navController, authViewModel, cartViewModel, chatViewModel)
             }
             composable(Route.PROFILE) {
@@ -111,10 +114,12 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             }
             composable(Route.NOTIFICATION) {
                 FarmerNotificationScreen(
-                    modifier,
-                    navController,
-                    authViewModel,
-                    firestore = FirebaseFirestore.getInstance(),cartViewModel
+                    modifier = modifier,
+                    navController = navController,
+                    authViewModel = authViewModel,
+                    firestore = FirebaseFirestore.getInstance(),
+                    cartViewModel = cartViewModel,
+                    chatViewModel = chatViewModel // NOW IT'S AVAILABLE!
                 )
             }
             composable(Route.EDIT_PROFILE) {
@@ -122,8 +127,6 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
             }
 
             composable(Route.ORDERS) {
-
-
                 OrdersScreen(
                     navController = navController
                 )
@@ -131,8 +134,6 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
 
             composable("productDetails/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId") ?: ""
-
-                // You can get ViewModels either this way or via hiltViewModel() if using Hilt
                 val cartViewModel: CartViewModel = viewModel()
                 val authViewModel: AuthViewModel = viewModel()
 
@@ -144,7 +145,6 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     cartViewModel = cartViewModel
                 )
             }
-
 
             composable(
                 route = "checkoutScreen/{userType}/{totalPrice}?paymentMethod={paymentMethod}&referenceId={referenceId}&items={items}",
@@ -164,12 +164,14 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     itemsJson = backStackEntry.arguments?.getString("items")
                 )
             }
+
             composable("editProduct/{productId}") { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
                 EditProductScreen(navController, productId, FirebaseFirestore.getInstance())
             }
 
-            composable("cart") { CartScreen(cartViewModel, navController)
+            composable("cart") {
+                CartScreen(cartViewModel, navController)
             }
 
             composable("paymentScreen/{productId}/{totalPrice}") { backStackEntry ->
@@ -183,6 +185,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     directBuyPrice = totalPrice
                 )
             }
+
             composable(
                 route = "donationScreen/{productId}/{price}",
                 arguments = listOf(
@@ -200,6 +203,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     directBuyPrice = price
                 )
             }
+
             composable(
                 route = "receiptScreen/{orderNumber}",
                 arguments = listOf(
@@ -229,6 +233,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     }
                     return@composable
                 }
+
                 ReceiptScreen(
                     navController = navController,
                     cartViewModel = cartViewModel,
@@ -262,6 +267,7 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                     }
                 }
             }
+
             composable(
                 route = "gcashScreen/{totalPrice}/{ownerId}",
                 arguments = listOf(
@@ -288,17 +294,13 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 val chatRoomId = backStackEntry.arguments?.getString("chatRoomId") ?: ""
                 val isAdmin = backStackEntry.arguments?.getBoolean("isAdmin") ?: false
 
-                val chatViewModel: ChatViewModel = viewModel()
-
                 ChatScreen(
                     navController = navController,
-                    viewModel = chatViewModel,
+                    viewModel = chatViewModel, // USE THE SHARED chatViewModel
                     chatRoomId = chatRoomId,
                     isAdmin = isAdmin
                 )
             }
-
-
 
             composable("recent_activity_screen") {
                 val state = authViewModel.authState.observeAsState().value
@@ -309,11 +311,9 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                         userId = state.userId
                     )
                 } else {
-                    // Show fallback or error
                     Text("User not authenticated")
                 }
             }
-
         }
     }
 }

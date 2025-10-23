@@ -1,5 +1,6 @@
 package com.project.webapp.components
 
+import CartViewModel
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

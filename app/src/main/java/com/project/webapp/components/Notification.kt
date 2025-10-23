@@ -1,5 +1,6 @@
 package com.project.webapp.components
 
+import CartViewModel
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -98,8 +99,9 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.google.firebase.Timestamp
 import com.project.webapp.datas.Product
-import java.text.SimpleDateFormat
-import java.util.Locale
+import androidx.compose.material.icons.filled.Chat
+import com.project.webapp.Viewmodel.ChatViewModel
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,6 +111,7 @@ fun FarmerNotificationScreen(
     authViewModel: AuthViewModel,
     firestore: FirebaseFirestore,
     cartViewModel: CartViewModel,
+    chatViewModel: ChatViewModel
 
 ) {
     val notifications = remember { mutableStateListOf<Map<String, Any>>() }
@@ -163,7 +166,6 @@ fun FarmerNotificationScreen(
                 }
         }
     }
-
     Scaffold(
         topBar = {
             SmallTopAppBar(
@@ -219,10 +221,40 @@ fun FarmerNotificationScreen(
                             notification = notification,
                             firestore = firestore,
                             primaryColor = primaryColor,
-                            onClick = {selectedNotification = notification},
+                            onClick = { selectedNotification = notification },
                             onDelete = { id ->
                                 notifications.removeAll { it["id"] == id }
-                            }
+                            },
+                            onChatClick = { notification ->
+                                val notificationType = notification["type"] as? String
+                                val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+
+                                // Determine the other party's ID based on notification type
+                                val otherUserId = when (notificationType) {
+                                    "product_sold", "product_donated" -> notification["buyerId"] as? String
+                                    "purchase_confirmed", "donation_made" -> notification["sellerId"] as? String
+                                    else -> null
+                                }
+
+                                val transactionId = notification["transactionId"] as? String ?: ""
+
+                                if (otherUserId != null && transactionId.isNotEmpty()) {
+                                    Log.d("ChatDebug", "Creating chat - Current: $currentUserId, Other: $otherUserId, Transaction: $transactionId")
+
+                                    // FIXED: Create the chat room FIRST, then navigate
+                                    chatViewModel.createOrGetTransactionChatRoom(
+                                        user1Id = currentUserId,
+                                        user2Id = otherUserId,
+                                        notificationId = transactionId
+                                    ) { chatRoomId ->
+                                        Log.d("ChatDebug", "Chat room created: $chatRoomId")
+                                        navController.navigate("chat/$chatRoomId/false")
+                                    }
+                                } else {
+                                    Log.e("ChatDebug", "Missing otherUserId or transactionId: other=$otherUserId, tx=$transactionId")
+                                }
+                            },
+                            chatViewModel = chatViewModel
                         )
                     }
                 }
@@ -303,88 +335,65 @@ fun NotificationItem(
     firestore: FirebaseFirestore,
     onClick: () -> Unit,
     onDelete: (String) -> Unit,
-    primaryColor: Color
+    onChatClick: (Map<String, Any>) -> Unit,
+    primaryColor: Color,
+    chatViewModel: ChatViewModel // ADD THIS PARAMETER
 ) {
+    // ... (keep all your existing code)
+
     val notificationType = notification["type"] as? String ?: "product_added"
-    val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
     val imageUrl = notification["imageUrl"] as? String ?: ""
-    val category = notification["category"] as? String ?: "Unknown"
     val name = notification["name"] as? String ?: "Unnamed"
     val price = (notification["price"] as? Number)?.toDouble() ?: 0.0
     val quantity = (notification["quantity"] as? Number)?.toInt() ?: 0
     val quantityUnit = notification["quantityUnit"] as? String ?: "Unknown"
-    val timestamp = notification["timestamp"] as? Timestamp ?: null
-    val userId = notification["userId"] as? String
-    val buyerId = notification["buyerId"] as? String
     val notificationId = notification["id"] as? String
-    val transactionType = notification["transactionType"] as? String ?: notificationType
     val organizationName = notification["organizationName"] as? String
+    val buyerId = notification["buyerId"] as? String
+    val sellerId = notification["sellerId"] as? String
 
-    var ownerName by remember { mutableStateOf("Loading...") }
-    var buyerName by remember { mutableStateOf("") }
+    var otherPartyName by remember { mutableStateOf("Loading...") }
     var isPressed by remember { mutableStateOf(false) }
 
     // Determine notification icon and color based on type
     val (notificationIcon, notificationIconTint) = when (notificationType) {
-        "product_sold" -> Icons.Default.ShoppingCart to Color(0xFF0DA54B) // Blue for sales
+        "product_sold" -> Icons.Default.ShoppingCart to Color(0xFF0DA54B)
         "product_donated" -> Icons.Default.Favorite to Color(0xFFE91E63)
-        "product_added"-> Icons.Default.Notifications to Color(0xFFE91E63)// Pink for donations
-        else -> Icons.Default.Notifications to primaryColor // Default green for new products
+        "purchase_confirmed" -> Icons.Default.ShoppingCart to Color(0xFF2196F3)
+        "donation_made" -> Icons.Default.Favorite to Color(0xFFFF9800)
+        "product_added" -> Icons.Default.Notifications to Color(0xFFE91E63)
+        else -> Icons.Default.Notifications to primaryColor
     }
 
-    // Fetch owner name
-    LaunchedEffect(userId) {
-        userId?.let { id ->
-            firestore.collection("users").document(id)
-                .get()
-                .addOnSuccessListener { document ->
-                    if (document.exists()) {
-                        val firstName = document.getString("firstname") ?: ""
-                        val lastName = document.getString("lastname") ?: ""
-
-                        ownerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
-                            "$firstName $lastName".trim()
-                        } else {
-                            document.getString("email") ?: "Unknown"
-                        }
-                    } else {
-                        ownerName = "Unknown"
-                    }
-                }
-                .addOnFailureListener {
-                    ownerName = "Unknown"
-                    Log.e("Firestore", "Error fetching owner name for userId: $id")
-                }
-        } ?: run {
-            ownerName = "Unknown"
+    // Fetch the OTHER party's name
+    LaunchedEffect(buyerId, sellerId, notificationType) {
+        val otherPartyId = when (notificationType) {
+            "product_sold", "product_donated" -> buyerId
+            "purchase_confirmed", "donation_made" -> sellerId
+            else -> null
         }
-    }
 
-    // Fetch buyer name if applicable (for sales only)
-    LaunchedEffect(buyerId, notificationType) {
-        if (notificationType == "product_sold" && buyerId != null) {
-            firestore.collection("users").document(buyerId)
+        if (notificationType == "donation_made" || notificationType == "product_donated") {
+            otherPartyName = organizationName ?: "Unknown Organization"
+        } else if (otherPartyId != null) {
+            firestore.collection("users").document(otherPartyId)
                 .get()
                 .addOnSuccessListener { document ->
                     if (document.exists()) {
                         val firstName = document.getString("firstname") ?: ""
                         val lastName = document.getString("lastname") ?: ""
-
-                        buyerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
+                        otherPartyName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
                             "$firstName $lastName".trim()
                         } else {
                             document.getString("email") ?: "Unknown"
                         }
                     } else {
-                        buyerName = "Unknown"
+                        otherPartyName = "Unknown"
                     }
                 }
                 .addOnFailureListener {
-                    buyerName = "Unknown"
-                    Log.e("Firestore", "Error fetching buyer name for buyerId: $buyerId")
+                    otherPartyName = "Unknown"
                 }
-        } else if (notificationType == "product_donated") {
-            buyerName = organizationName ?: "Unknown Organization" // Use organizationName for donations
         }
     }
 
@@ -417,6 +426,7 @@ fun NotificationItem(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(16.dp)
         ) {
+            // Product Image or Icon
             if (imageUrl.isNotEmpty()) {
                 Box(
                     modifier = Modifier
@@ -453,6 +463,7 @@ fun NotificationItem(
 
             Spacer(modifier = Modifier.width(16.dp))
 
+            // Main Content Column
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -468,29 +479,20 @@ fun NotificationItem(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                // Display different message content based on notification type
-                when (notificationType) {
-                    "product_sold" -> {
-                        Text(
-                            text = if (buyerName.isNotEmpty()) "Sold to $buyerName" else "Your product was sold!",
-                            fontSize = 14.sp,
-                            color = Color.DarkGray,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 20.sp
-                        )
-                    }
-                    "product_donated" -> {
-                        Text(
-                            text = if (buyerName.isNotEmpty()) "Donated to $buyerName" else "You donated $name!",
-                            fontSize = 14.sp,
-                            color = Color.DarkGray,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 20.sp
-                        )
-                    }
-                }
+                Text(
+                    text = when (notificationType) {
+                        "product_sold" -> "Sold to $otherPartyName"
+                        "product_donated" -> "Donated to $otherPartyName"
+                        "purchase_confirmed" -> "Purchased from $otherPartyName"
+                        "donation_made" -> "Donated to $otherPartyName"
+                        else -> "New notification"
+                    },
+                    fontSize = 14.sp,
+                    color = Color.DarkGray,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 20.sp
+                )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -509,13 +511,11 @@ fun NotificationItem(
                         fontWeight = FontWeight.Bold,
                         color = notificationIconTint
                     )
-
                     Text(
                         text = " • ",
                         fontSize = 15.sp,
                         color = Color.Gray
                     )
-
                     Text(
                         text = "$quantity $quantityUnit",
                         fontSize = 14.sp,
@@ -529,45 +529,26 @@ fun NotificationItem(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    when (notificationType) {
-                        "product_sold", "product_donated" -> {
-                            Icon(
-                                imageVector = if (notificationType == "product_sold")
-                                    Icons.Default.ShoppingCart else Icons.Default.Favorite,
-                                contentDescription = if (notificationType == "product_sold") "Sale" else "Donation",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (notificationType == "product_sold") "Sold" else "Donated",
-                                fontSize = 13.sp,
-                                color = notificationIconTint,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "User",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = ownerName,
-                                fontSize = 13.sp,
-                                color = Color.DarkGray,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
+                    Icon(
+                        imageVector = notificationIcon,
+                        contentDescription = "Status",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = when (notificationType) {
+                            "product_sold" -> "Sold"
+                            "product_donated" -> "Donated"
+                            "purchase_confirmed" -> "Purchased"
+                            "donation_made" -> "Donated"
+                            else -> "Notification"
+                        },
+                        fontSize = 13.sp,
+                        color = notificationIconTint,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -579,28 +560,66 @@ fun NotificationItem(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = Timestamp.now().toDate().toString(),
+                        text = "Just now",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
                 }
             }
 
-            if (!notificationId.isNullOrEmpty()) {
+            val transactionId = notification["transactionId"] as? String ?: ""
+            val hasValidTransaction = transactionId.isNotEmpty()
+
+            // Action Buttons Column
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Chat Button
                 IconButton(
                     onClick = {
-                        Log.d("DeleteNotification", "Trying to delete ID: $notificationId")
-                        deleteNotification(firestore, notificationId!!) {
-                            onDelete(notificationId)
+                        if (hasValidTransaction) {
+                            onChatClick(notification)
+                        } else {
+                            Log.w("ChatDebug", "Cannot chat - missing transactionId")
                         }
-                    }
+                    },
+                    enabled = hasValidTransaction,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(
+                            color = if (hasValidTransaction)
+                                primaryColor.copy(alpha = 0.1f)
+                            else
+                                Color.Gray.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = Color.Red.copy(alpha = 0.7f),
-                        modifier = Modifier.size(22.dp)
+                        imageVector = Icons.Default.Chat,
+                        contentDescription = "Chat",
+                        tint = if (hasValidTransaction) primaryColor else Color.Gray,
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+
+                // Delete Button
+                if (!notificationId.isNullOrEmpty()) {
+                    IconButton(
+                        onClick = {
+                            deleteNotification(firestore, notificationId) {
+                                onDelete(notificationId)
+                            }
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = Color.Red.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1312,7 +1331,7 @@ fun createSaleNotification(
     deliveryAddress: String? = null,
     transactionId: String? = null
 ) {
-    val notificationData = hashMapOf(
+    val sellerNotification = hashMapOf(
         "type" to "product_sold",
         "productId" to product.prodId,
         "name" to product.name,
@@ -1323,25 +1342,58 @@ fun createSaleNotification(
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to product.ownerId,
+        "userId" to product.ownerId, // Seller receives this notification
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
         "transactionType" to "sale",
-        "paymentStatus" to "Payment Pending"
+        "paymentStatus" to "Payment Pending",
+        "paymentMethod" to (paymentMethod ?: "Not specified")
     )
 
-    notificationData["paymentMethod"] = paymentMethod ?: "Not specified"
-    deliveryAddress?.let { notificationData["deliveryAddress"] = it }
-    transactionId?.let { notificationData["transactionId"] = it }
+    deliveryAddress?.let { sellerNotification["deliveryAddress"] = it }
+    transactionId?.let { sellerNotification["transactionId"] = it }
 
+    // Save seller notification
     firestore.collection("notifications")
-        .add(notificationData)
+        .add(sellerNotification)
         .addOnSuccessListener {
-            Log.d("Firestore", "Sale notification created with ID: ${it.id}")
-            Log.d("PaymentDebug", "Notification saved with payment: ${notificationData["paymentMethod"]} and transactionId: ${notificationData["transactionId"]}")
+            Log.d("Firestore", "Seller notification created with ID: ${it.id}")
         }
         .addOnFailureListener { e ->
-            Log.e("Firestore", "Error creating sale notification", e)
+            Log.e("Firestore", "Error creating seller notification", e)
+        }
+
+    // 2. NEW: Create purchase notification for BUYER (Customer)
+    val buyerNotification = hashMapOf(
+        "type" to "purchase_confirmed", // Different type for buyer
+        "productId" to product.prodId,
+        "name" to product.name,
+        "price" to product.price,
+        "quantity" to product.quantity,
+        "quantityUnit" to product.quantityUnit,
+        "imageUrl" to product.imageUrl,
+        "category" to product.category,
+        "location" to product.cityName,
+        "timestamp" to Timestamp.now(),
+        "userId" to buyerId, // Buyer receives this notification
+        "sellerId" to product.ownerId, // Seller's ID stored here
+        "message" to "Purchase successful! Your order has been placed.",
+        "transactionType" to "purchase",
+        "paymentStatus" to "Payment Pending",
+        "paymentMethod" to (paymentMethod ?: "Not specified")
+    )
+
+    deliveryAddress?.let { buyerNotification["deliveryAddress"] = it }
+    transactionId?.let { buyerNotification["transactionId"] = it }
+
+    // Save buyer notification
+    firestore.collection("notifications")
+        .add(buyerNotification)
+        .addOnSuccessListener {
+            Log.d("Firestore", "Buyer notification created with ID: ${it.id}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("Firestore", "Error creating buyer notification", e)
         }
 }
 
@@ -1352,13 +1404,29 @@ fun createDonationNotification(
     donatorId: String,
     organizationName: String,
     transactionId: String? = null
-
-
 ) {
+    // Notification for donor (customer who donated)
+    val donorNotification = hashMapOf(
+        "type" to "donation_made", // New type for donor
+        "productId" to product.prodId,
+        "name" to product.name,
+        "price" to product.price,
+        "quantity" to product.quantity,
+        "quantityUnit" to product.quantityUnit,
+        "imageUrl" to product.imageUrl,
+        "category" to product.category,
+        "location" to product.cityName,
+        "timestamp" to Timestamp.now(),
+        "userId" to donatorId, // Donor receives this
+        "sellerId" to product.ownerId,
+        "message" to "Thank you for donating ${product.name} to $organizationName!",
+        "transactionType" to "donation",
+        "organizationName" to organizationName
+    )
+    transactionId?.let { donorNotification["transactionId"] = it }
 
-
-    // Notification for donator (buyer)
-    val buyerNotification = hashMapOf(
+    // Notification for seller (farmer whose product was donated)
+    val sellerNotification = hashMapOf(
         "type" to "product_donated",
         "productId" to product.prodId,
         "name" to product.name,
@@ -1369,43 +1437,32 @@ fun createDonationNotification(
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to donatorId,
+        "userId" to product.ownerId, // Seller receives this
         "buyerId" to donatorId,
-        "message" to "You donated ${product.name} to $organizationName!",
+        "message" to "${product.name} was donated to $organizationName.",
         "transactionType" to "donation",
-        "organizationName" to organizationName,
-
-
+        "organizationName" to organizationName
     )
-    transactionId?.let { buyerNotification["transactionId"] = it }
-    // Notification for seller (product owner)
-    val sellerNotification = buyerNotification.toMutableMap().apply {
-        this["userId"] = product.ownerId // now the seller is the recipient
-        this["message"] = "${product.name} was donated to $organizationName."
-    }
-    Log.d("DonationDebug", "Creating buyer notification for UID: $donatorId")
-    Log.d("DonationDebug", "Buyer Notification: $buyerNotification")
+    transactionId?.let { sellerNotification["transactionId"] = it }
 
-
-
-    // Send buyer's notification
+    // Send donor's notification
     firestore.collection("notifications")
-        .add(buyerNotification)
+        .add(donorNotification)
         .addOnSuccessListener {
-            Log.d("DonationScreen", "Buyer donation notification created with ID: ${it.id}")
+            Log.d("Firestore", "Donor notification created with ID: ${it.id}")
         }
         .addOnFailureListener { e ->
-            Log.e("DonationScreen", "Error creating buyer donation notification: ${e.message}", e)
+            Log.e("Firestore", "Error creating donor notification", e)
         }
 
     // Send seller's notification
     firestore.collection("notifications")
         .add(sellerNotification)
         .addOnSuccessListener {
-            Log.d("DonationScreen", "Seller donation notification created with ID: ${it.id}")
+            Log.d("Firestore", "Seller donation notification created with ID: ${it.id}")
         }
         .addOnFailureListener { e ->
-            Log.e("DonationScreen", "Error creating seller donation notification: ${e.message}", e)
+            Log.e("Firestore", "Error creating seller notification", e)
         }
 }
 

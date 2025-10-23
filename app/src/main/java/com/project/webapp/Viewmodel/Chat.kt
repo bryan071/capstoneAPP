@@ -196,6 +196,193 @@ class ChatViewModel : ViewModel() {
         super.onCleared()
         messagesListener?.remove()
     }
+
+    fun createOrGetTransactionChatRoom(
+        user1Id: String,
+        user2Id: String,
+        notificationId: String,
+        onChatRoomReady: (String) -> Unit
+    ) {
+        val sortedIds = listOf(user1Id, user2Id).sorted()
+        val transactionChatRoomId = "transaction_chat_${sortedIds[0]}_${sortedIds[1]}_$notificationId"
+
+        // Check if chat room already exists
+        firestore.collection("chats")
+            .document(transactionChatRoomId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (!document.exists()) {
+                    // Create new transaction chat room
+                    val chatRoomData = hashMapOf(
+                        "id" to transactionChatRoomId,
+                        "participants" to listOf(user1Id, user2Id),
+                        "type" to "transaction_chat",
+                        "notificationId" to notificationId,
+                        "createdAt" to Timestamp.now(),
+                        "createdBy" to FirebaseAuth.getInstance().currentUser?.uid,
+                        "lastMessage" to "",
+                        "lastMessageTime" to Timestamp.now(),
+                        "unreadCount" to mapOf(
+                            user1Id to 0,
+                            user2Id to 0
+                        )
+                    )
+
+                    firestore.collection("chats")
+                        .document(transactionChatRoomId)
+                        .set(chatRoomData)
+                        .addOnSuccessListener {
+                            onChatRoomReady(transactionChatRoomId)
+                        }
+                } else {
+                    onChatRoomReady(transactionChatRoomId)
+                }
+            }
+    }
+
+    // Modified sendMessage to handle transaction chats
+    fun sendMessage(messageText: String, chatRoomId: String, receiverId: String) {
+        val currentUserId = auth.currentUser?.uid
+        if (currentUserId == null) return
+
+        val senderName = auth.currentUser?.displayName ?: "User"
+        val message = hashMapOf(
+            "message" to messageText,
+            "senderId" to currentUserId,
+            "senderName" to senderName,
+            "timestamp" to Timestamp.now(),
+            "chatRoomId" to chatRoomId
+        )
+
+        // Add message
+        firestore.collection("chats")
+            .document(chatRoomId)
+            .collection("messages")
+            .add(message)
+            .addOnSuccessListener { documentRef ->
+                // Update chat room
+                val updateData = hashMapOf<String, Any>(
+                    "lastMessage" to messageText,
+                    "lastMessageTime" to Timestamp.now(),
+                    "lastSenderId" to currentUserId
+                )
+                updateData["unreadCount.$receiverId"] = FieldValue.increment(1)
+
+                firestore.collection("chats")
+                    .document(chatRoomId)
+                    .update(updateData)
+            }
+            .addOnFailureListener { e ->
+                Log.e("ChatViewModel", "Error sending message", e)
+            }
+    }
+
+    // Get chat room participants for display
+    fun getChatRoomTitle(chatRoomId: String, onTitleReady: (String) -> Unit) {
+        firestore.collection("chats")
+            .document(chatRoomId)
+            .get()
+            .addOnSuccessListener { document ->
+                val type = document.getString("type") ?: ""
+                val participants = document.get("participants") as? List<String> ?: emptyList()
+
+                if (type == "admin_support") {
+                    onTitleReady("Admin Support")
+                    return@addOnSuccessListener
+                }
+
+                val currentUserId = auth.currentUser?.uid
+                val otherParticipant = participants.find { it != currentUserId } as? String ?: "User"
+
+                // Fetch other participant's name
+                firestore.collection("users").document(otherParticipant)
+                    .get()
+                    .addOnSuccessListener { userDoc ->
+                        val firstName = userDoc.getString("firstname") ?: ""
+                        val lastName = userDoc.getString("lastname") ?: ""
+                        val name = "$firstName $lastName".trim()
+                        onTitleReady(if (name.isNotEmpty()) name else "User")
+                    }
+                    .addOnFailureListener {
+                        onTitleReady("User")
+                    }
+            }
+            .addOnFailureListener {
+                onTitleReady("Chat")
+            }
+    }
+
+    // NEW: Get the other participant's ID from chat room
+    fun getOtherParticipantId(chatRoomId: String, callback: (String) -> Unit) {
+        Log.d("ChatViewModel", "Getting other participant for chatRoom: $chatRoomId")
+        firestore.collection("chats")
+            .document(chatRoomId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (!document.exists()) {
+                    Log.e("ChatViewModel", "Chat room document does not exist!")
+                    callback("")
+                    return@addOnSuccessListener
+                }
+
+                val participants = document.get("participants") as? List<String> ?: emptyList()
+                Log.d("ChatViewModel", "Participants found: $participants")
+
+                val currentUserId = auth.currentUser?.uid
+                Log.d("ChatViewModel", "Current user ID: $currentUserId")
+
+                val otherParticipant = participants.firstOrNull { it != currentUserId }
+                Log.d("ChatViewModel", "Other participant: $otherParticipant")
+
+                callback(otherParticipant ?: "")
+            }
+            .addOnFailureListener { e ->
+                Log.e("ChatViewModel", "Error getting other participant", e)
+                callback("")
+            }
+    }
+
+    // NEW: Simplified method for sending messages to participants
+    fun sendMessageToParticipant(messageText: String, receiverId: String) {
+        val currentUserId = auth.currentUser?.uid
+        val chatRoomId = currentChatRoomId
+
+        if (currentUserId == null || chatRoomId == null) {
+            Log.e("ChatViewModel", "Cannot send message: userId=$currentUserId, chatRoomId=$chatRoomId")
+            return
+        }
+
+        val senderName = auth.currentUser?.displayName ?: "User"
+        val message = hashMapOf(
+            "message" to messageText,
+            "senderId" to currentUserId,
+            "senderName" to senderName,
+            "timestamp" to Timestamp.now(),
+            "chatRoomId" to chatRoomId
+        )
+
+        // Add message
+        firestore.collection("chats")
+            .document(chatRoomId)
+            .collection("messages")
+            .add(message)
+            .addOnSuccessListener { documentRef ->
+                Log.d("ChatViewModel", "Message sent successfully")
+
+                // Update chat room
+                val updateData = hashMapOf<String, Any>(
+                    "lastMessage" to messageText,
+                    "lastMessageTime" to Timestamp.now(),
+                    "lastSenderId" to currentUserId
+                )
+                updateData["unreadCount.$receiverId"] = FieldValue.increment(1)
+
+                firestore.collection("chats")
+                    .document(chatRoomId)
+                    .update(updateData)
+            }
+            .addOnFailureListener { e ->
+                Log.e("ChatViewModel", "Error sending message", e)
+            }
+    }
 }
-
-
