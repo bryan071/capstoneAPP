@@ -3,7 +3,6 @@ package com.project.webapp.pages
 import CartViewModel
 import android.app.Activity
 import android.content.Context
-import android.util.Base64
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -44,8 +43,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.google.android.play.core.integrity.IntegrityManagerFactory
-import com.google.android.play.core.integrity.IntegrityTokenRequest
 import com.google.firebase.FirebaseException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.*
@@ -56,13 +53,43 @@ import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.components.TopBar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
-val PrimaryColor = Color(0xFF0DA54B)
-val backgroundColor = Color(0xFFF5F5F5)
-val cardColor = Color.White
+// Constants
+private val PrimaryColor = Color(0xFF0DA54B)
+private const val OTP_LENGTH = 6
+private const val RESEND_TIMEOUT = 60
+private const val MIN_PASSWORD_LENGTH = 8
+
+// Data class for managing state
+data class ForgotPasswordState(
+    val phoneNumber: String = "",
+    val otp: List<String> = List(OTP_LENGTH) { "" },
+    val newPassword: String = "",
+    val confirmPassword: String = "",
+    val currentStep: Int = 1,
+    val verificationId: String = "",
+    val resendToken: PhoneAuthProvider.ForceResendingToken? = null,
+    val errorMessage: String? = null,
+    val isLoading: Boolean = false,
+    val passwordVisible: Boolean = false,
+    val confirmPasswordVisible: Boolean = false,
+    val countdown: Int = RESEND_TIMEOUT,
+    val canResendOtp: Boolean = false,
+    val userType: String? = null
+) {
+    val isPasswordValid: Boolean
+        get() = newPassword.length >= MIN_PASSWORD_LENGTH &&
+                newPassword.any { it.isLetter() } &&
+                newPassword.any { it.isDigit() }
+
+    val passwordsMatch: Boolean
+        get() = newPassword == confirmPassword && confirmPassword.isNotEmpty()
+
+    val otpString: String
+        get() = otp.joinToString("")
+}
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -77,60 +104,34 @@ fun ForgotPass(
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val auth = remember { FirebaseAuth.getInstance() }
 
-    var phoneNumber by remember { mutableStateOf("") }
-    var otp by remember { mutableStateOf("") }
-    var newPassword by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
-    var step by remember { mutableStateOf(1) }
-    var verificationId by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
-    var passwordVisible by remember { mutableStateOf(false) }
-    var confirmPasswordVisible by remember { mutableStateOf(false) }
-    var countdown by remember { mutableStateOf(60) }
-    var canResendOtp by remember { mutableStateOf(false) }
-    var resendToken by remember { mutableStateOf<PhoneAuthProvider.ForceResendingToken?>(null) }
-    var userType by remember { mutableStateOf<String?>(null) }
+    var state by remember { mutableStateOf(ForgotPasswordState()) }
+    val otpFocusRequesters = remember { List(OTP_LENGTH) { FocusRequester() } }
 
-    val auth = FirebaseAuth.getInstance()
-    val scrollState = rememberScrollState()
-
-    val otpFocusRequesters = List(6) { remember { FocusRequester() } }
-    val otpValues = remember { mutableStateListOf("", "", "", "", "", "") }
-
-    var isPasswordValid by remember { mutableStateOf(false) }
-    var passwordsMatch by remember { mutableStateOf(false) }
-
-    LaunchedEffect(key1 = step, key2 = canResendOtp) {
-        if (step == 2 && !canResendOtp) {
-            countdown = 60
-            while (countdown > 0) {
-                delay(1000)
-                countdown--
-            }
-            canResendOtp = true
-        }
-    }
-
+    // Load user type on initialization
     LaunchedEffect(Unit) {
-        val userId = FirebaseAuth.getInstance().currentUser?.uid
-        userId?.let {
+        FirebaseAuth.getInstance().currentUser?.uid?.let { userId ->
             FirebaseFirestore.getInstance().collection("users")
-                .document(it)
+                .document(userId)
                 .get()
                 .addOnSuccessListener { document ->
-                    userType = document.getString("userType")
+                    state = state.copy(userType = document.getString("userType"))
                 }
         }
     }
 
-    LaunchedEffect(newPassword) {
-        isPasswordValid = validatePassword(newPassword)
-    }
-
-    LaunchedEffect(newPassword, confirmPassword) {
-        passwordsMatch = newPassword == confirmPassword
+    // Countdown timer for OTP resend
+    LaunchedEffect(state.currentStep, state.canResendOtp) {
+        if (state.currentStep == 2 && !state.canResendOtp) {
+            var countdown = RESEND_TIMEOUT
+            while (countdown > 0) {
+                delay(1000)
+                countdown--
+                state = state.copy(countdown = countdown)
+            }
+            state = state.copy(canResendOtp = true)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -138,42 +139,31 @@ fun ForgotPass(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
-                .verticalScroll(scrollState),
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            userType?.let { type ->
-                TopBar(navController, cartViewModel, userType = type)
-            } ?: run {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = {
-                        if (step > 1) step-- else navController.navigate(Route.LOGIN)
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back"
-                        )
+            // Top Bar
+            Header(
+                userType = state.userType,
+                currentStep = state.currentStep,
+                navController = navController,
+                cartViewModel = cartViewModel,
+                onBack = {
+                    if (state.currentStep > 1) {
+                        state = state.copy(currentStep = state.currentStep - 1)
+                    } else {
+                        navController.navigate(Route.LOGIN)
                     }
-                    Text(
-                        text = "Forgot Password",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
                 }
-            }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Logo and Title
             Image(
                 painter = painterResource(id = R.drawable.logo),
-                contentDescription = "login image",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .size(80.dp)
+                contentDescription = "Logo",
+                modifier = Modifier.size(80.dp)
             )
             Text(
                 text = "Supporting farmers, reducing waste!",
@@ -185,117 +175,130 @@ fun ForgotPass(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            StepIndicator(currentStep = step)
+            StepIndicator(currentStep = state.currentStep)
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            when (step) {
+            // Step Content
+            when (state.currentStep) {
                 1 -> PhoneStep(
-                    phoneNumber = phoneNumber,
-                    onPhoneChanged = { phoneNumber = it },
+                    phoneNumber = state.phoneNumber,
+                    onPhoneChanged = { state = state.copy(phoneNumber = it) },
                     onSubmit = {
                         keyboardController?.hide()
                         focusManager.clearFocus()
-                        isLoading = true
-                        checkPhoneNumberExists(
-                            phoneNumber = phoneNumber,
+                        state = state.copy(isLoading = true)
+
+                        PhoneVerificationManager.checkAndSendOtp(
+                            phoneNumber = state.phoneNumber,
                             auth = auth,
                             activity = activity,
                             context = context,
-                            onSuccess = { id, token ->
-                                isLoading = false
-                                verificationId = id
-                                token?.let { resendToken = it }
-                                step = 2
+                            onSuccess = { verificationId, token ->
+                                state = state.copy(
+                                    isLoading = false,
+                                    verificationId = verificationId,
+                                    resendToken = token,
+                                    currentStep = 2
+                                )
                             },
                             onError = { error ->
-                                isLoading = false
-                                errorMessage = error
+                                state = state.copy(isLoading = false, errorMessage = error)
                             }
                         )
                     }
                 )
 
                 2 -> OTPStep(
-                    otpValues = otpValues,
+                    otpValues = state.otp,
                     onOtpChanged = { index, value ->
-                        if (value.length <= 1) {
-                            otpValues[index] = value
-                            if (value.isNotEmpty() && index < 5) {
+                        if (value.length <= 1 && value.all { it.isDigit() }) {
+                            val newOtp = state.otp.toMutableList()
+                            newOtp[index] = value
+                            state = state.copy(otp = newOtp)
+
+                            if (value.isNotEmpty() && index < OTP_LENGTH - 1) {
                                 otpFocusRequesters[index + 1].requestFocus()
                             }
-                            otp = otpValues.joinToString("")
                         }
                     },
                     focusRequesters = otpFocusRequesters,
                     onSubmit = {
-                        if (otp.length == 6) {
+                        if (state.otpString.length == OTP_LENGTH) {
                             keyboardController?.hide()
                             focusManager.clearFocus()
-                            isLoading = true
-                            verifyOTP(
-                                verificationId = verificationId,
-                                otp = otp,
+                            state = state.copy(isLoading = true)
+
+                            PhoneVerificationManager.verifyOTP(
+                                verificationId = state.verificationId,
+                                otp = state.otpString,
                                 auth = auth,
-                                context = context,
                                 onSuccess = {
-                                    isLoading = false
-                                    step = 3
+                                    state = state.copy(isLoading = false, currentStep = 3)
                                 },
                                 onError = { error ->
-                                    isLoading = false
-                                    errorMessage = error
+                                    state = state.copy(isLoading = false, errorMessage = error)
                                 }
                             )
                         } else {
-                            errorMessage = "Please enter a valid 6-digit OTP code"
+                            state = state.copy(errorMessage = "Please enter a valid 6-digit OTP")
                         }
                     },
-                    countdown = countdown,
-                    canResend = canResendOtp,
+                    countdown = state.countdown,
+                    canResend = state.canResendOtp,
                     onResend = {
-                        resendVerificationCode(
-                            phoneNumber = phoneNumber,
-                            resendToken = resendToken,
+                        PhoneVerificationManager.resendOTP(
+                            phoneNumber = state.phoneNumber,
+                            resendToken = state.resendToken,
                             auth = auth,
                             activity = activity,
-                            onCodeSent = { id, token ->
-                                verificationId = id
-                                resendToken = token
-                                canResendOtp = false
-                                Toast.makeText(context, "OTP code resent successfully", Toast.LENGTH_SHORT).show()
+                            onCodeSent = { verificationId, token ->
+                                state = state.copy(
+                                    verificationId = verificationId,
+                                    resendToken = token,
+                                    canResendOtp = false
+                                )
+                                Toast.makeText(context, "OTP resent successfully", Toast.LENGTH_SHORT).show()
                             },
                             onError = { error ->
-                                errorMessage = error
+                                state = state.copy(errorMessage = error)
                             }
                         )
                     }
                 )
 
                 3 -> ResetPasswordStep(
-                    password = newPassword,
-                    confirmPassword = confirmPassword,
-                    passwordVisible = passwordVisible,
-                    confirmPasswordVisible = confirmPasswordVisible,
-                    isPasswordValid = isPasswordValid,
-                    passwordsMatch = passwordsMatch,
-                    onPasswordChange = { newPassword = it },
-                    onConfirmPasswordChange = { confirmPassword = it },
-                    onTogglePasswordVisibility = { passwordVisible = !passwordVisible },
-                    onToggleConfirmPasswordVisibility = { confirmPasswordVisible = !confirmPasswordVisible },
+                    password = state.newPassword,
+                    confirmPassword = state.confirmPassword,
+                    passwordVisible = state.passwordVisible,
+                    confirmPasswordVisible = state.confirmPasswordVisible,
+                    isPasswordValid = state.isPasswordValid,
+                    passwordsMatch = state.passwordsMatch,
+                    onPasswordChange = { state = state.copy(newPassword = it) },
+                    onConfirmPasswordChange = { state = state.copy(confirmPassword = it) },
+                    onTogglePasswordVisibility = {
+                        state = state.copy(passwordVisible = !state.passwordVisible)
+                    },
+                    onToggleConfirmPasswordVisibility = {
+                        state = state.copy(confirmPasswordVisible = !state.confirmPasswordVisible)
+                    },
                     onSubmit = {
-                        if (isPasswordValid && passwordsMatch) {
+                        if (state.isPasswordValid && state.passwordsMatch) {
                             keyboardController?.hide()
                             focusManager.clearFocus()
-                            isLoading = true
-                            resetPassword(
+                            state = state.copy(isLoading = true)
+
+                            PasswordManager.resetPassword(
                                 auth = auth,
-                                newPassword = newPassword,
-                                context = context,
+                                newPassword = state.newPassword,
                                 onComplete = {
-                                    isLoading = false
+                                    state = state.copy(isLoading = false)
                                     coroutineScope.launch {
-                                        Toast.makeText(context, "Password reset successful!", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(
+                                            context,
+                                            "Password reset successful!",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                         delay(500)
                                         navController.navigate(Route.LOGIN) {
                                             popUpTo(Route.LOGIN) { inclusive = true }
@@ -303,15 +306,18 @@ fun ForgotPass(
                                     }
                                 },
                                 onError = { error ->
-                                    isLoading = false
-                                    errorMessage = error
+                                    state = state.copy(isLoading = false, errorMessage = error)
                                 }
                             )
                         } else {
-                            when {
-                                !isPasswordValid -> errorMessage = "Password must be at least 8 characters with letters and numbers"
-                                !passwordsMatch -> errorMessage = "Passwords do not match"
-                            }
+                            state = state.copy(
+                                errorMessage = when {
+                                    !state.isPasswordValid ->
+                                        "Password must be at least 8 characters with letters and numbers"
+                                    !state.passwordsMatch -> "Passwords do not match"
+                                    else -> null
+                                }
+                            )
                         }
                     }
                 )
@@ -319,23 +325,28 @@ fun ForgotPass(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            AnimatedVisibility(visible = step != 3, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(
+                visible = state.currentStep != 3,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 TextButton(onClick = { navController.navigate(Route.LOGIN) }) {
                     Text("Back to Login", color = PrimaryColor)
                 }
             }
         }
 
-        if (isLoading) LoadingDialog()
+        if (state.isLoading) LoadingDialog()
     }
 
-    if (errorMessage != null) {
+    // Error Dialog
+    state.errorMessage?.let { error ->
         AlertDialog(
-            onDismissRequest = { errorMessage = null },
+            onDismissRequest = { state = state.copy(errorMessage = null) },
             title = { Text("Error") },
-            text = { Text(errorMessage!!) },
+            text = { Text(error) },
             confirmButton = {
-                Button(onClick = { errorMessage = null }) {
+                Button(onClick = { state = state.copy(errorMessage = null) }) {
                     Text("OK")
                 }
             }
@@ -343,9 +354,43 @@ fun ForgotPass(
     }
 }
 
+@Composable
+private fun Header(
+    userType: String?,
+    currentStep: Int,
+    navController: NavController,
+    cartViewModel: CartViewModel,
+    onBack: () -> Unit
+) {
+    userType?.let { type ->
+        TopBar(navController, cartViewModel, userType = type)
+    } ?: run {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Back"
+                )
+            }
+            Text(
+                text = "Forgot Password",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        }
+    }
+}
 
 @Composable
 fun StepIndicator(currentStep: Int) {
+    val steps = listOf("Phone", "Verify", "Reset")
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -353,10 +398,10 @@ fun StepIndicator(currentStep: Int) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val steps = listOf("Phone", "Verify", "Reset")
         steps.forEachIndexed { index, label ->
             val stepNumber = index + 1
             val isActive = stepNumber <= currentStep
+
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.weight(1f)
@@ -406,6 +451,10 @@ fun PhoneStep(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // Extract just the digits without +63
+    val displayNumber = phoneNumber.removePrefix("+63")
+    val isValid = displayNumber.length == 10 && displayNumber.startsWith("9")
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -415,8 +464,7 @@ fun PhoneStep(
         Text(
             text = "Enter Phone Number",
             fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
+            fontWeight = FontWeight.SemiBold
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -431,29 +479,25 @@ fun PhoneStep(
         Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedTextField(
-            value = phoneNumber,
+            value = displayNumber,
             onValueChange = { input ->
-                val cleaned = input.replace("[^0-9+]".toRegex(), "")
-                if (cleaned.startsWith("+63") || cleaned.isEmpty()) {
-                    onPhoneChanged(cleaned)
-                } else {
-                    onPhoneChanged("+63$cleaned")
-                }
+                // Only allow digits and limit to 10 characters
+                val cleaned = input.filter { it.isDigit() }.take(10)
+                // Always prepend +63
+                onPhoneChanged(if (cleaned.isNotEmpty()) "+63$cleaned" else "")
             },
             label = { Text("Phone Number") },
-            placeholder = { Text("") },
+            placeholder = { Text("9XXXXXXXXX") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Phone,
+                keyboardType = KeyboardType.Number,
                 imeAction = ImeAction.Done
             ),
             keyboardActions = KeyboardActions(
                 onDone = {
                     focusManager.clearFocus()
                     keyboardController?.hide()
-                    if (isValidPhoneNumber(phoneNumber)) {
-                        onSubmit()
-                    }
+                    if (isValid) onSubmit()
                 }
             ),
             modifier = Modifier.fillMaxWidth(),
@@ -461,19 +505,20 @@ fun PhoneStep(
                 Text(
                     text = "+63",
                     color = Color.Gray,
+                    fontSize = 16.sp,
                     modifier = Modifier.padding(start = 16.dp)
                 )
             },
-            isError = phoneNumber.isNotEmpty() && !isValidPhoneNumber(phoneNumber),
+            isError = phoneNumber.isNotEmpty() && !isValid,
             colors = TextFieldDefaults.outlinedTextFieldColors(
                 focusedBorderColor = PrimaryColor,
                 unfocusedBorderColor = Color.Gray
             )
         )
 
-        if (phoneNumber.isNotEmpty() && !isValidPhoneNumber(phoneNumber)) {
+        if (phoneNumber.isNotEmpty() && !isValid) {
             Text(
-                text = "Please enter a valid phone number (+639XXXXXXXXX)",
+                text = "Please enter a valid 10-digit phone number starting with 9",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier
@@ -486,7 +531,7 @@ fun PhoneStep(
 
         Button(
             onClick = onSubmit,
-            enabled = isValidPhoneNumber(phoneNumber),
+            enabled = isValid,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -528,8 +573,7 @@ fun OTPStep(
         Text(
             text = "Enter Verification Code",
             fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
+            fontWeight = FontWeight.SemiBold
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -547,27 +591,14 @@ fun OTPStep(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            for (i in 0..5) {
+            otpValues.forEachIndexed { index, value ->
                 OutlinedTextField(
-                    value = otpValues[i],
-                    onValueChange = { value ->
-                        if (value.length <= 1 && value.all { it.isDigit()}) {
-                            onOtpChanged(i, value)
-                            if (value.isNotEmpty() && i < 5) {
-                                focusRequesters[i + 1].requestFocus()
-                            } else if (value.isEmpty() && i > 0) {
-                                focusRequesters[i - 1].requestFocus()
-                            }
-                            if (i == 5 && value.isNotEmpty() && otpValues.joinToString("").length == 6) {
-                                keyboardController?.hide()
-                                onSubmit()
-                            }
-                        }
-                    },
+                    value = value,
+                    onValueChange = { onOtpChanged(index, it) },
                     modifier = Modifier
                         .width(48.dp)
                         .height(56.dp)
-                        .focusRequester(focusRequesters[i]),
+                        .focusRequester(focusRequesters[index]),
                     textStyle = LocalTextStyle.current.copy(
                         textAlign = TextAlign.Center,
                         fontSize = 18.sp,
@@ -576,13 +607,14 @@ fun OTPStep(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,
-                        imeAction = if (i < 5) ImeAction.Next else ImeAction.Done
+                        imeAction = if (index < OTP_LENGTH - 1) ImeAction.Next else ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(
-                        onNext = { if (i < 5) focusRequesters[i + 1].requestFocus() },
+                        onNext = { if (index < OTP_LENGTH - 1) focusRequesters[index + 1].requestFocus() },
                         onDone = {
                             focusManager.clearFocus()
-                            if (otpValues.joinToString("").length == 6) onSubmit()
+                            keyboardController?.hide()
+                            if (otpValues.joinToString("").length == OTP_LENGTH) onSubmit()
                         }
                     ),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
@@ -617,7 +649,7 @@ fun OTPStep(
 
         Button(
             onClick = onSubmit,
-            enabled = otpValues.joinToString("").length == 6,
+            enabled = otpValues.joinToString("").length == OTP_LENGTH,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -663,8 +695,7 @@ fun ResetPasswordStep(
         Text(
             text = "Create New Password",
             fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
+            fontWeight = FontWeight.SemiBold
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -683,7 +714,8 @@ fun ResetPasswordStep(
             onValueChange = onPasswordChange,
             label = { Text("New Password") },
             singleLine = true,
-            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            visualTransformation = if (passwordVisible)
+                VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Next
@@ -691,8 +723,10 @@ fun ResetPasswordStep(
             trailingIcon = {
                 IconButton(onClick = onTogglePasswordVisibility) {
                     Icon(
-                        imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                        imageVector = if (passwordVisible)
+                            Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = if (passwordVisible)
+                            "Hide password" else "Show password",
                         tint = Color.Gray
                     )
                 }
@@ -706,7 +740,7 @@ fun ResetPasswordStep(
         )
 
         if (password.isNotEmpty()) {
-            PasswordStrengthIndicator(password = password, isValid = isPasswordValid)
+            PasswordStrengthIndicator(password = password)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -716,7 +750,8 @@ fun ResetPasswordStep(
             onValueChange = onConfirmPasswordChange,
             label = { Text("Confirm Password") },
             singleLine = true,
-            visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            visualTransformation = if (confirmPasswordVisible)
+                VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done
@@ -725,16 +760,16 @@ fun ResetPasswordStep(
                 onDone = {
                     focusManager.clearFocus()
                     keyboardController?.hide()
-                    if (isPasswordValid && passwordsMatch) {
-                        onSubmit()
-                    }
+                    if (isPasswordValid && passwordsMatch) onSubmit()
                 }
             ),
             trailingIcon = {
                 IconButton(onClick = onToggleConfirmPasswordVisibility) {
                     Icon(
-                        imageVector = if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password",
+                        imageVector = if (confirmPasswordVisible)
+                            Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = if (confirmPasswordVisible)
+                            "Hide password" else "Show password",
                         tint = Color.Gray
                     )
                 }
@@ -782,243 +817,33 @@ fun ResetPasswordStep(
 }
 
 @Composable
-fun PasswordStrengthIndicator(password: String, isValid: Boolean) {
+fun PasswordStrengthIndicator(password: String) {
     Column(modifier = Modifier.padding(start = 16.dp, top = 8.dp)) {
-        val hasMinLength = password.length >= 8
-        val hasLetterAndDigit = hasLetterAndDigit(password)
+        val checks = listOf(
+            "At least 8 characters" to (password.length >= MIN_PASSWORD_LENGTH),
+            "Contains letters and numbers" to (password.any { it.isLetter() } && password.any { it.isDigit() })
+        )
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = if (hasMinLength) Icons.Default.CheckCircle else Icons.Default.Warning,
-                contentDescription = null,
-                tint = if (hasMinLength) Color.Green else Color.Red,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "At least 8 characters",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (hasMinLength) Color.Green else Color.Red
-            )
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = if (hasLetterAndDigit) Icons.Default.CheckCircle else Icons.Default.Warning,
-                contentDescription = null,
-                tint = if (hasLetterAndDigit) Color.Green else Color.Red,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Contains letters and numbers",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (hasLetterAndDigit) Color.Green else Color.Red
-            )
-        }
-    }
-}
-
-// Improved functions
-
-fun sendVerificationCode(
-    phoneNumber: String,
-    auth: FirebaseAuth,
-    activity: Activity,
-    onCodeSent: (String, PhoneAuthProvider.ForceResendingToken?) -> Unit,
-    onError: (String) -> Unit
-) {
-    if (!isValidPhoneNumber(phoneNumber)) {
-        onError("Invalid phone number format. Please use +63XXXXXXXXXX")
-        return
-    }
-
-    val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-        override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-            Log.d("ForgotPass", "Verification Completed: ${credential.smsCode}")
-            // We don't auto-sign in here as we want the user to set a new password
-        }
-
-        override fun onVerificationFailed(e: FirebaseException) {
-            Log.e("ForgotPass", "Verification Failed: ${e.message}")
-            when (e) {
-                is FirebaseAuthInvalidCredentialsException -> onError("Invalid phone number. Please check and try again.")
-                is FirebaseTooManyRequestsException -> onError("Too many requests. Please try again later.")
-                else -> onError("Verification failed: ${e.message}")
-            }
-        }
-
-        override fun onCodeSent(
-            verificationId: String,
-            token: PhoneAuthProvider.ForceResendingToken
-        ) {
-            Log.d("ForgotPass", "OTP Sent: $verificationId")
-            onCodeSent(verificationId, token)
-        }
-
-        override fun onCodeAutoRetrievalTimeOut(verificationId: String) {
-            Log.d("ForgotPass", "Code Auto Retrieval Timeout")
-        }
-    }
-
-    val options = PhoneAuthOptions.newBuilder(auth)
-        .setPhoneNumber(phoneNumber.trim())
-        .setTimeout(60L, TimeUnit.SECONDS)
-        .setActivity(activity)
-        .setCallbacks(callbacks)
-        .build()
-
-    PhoneAuthProvider.verifyPhoneNumber(options)
-}
-
-fun resendVerificationCode(
-    phoneNumber: String,
-    resendToken: PhoneAuthProvider.ForceResendingToken?,
-    auth: FirebaseAuth,
-    activity: Activity,
-    onCodeSent: (String, PhoneAuthProvider.ForceResendingToken) -> Unit,
-    onError: (String) -> Unit
-) {
-    val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-        override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-            Log.d("ForgotPass", "Verification Completed on resend: ${credential.smsCode}")
-        }
-
-        override fun onVerificationFailed(e: FirebaseException) {
-            Log.e("ForgotPass", "Verification Failed on resend: ${e.message}")
-            onError("Failed to resend verification code: ${e.message}")
-        }
-
-        override fun onCodeSent(
-            verificationId: String,
-            token: PhoneAuthProvider.ForceResendingToken
-        ) {
-            Log.d("ForgotPass", "OTP Resent: $verificationId")
-            onCodeSent(verificationId, token)
-        }
-    }
-
-    val optionsBuilder = PhoneAuthOptions.newBuilder(auth)
-        .setPhoneNumber(phoneNumber.trim())
-        .setTimeout(60L, TimeUnit.SECONDS)
-        .setActivity(activity)
-        .setCallbacks(callbacks)
-
-    // Use the resend token if available
-    resendToken?.let {
-        optionsBuilder.setForceResendingToken(it)
-    }
-
-    PhoneAuthProvider.verifyPhoneNumber(optionsBuilder.build())
-}
-
-fun verifyOTP(
-    verificationId: String,
-    otp: String,
-    auth: FirebaseAuth,
-    context: Context,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit
-) {
-    if (verificationId.isEmpty()) {
-        onError("Verification ID is missing. Please request a new OTP.")
-        return
-    }
-
-    val credential = PhoneAuthProvider.getCredential(verificationId, otp)
-
-    // We sign in temporarily to verify the OTP
-    auth.signInWithCredential(credential)
-        .addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                Log.d("ForgotPass", "OTP verification successful")
-                onSuccess()
-            } else {
-                Log.e("ForgotPass", "OTP verification failed", task.exception)
-                onError("Invalid OTP. Please try again.")
-            }
-        }
-}
-
-
-fun resetPassword(
-    auth: FirebaseAuth,
-    newPassword: String,
-    context: Context,
-    onComplete: () -> Unit,
-    onError: (String) -> Unit
-) {
-    val user = auth.currentUser
-    if (user != null) {
-        user.updatePassword(newPassword)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    Log.d("ForgotPass", "Password updated successfully")
-                    onComplete()
-                } else {
-                    Log.e("ForgotPass", "Password update failed", task.exception)
-                    onError("Failed to reset password. Please try again.")
-                }
-            }
-    } else {
-        onError("No user signed in. Please verify again.")
-    }
-}
-
-fun checkPhoneNumberExists(
-    phoneNumber: String,
-    auth: FirebaseAuth,
-    activity: Activity,
-    context: Context,
-    onSuccess: (String, PhoneAuthProvider.ForceResendingToken?) -> Unit,
-    onError: (String) -> Unit
-) {
-    val firestore = FirebaseFirestore.getInstance()
-
-    firestore.collection("users")
-        .whereEqualTo("phoneNumber", phoneNumber)
-        .get()
-        .addOnSuccessListener { result ->
-            if (!result.isEmpty) {
-                // Phone number exists, send verification code
-                sendVerificationCode(
-                    phoneNumber = phoneNumber,
-                    auth = auth,
-                    activity = activity,
-                    onCodeSent = { verificationId, token ->
-                        onSuccess(verificationId, token)
-                    },
-                    onError = { error ->
-                        onError(error)
-                    }
+        checks.forEach { (text, isValid) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isValid) Icons.Default.CheckCircle else Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = if (isValid) Color.Green else Color.Red,
+                    modifier = Modifier.size(16.dp)
                 )
-            } else {
-                onError("This phone number is not registered.")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isValid) Color.Green else Color.Red
+                )
+            }
+            if (checks.indexOf(text to isValid) < checks.size - 1) {
+                Spacer(modifier = Modifier.height(4.dp))
             }
         }
-        .addOnFailureListener { e ->
-            Log.e("ForgotPass", "Failed to check phone number", e)
-            onError("Something went wrong. Please try again.")
-        }
-}
-
-// Helper functions
-
-fun isValidPhoneNumber(phoneNumber: String): Boolean {
-    val regex = Regex("^\\+639\\d{9}$")
-    return regex.matches(phoneNumber)
-}
-
-fun validatePassword(password: String): Boolean {
-    return password.length >= 8 && hasLetterAndDigit(password)
-}
-
-fun hasLetterAndDigit(password: String): Boolean {
-    val letterPattern = Pattern.compile("[A-Za-z]")
-    val digitPattern = Pattern.compile("[0-9]")
-    return letterPattern.matcher(password).find() && digitPattern.matcher(password).find()
+    }
 }
 
 @Composable
@@ -1044,9 +869,7 @@ fun LoadingDialog() {
                     color = PrimaryColor,
                     modifier = Modifier.size(32.dp)
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
-
                 Text(
                     text = "Loading...",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1054,5 +877,247 @@ fun LoadingDialog() {
                 )
             }
         }
+    }
+}
+
+// Utility Objects
+object ValidationUtils {
+    fun isValidPhoneNumber(phoneNumber: String): Boolean {
+        // Must be +639XXXXXXXXX (10 digits after +63, starting with 9)
+        return Regex("^\\+639\\d{9}$").matches(phoneNumber)
+    }
+}
+
+object PhoneVerificationManager {
+    private const val TAG = "PhoneVerification"
+
+    fun checkAndSendOtp(
+        phoneNumber: String,
+        auth: FirebaseAuth,
+        activity: Activity,
+        context: Context,
+        onSuccess: (String, PhoneAuthProvider.ForceResendingToken?) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (!ValidationUtils.isValidPhoneNumber(phoneNumber)) {
+            onError("Invalid phone number format. Please use 10 digits starting with 9")
+            return
+        }
+
+        val firestore = FirebaseFirestore.getInstance()
+
+        Log.d(TAG, "Checking phone number: $phoneNumber")
+
+        // Create list of possible phone number formats
+        val phoneFormats = listOf(
+            phoneNumber,                           // +639XXXXXXXXX
+            phoneNumber.removePrefix("+63"),       // 9XXXXXXXXX
+            phoneNumber.removePrefix("+"),         // 639XXXXXXXXX
+            "0${phoneNumber.removePrefix("+63")}", // 09XXXXXXXXX
+            phoneNumber.replace("+63", "63")       // 639XXXXXXXXX (no plus)
+        )
+
+        Log.d(TAG, "Searching for formats: $phoneFormats")
+
+        // Get all users and check manually (more flexible)
+        firestore.collection("users")
+            .get()
+            .addOnSuccessListener { querySnapshot ->
+                var foundUser = false
+
+                for (document in querySnapshot.documents) {
+                    val storedPhone = document.getString("phoneNumber")
+                    Log.d(TAG, "Checking against stored: $storedPhone")
+
+                    // Normalize both numbers for comparison
+                    val normalizedStored = normalizePhoneNumber(storedPhone)
+                    val normalizedInput = normalizePhoneNumber(phoneNumber)
+
+                    if (normalizedStored == normalizedInput) {
+                        Log.d(TAG, "Match found! User: ${document.id}")
+                        foundUser = true
+                        sendOtp(phoneNumber, auth, activity, onSuccess, onError)
+                        break
+                    }
+                }
+
+                if (!foundUser) {
+                    Log.e(TAG, "No matching phone number found")
+                    onError("This phone number is not registered. Please check your number or sign up.")
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to check phone number", e)
+                onError("Something went wrong. Please try again. Error: ${e.message}")
+            }
+    }
+
+    private fun normalizePhoneNumber(phone: String?): String {
+        if (phone == null) return ""
+
+        // Remove all non-digit characters
+        val digitsOnly = phone.replace(Regex("[^0-9]"), "")
+
+        // Normalize to 10 digits (9XXXXXXXXX format)
+        return when {
+            digitsOnly.startsWith("639") && digitsOnly.length == 12 -> digitsOnly.substring(2) // 639XXXXXXXXX -> 9XXXXXXXXX
+            digitsOnly.startsWith("63") && digitsOnly.length == 11 -> digitsOnly.substring(1)  // 639XXXXXXXX -> 9XXXXXXXX
+            digitsOnly.startsWith("09") && digitsOnly.length == 11 -> digitsOnly.substring(1)  // 09XXXXXXXXX -> 9XXXXXXXXX
+            digitsOnly.startsWith("9") && digitsOnly.length == 10 -> digitsOnly                // 9XXXXXXXXX (correct)
+            digitsOnly.startsWith("0") && digitsOnly.length == 10 -> "9${digitsOnly.substring(1)}" // Handle 0XXXXXXXXX
+            else -> {
+                Log.w(TAG, "Unhandled phone format: $phone (digits: $digitsOnly)")
+                digitsOnly // Return as-is if doesn't match patterns
+            }
+        }
+    }
+
+    private fun sendOtp(
+        phoneNumber: String,
+        auth: FirebaseAuth,
+        activity: Activity,
+        onCodeSent: (String, PhoneAuthProvider.ForceResendingToken?) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+            override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                Log.d(TAG, "Verification completed automatically")
+            }
+
+            override fun onVerificationFailed(e: FirebaseException) {
+                Log.e(TAG, "Verification failed: ${e.message}", e)
+                val errorMessage = when (e) {
+                    is FirebaseAuthInvalidCredentialsException ->
+                        "Invalid phone number. Please check and try again."
+                    is FirebaseTooManyRequestsException ->
+                        "Too many requests. Please try again later."
+                    else -> "Verification failed: ${e.message}"
+                }
+                onError(errorMessage)
+            }
+
+            override fun onCodeSent(
+                verificationId: String,
+                token: PhoneAuthProvider.ForceResendingToken
+            ) {
+                Log.d(TAG, "OTP sent successfully to $phoneNumber")
+                onCodeSent(verificationId, token)
+            }
+        }
+
+        // Ensure phone number is in correct format for Firebase (+639XXXXXXXXX)
+        val formattedPhone = if (phoneNumber.startsWith("+")) {
+            phoneNumber
+        } else if (phoneNumber.startsWith("09")) {
+            "+63${phoneNumber.substring(1)}"
+        } else if (phoneNumber.startsWith("9")) {
+            "+63$phoneNumber"
+        } else {
+            phoneNumber
+        }
+
+        Log.d(TAG, "Sending OTP to: $formattedPhone")
+
+        val options = PhoneAuthOptions.newBuilder(auth)
+            .setPhoneNumber(formattedPhone.trim())
+            .setTimeout(60L, TimeUnit.SECONDS)
+            .setActivity(activity)
+            .setCallbacks(callbacks)
+            .build()
+
+        PhoneAuthProvider.verifyPhoneNumber(options)
+    }
+
+    fun resendOTP(
+        phoneNumber: String,
+        resendToken: PhoneAuthProvider.ForceResendingToken?,
+        auth: FirebaseAuth,
+        activity: Activity,
+        onCodeSent: (String, PhoneAuthProvider.ForceResendingToken) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+            override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                Log.d(TAG, "Verification completed on resend")
+            }
+
+            override fun onVerificationFailed(e: FirebaseException) {
+                Log.e(TAG, "Resend verification failed: ${e.message}", e)
+                onError("Failed to resend verification code: ${e.message}")
+            }
+
+            override fun onCodeSent(
+                verificationId: String,
+                token: PhoneAuthProvider.ForceResendingToken
+            ) {
+                Log.d(TAG, "OTP resent successfully")
+                onCodeSent(verificationId, token)
+            }
+        }
+
+        val optionsBuilder = PhoneAuthOptions.newBuilder(auth)
+            .setPhoneNumber(phoneNumber.trim())
+            .setTimeout(60L, TimeUnit.SECONDS)
+            .setActivity(activity)
+            .setCallbacks(callbacks)
+
+        resendToken?.let { optionsBuilder.setForceResendingToken(it) }
+
+        PhoneAuthProvider.verifyPhoneNumber(optionsBuilder.build())
+    }
+
+    fun verifyOTP(
+        verificationId: String,
+        otp: String,
+        auth: FirebaseAuth,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (verificationId.isEmpty()) {
+            onError("Verification ID is missing. Please request a new OTP.")
+            return
+        }
+
+        val credential = PhoneAuthProvider.getCredential(verificationId, otp)
+
+        auth.signInWithCredential(credential)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    Log.d(TAG, "OTP verification successful")
+                    onSuccess()
+                } else {
+                    Log.e(TAG, "OTP verification failed", task.exception)
+                    onError("Invalid OTP. Please try again.")
+                }
+            }
+    }
+}
+
+object PasswordManager {
+    private const val TAG = "PasswordManager"
+
+    fun resetPassword(
+        auth: FirebaseAuth,
+        newPassword: String,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val user = auth.currentUser
+
+        if (user == null) {
+            onError("No user signed in. Please verify again.")
+            return
+        }
+
+        user.updatePassword(newPassword)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    Log.d(TAG, "Password updated successfully")
+                    onComplete()
+                } else {
+                    Log.e(TAG, "Password update failed", task.exception)
+                    onError("Failed to reset password. Please try again.")
+                }
+            }
     }
 }

@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
-    id ("kotlin-parcelize")
+    id("kotlin-parcelize")
 }
 
 android {
@@ -19,32 +19,65 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // Add this for Phone Authentication
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.project.webapp"
+
         // GCash API credentials
         buildConfigField("String", "GCASH_CLIENT_ID", "\"your_gcash_client_id_here\"")
         buildConfigField("String", "GCASH_CLIENT_SECRET", "\"your_gcash_client_secret_here\"")
         buildConfigField("String", "GCASH_MERCHANT_ID", "\"your_gcash_merchant_id_here\"")
     }
 
+    // Add signing configs for proper SHA fingerprint
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        // Uncomment and configure for release build
+        // create("release") {
+        //     storeFile = file("path/to/your/release.keystore")
+        //     storePassword = "your_store_password"
+        //     keyAlias = "your_key_alias"
+        //     keyPassword = "your_key_password"
+        // }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
+            // signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     kotlinOptions {
         jvmTarget = "11"
     }
+
     buildFeatures {
         compose = true
-        // Enable BuildConfig generation
         buildConfig = true
+    }
+
+    // Add this to avoid duplicate classes
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
@@ -81,6 +114,9 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:20.7.0")
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation ("com.google.android.play:integrity:1.4.0")
+
+    // SafetyNet (Alternative if Play Integrity causes issues)
+    implementation("com.google.android.gms:play-services-safetynet:18.1.0")
 
     // Jetpack Compose
     implementation("androidx.compose:compose-bom:2024.02.00")
