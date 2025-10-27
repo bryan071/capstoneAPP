@@ -41,29 +41,65 @@ class ChatViewModel : ViewModel() {
             .get()
             .addOnSuccessListener { document ->
                 if (!document.exists()) {
-                    // Create new admin chat room in adminChats collection
-                    val chatRoomData = hashMapOf(
-                        "id" to adminChatRoomId,
-                        "participants" to listOf(currentUserId, "ADMIN"),
-                        "type" to "admin_support",
-                        "createdAt" to Timestamp.now(),
-                        "createdBy" to currentUserId,
-                        "lastMessage" to "",
-                        "lastMessageTime" to Timestamp.now(),
-                        "unreadCount" to mapOf(
-                            currentUserId to 0,
-                            "ADMIN" to 0
-                        )
-                    )
+                    // Get user's name first
+                    firestore.collection("users")
+                        .document(currentUserId)
+                        .get()
+                        .addOnSuccessListener { userDoc ->
+                            val firstName = userDoc.getString("firstname") ?: ""
+                            val lastName = userDoc.getString("lastname") ?: ""
+                            val userName = "$firstName $lastName".trim().ifEmpty { "User" }
 
-                    firestore.collection("adminChats")
-                        .document(adminChatRoomId)
-                        .set(chatRoomData)
-                        .addOnSuccessListener {
-                            onChatRoomReady(adminChatRoomId)
+                            // Create new admin chat room in adminChats collection
+                            val chatRoomData = hashMapOf(
+                                "id" to adminChatRoomId,
+                                "participants" to listOf(currentUserId, "ADMIN"),
+                                "type" to "admin_support",
+                                "date" to Timestamp.now(),
+                                "userName" to userName,
+                                "createdById" to currentUserId,
+                                "message" to "",
+                                "messageTime" to Timestamp.now(),
+                                "unreadCount" to mapOf(
+                                    currentUserId to 0,
+                                    "ADMIN" to 0
+                                )
+                            )
+
+                            firestore.collection("adminChats")
+                                .document(adminChatRoomId)
+                                .set(chatRoomData)
+                                .addOnSuccessListener {
+                                    onChatRoomReady(adminChatRoomId)
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.e("ChatViewModel", "Error creating admin chat room", e)
+                                }
                         }
                         .addOnFailureListener { e ->
-                            Log.e("ChatViewModel", "Error creating admin chat room", e)
+                            Log.e("ChatViewModel", "Error fetching user data", e)
+                            // Fallback: create with user ID
+                            val chatRoomData = hashMapOf(
+                                "id" to adminChatRoomId,
+                                "participants" to listOf(currentUserId, "ADMIN"),
+                                "type" to "admin_support",
+                                "date" to Timestamp.now(),
+                                "userName" to "User",
+                                "createdById" to currentUserId,
+                                "message" to "",
+                                "messageTime" to Timestamp.now(),
+                                "unreadCount" to mapOf(
+                                    currentUserId to 0,
+                                    "ADMIN" to 0
+                                )
+                            )
+
+                            firestore.collection("adminChats")
+                                .document(adminChatRoomId)
+                                .set(chatRoomData)
+                                .addOnSuccessListener {
+                                    onChatRoomReady(adminChatRoomId)
+                                }
                         }
                 } else {
                     // Chat room already exists
@@ -151,8 +187,8 @@ class ChatViewModel : ViewModel() {
 
                 // Update chat room's last message info
                 val updateData = hashMapOf<String, Any>(
-                    "lastMessage" to messageText,
-                    "lastMessageTime" to Timestamp.now(),
+                    "message" to messageText,
+                    "messageTime" to Timestamp.now(),
                     "lastSenderId" to currentUserId
                 )
 
