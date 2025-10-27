@@ -60,13 +60,16 @@ fun ChatScreen(
     // Get the other participant's ID for transaction chats
     var otherParticipantId by remember { mutableStateOf<String?>(null) }
 
+    // Determine if this is an admin chat
+    val isAdminChat = chatRoomId.startsWith("admin_chat_")
+
     LaunchedEffect(chatRoomId) {
         viewModel.getChatRoomTitle(chatRoomId) { title ->
             chatTitle = title
         }
 
-        // Get other participant ID from chat room
-        if (!chatRoomId.startsWith("admin_chat_")) {
+        // Get other participant ID for transaction chats only
+        if (!isAdminChat) {
             viewModel.getOtherParticipantId(chatRoomId) { participantId ->
                 otherParticipantId = participantId
                 Log.d("ChatScreen", "Other participant ID: $participantId")
@@ -75,15 +78,15 @@ fun ChatScreen(
     }
 
     // Set chat room and mark as read
-    LaunchedEffect(Unit) {
-        viewModel.setChatRoomId(chatRoomId)
-        viewModel.markMessagesAsRead()
+    LaunchedEffect(chatRoomId, isAdminChat) {
+        viewModel.setChatRoomId(chatRoomId, isAdminChat)
+        viewModel.markMessagesAsRead(isAdminChat)
     }
 
     // Auto-scroll to bottom
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            viewModel.markMessagesAsRead()
+            viewModel.markMessagesAsRead(isAdminChat)
             delay(100)
             coroutineScope.launch {
                 listState.animateScrollToItem(0)
@@ -101,7 +104,7 @@ fun ChatScreen(
                                 text = chatTitle,
                                 fontWeight = FontWeight.Bold
                             )
-                            if (isAdmin) {
+                            if (isAdminChat) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Surface(
                                     color = adminColor,
@@ -143,7 +146,7 @@ fun ChatScreen(
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
                     items(messages.reversed(), key = { it.timestamp }) { msg ->
-                        ChatBubble(msg, primaryColor, adminColor)
+                        ChatBubble(msg, primaryColor, adminColor, isAdminChat)
                     }
                 }
 
@@ -153,13 +156,14 @@ fun ChatScreen(
                     onMessageChange = { messageText = it },
                     onSendClick = {
                         if (messageText.isNotBlank()) {
-                            Log.d("ChatScreen", "Send clicked. ChatRoomId: $chatRoomId")
-                            if (chatRoomId.startsWith("admin_chat_")) {
+                            Log.d("ChatScreen", "Send clicked. ChatRoomId: $chatRoomId, IsAdminChat: $isAdminChat")
+
+                            if (isAdminChat) {
+                                // Admin chat - send to adminChats collection
                                 Log.d("ChatScreen", "Sending admin message")
-                                // Admin chat - use the admin flag method
-                                viewModel.sendMessage(messageText, false)
+                                viewModel.sendAdminMessage(messageText)
                             } else {
-                                // Transaction chat - send to the other participant
+                                // Transaction chat - send to chats collection
                                 val receiverId = otherParticipantId ?: ""
                                 Log.d("ChatScreen", "Sending to participant: $receiverId")
                                 if (receiverId.isNotEmpty()) {
@@ -182,10 +186,10 @@ fun ChatScreen(
 }
 
 @Composable
-fun ChatBubble(msg: ChatMessage, primaryColor: Color, adminColor: Color) {
+fun ChatBubble(msg: ChatMessage, primaryColor: Color, adminColor: Color, isAdminChat: Boolean) {
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
     val isMe = msg.senderId == currentUserId
-    val isAdmin = msg.senderId == "ADMIN"
+    val isAdmin = msg.senderId == "ADMIN" || (isAdminChat && !isMe)
 
     Row(
         modifier = Modifier
@@ -203,7 +207,11 @@ fun ChatBubble(msg: ChatMessage, primaryColor: Color, adminColor: Color) {
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = "https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}",
+                    model = if (isAdmin) {
+                        "https://api.dicebear.com/7.x/avataaars/svg?seed=admin"
+                    } else {
+                        "https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}"
+                    },
                     contentDescription = "User Avatar",
                     modifier = Modifier
                         .size(40.dp)

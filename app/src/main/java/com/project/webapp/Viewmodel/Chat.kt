@@ -24,6 +24,7 @@ class ChatViewModel : ViewModel() {
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     private var currentChatRoomId: String? = null
+    private var isCurrentChatAdmin: Boolean = false
     private var messagesListener: ListenerRegistration? = null
 
     // Function to create or get admin chat room
@@ -34,13 +35,13 @@ class ChatViewModel : ViewModel() {
         // Create a consistent chat room ID for user-admin chat
         val adminChatRoomId = "admin_chat_$currentUserId"
 
-        // Check if chat room already exists
-        firestore.collection("chats")
+        // Check if chat room already exists in adminChats collection
+        firestore.collection("adminChats")
             .document(adminChatRoomId)
             .get()
             .addOnSuccessListener { document ->
                 if (!document.exists()) {
-                    // Create new admin chat room
+                    // Create new admin chat room in adminChats collection
                     val chatRoomData = hashMapOf(
                         "id" to adminChatRoomId,
                         "participants" to listOf(currentUserId, "ADMIN"),
@@ -55,7 +56,7 @@ class ChatViewModel : ViewModel() {
                         )
                     )
 
-                    firestore.collection("chats")
+                    firestore.collection("adminChats")
                         .document(adminChatRoomId)
                         .set(chatRoomData)
                         .addOnSuccessListener {
@@ -74,15 +75,21 @@ class ChatViewModel : ViewModel() {
             }
     }
 
-    // Modified setChatRoomId function
-    fun setChatRoomId(chatRoomId: String) {
+    // Modified setChatRoomId function to handle both collections
+    fun setChatRoomId(chatRoomId: String, isAdminChat: Boolean = false) {
         // Clean up previous listener
         messagesListener?.remove()
 
         currentChatRoomId = chatRoomId
+        isCurrentChatAdmin = isAdminChat
+
+        // Determine which collection to use
+        val collectionName = if (isAdminChat) "adminChats" else "chats"
+
+        Log.d("ChatViewModel", "Setting up listener for $collectionName/$chatRoomId")
 
         // Listen to messages in the chat room
-        messagesListener = firestore.collection("chats")
+        messagesListener = firestore.collection(collectionName)
             .document(chatRoomId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -109,63 +116,76 @@ class ChatViewModel : ViewModel() {
                     }
                 }
                 _messages.value = messagesList
+                Log.d("ChatViewModel", "Loaded ${messagesList.size} messages from $collectionName")
             }
     }
 
-    // Modified sendMessage function to handle admin messages
-    fun sendMessage(messageText: String, isAdmin: Boolean = false) {
+    // NEW: Send message to admin chat (adminChats collection)
+    fun sendAdminMessage(messageText: String) {
         val currentUserId = auth.currentUser?.uid
         val chatRoomId = currentChatRoomId
 
-        if (currentUserId == null || chatRoomId == null) return
+        if (currentUserId == null || chatRoomId == null) {
+            Log.e("ChatViewModel", "Cannot send admin message: userId=$currentUserId, chatRoomId=$chatRoomId")
+            return
+        }
 
-        val senderId = if (isAdmin) "ADMIN" else currentUserId
-        val senderName = if (isAdmin) "Admin" else (auth.currentUser?.displayName ?: "User")
-
+        val senderName = auth.currentUser?.displayName ?: "User"
         val message = hashMapOf(
             "message" to messageText,
-            "senderId" to senderId,
+            "senderId" to currentUserId,
             "senderName" to senderName,
             "timestamp" to Timestamp.now(),
             "chatRoomId" to chatRoomId
         )
 
-        // Add message to chat room's messages subcollection
-        firestore.collection("chats")
+        Log.d("ChatViewModel", "Sending admin message to adminChats/$chatRoomId")
+
+        // Add message to adminChats collection
+        firestore.collection("adminChats")
             .document(chatRoomId)
             .collection("messages")
             .add(message)
             .addOnSuccessListener { documentRef ->
+                Log.d("ChatViewModel", "Admin message sent successfully")
+
                 // Update chat room's last message info
                 val updateData = hashMapOf<String, Any>(
                     "lastMessage" to messageText,
                     "lastMessageTime" to Timestamp.now(),
-                    "lastSenderId" to senderId
+                    "lastSenderId" to currentUserId
                 )
 
-                // Update unread count for the other participant
-                val otherParticipant = if (senderId == "ADMIN") currentUserId else "ADMIN"
-                updateData["unreadCount.$otherParticipant"] = FieldValue.increment(1)
+                // Update unread count for ADMIN
+                updateData["unreadCount.ADMIN"] = FieldValue.increment(1)
 
-                firestore.collection("chats")
+                firestore.collection("adminChats")
                     .document(chatRoomId)
                     .update(updateData)
             }
             .addOnFailureListener { e ->
-                Log.e("ChatViewModel", "Error sending message", e)
+                Log.e("ChatViewModel", "Error sending admin message", e)
             }
     }
 
     // Function to mark messages as read
-    fun markMessagesAsRead() {
+    fun markMessagesAsRead(isAdminChat: Boolean = false) {
         val currentUserId = auth.currentUser?.uid
         val chatRoomId = currentChatRoomId
 
         if (currentUserId == null || chatRoomId == null) return
 
-        firestore.collection("chats")
+        val collectionName = if (isAdminChat) "adminChats" else "chats"
+
+        firestore.collection(collectionName)
             .document(chatRoomId)
             .update("unreadCount.$currentUserId", 0)
+            .addOnSuccessListener {
+                Log.d("ChatViewModel", "Marked messages as read in $collectionName")
+            }
+            .addOnFailureListener { e ->
+                Log.e("ChatViewModel", "Error marking messages as read", e)
+            }
     }
 
     // Function to get unread count for admin chats
@@ -175,7 +195,7 @@ class ChatViewModel : ViewModel() {
 
         val adminChatRoomId = "admin_chat_$currentUserId"
 
-        firestore.collection("chats")
+        firestore.collection("adminChats")
             .document(adminChatRoomId)
             .addSnapshotListener { document, error ->
                 if (error != null) {
@@ -206,7 +226,7 @@ class ChatViewModel : ViewModel() {
         val sortedIds = listOf(user1Id, user2Id).sorted()
         val transactionChatRoomId = "transaction_chat_${sortedIds[0]}_${sortedIds[1]}_$notificationId"
 
-        // Check if chat room already exists
+        // Check if chat room already exists in chats collection
         firestore.collection("chats")
             .document(transactionChatRoomId)
             .get()
@@ -240,53 +260,19 @@ class ChatViewModel : ViewModel() {
             }
     }
 
-    // Modified sendMessage to handle transaction chats
-    fun sendMessage(messageText: String, chatRoomId: String, receiverId: String) {
-        val currentUserId = auth.currentUser?.uid
-        if (currentUserId == null) return
-
-        val senderName = auth.currentUser?.displayName ?: "User"
-        val message = hashMapOf(
-            "message" to messageText,
-            "senderId" to currentUserId,
-            "senderName" to senderName,
-            "timestamp" to Timestamp.now(),
-            "chatRoomId" to chatRoomId
-        )
-
-        // Add message
-        firestore.collection("chats")
-            .document(chatRoomId)
-            .collection("messages")
-            .add(message)
-            .addOnSuccessListener { documentRef ->
-                // Update chat room
-                val updateData = hashMapOf<String, Any>(
-                    "lastMessage" to messageText,
-                    "lastMessageTime" to Timestamp.now(),
-                    "lastSenderId" to currentUserId
-                )
-                updateData["unreadCount.$receiverId"] = FieldValue.increment(1)
-
-                firestore.collection("chats")
-                    .document(chatRoomId)
-                    .update(updateData)
-            }
-            .addOnFailureListener { e ->
-                Log.e("ChatViewModel", "Error sending message", e)
-            }
-    }
-
-    // Get chat room participants for display
+    // Get chat room title for display
     fun getChatRoomTitle(chatRoomId: String, onTitleReady: (String) -> Unit) {
-        firestore.collection("chats")
+        val isAdminChat = chatRoomId.startsWith("admin_chat_")
+        val collectionName = if (isAdminChat) "adminChats" else "chats"
+
+        firestore.collection(collectionName)
             .document(chatRoomId)
             .get()
             .addOnSuccessListener { document ->
                 val type = document.getString("type") ?: ""
                 val participants = document.get("participants") as? List<String> ?: emptyList()
 
-                if (type == "admin_support") {
+                if (type == "admin_support" || isAdminChat) {
                     onTitleReady("Admin Support")
                     return@addOnSuccessListener
                 }
@@ -312,9 +298,11 @@ class ChatViewModel : ViewModel() {
             }
     }
 
-    // NEW: Get the other participant's ID from chat room
+    // Get the other participant's ID from chat room (for transaction chats only)
     fun getOtherParticipantId(chatRoomId: String, callback: (String) -> Unit) {
         Log.d("ChatViewModel", "Getting other participant for chatRoom: $chatRoomId")
+
+        // Transaction chats are in "chats" collection
         firestore.collection("chats")
             .document(chatRoomId)
             .get()
@@ -342,7 +330,7 @@ class ChatViewModel : ViewModel() {
             }
     }
 
-    // NEW: Simplified method for sending messages to participants
+    // Send message to transaction chat (chats collection)
     fun sendMessageToParticipant(messageText: String, receiverId: String) {
         val currentUserId = auth.currentUser?.uid
         val chatRoomId = currentChatRoomId
@@ -361,13 +349,15 @@ class ChatViewModel : ViewModel() {
             "chatRoomId" to chatRoomId
         )
 
-        // Add message
+        Log.d("ChatViewModel", "Sending transaction message to chats/$chatRoomId")
+
+        // Add message to chats collection
         firestore.collection("chats")
             .document(chatRoomId)
             .collection("messages")
             .add(message)
             .addOnSuccessListener { documentRef ->
-                Log.d("ChatViewModel", "Message sent successfully")
+                Log.d("ChatViewModel", "Transaction message sent successfully")
 
                 // Update chat room
                 val updateData = hashMapOf<String, Any>(
@@ -382,7 +372,7 @@ class ChatViewModel : ViewModel() {
                     .update(updateData)
             }
             .addOnFailureListener { e ->
-                Log.e("ChatViewModel", "Error sending message", e)
+                Log.e("ChatViewModel", "Error sending transaction message", e)
             }
     }
 }
