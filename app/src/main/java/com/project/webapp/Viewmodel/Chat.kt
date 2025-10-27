@@ -170,7 +170,7 @@ class ChatViewModel : ViewModel() {
         val message = hashMapOf(
             "message" to messageText,
             "senderId" to currentUserId,
-            "senderName" to senderName,
+            "userName" to senderName,
             "timestamp" to Timestamp.now(),
             "chatRoomId" to chatRoomId
         )
@@ -189,7 +189,7 @@ class ChatViewModel : ViewModel() {
                 val updateData = hashMapOf<String, Any>(
                     "message" to messageText,
                     "messageTime" to Timestamp.now(),
-                    "lastSenderId" to currentUserId
+                    "userId" to currentUserId
                 )
 
                 // Update unread count for ADMIN
