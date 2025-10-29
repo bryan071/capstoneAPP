@@ -339,7 +339,6 @@ fun NotificationItem(
     primaryColor: Color,
     chatViewModel: ChatViewModel // ADD THIS PARAMETER
 ) {
-    // ... (keep all your existing code)
 
     val notificationType = notification["type"] as? String ?: "product_added"
     val imageUrl = notification["imageUrl"] as? String ?: ""
@@ -718,20 +717,25 @@ fun NotificationDetailsDialog(
 
     // Determine notification icon and color based on type
     val (dialogIcon, dialogTitle, dialogColor) = when (notificationType) {
-        "product_sold" -> Triple(
+        "product_sold", "purchase_confirmed" -> Triple(
             Icons.Default.ShoppingCart,
-            "Sale Details",
-            Color(0xFF0DA54B) // Blue for sales
+            "Purchase Details",
+            Color(0xFF2196F3) // Blue for purchases
         )
-        "product_donated" -> Triple(
+        "product_donated", "donation_made" -> Triple(
             Icons.Default.Favorite,
             "Donation Details",
             Color(0xFFE91E63) // Pink for donations
         )
+        "product_added" -> Triple(
+            Icons.Default.Notifications,
+            "New Product",
+            Color(0xFF0DA54B)
+        )
         else -> Triple(
-            Icons.Default.ShoppingCart,
-            "Product Details",
-            primaryColor // Default green for new products
+            Icons.Default.Notifications,
+            "Notification",
+            primaryColor
         )
     }
 
@@ -950,8 +954,9 @@ fun NotificationDetailsDialog(
                         Text(
                             text = when (notificationType) {
                                 "product_added" -> "Product Information"
-                                "product_sold" -> "Sale Information"
-                                else -> "Donation Information"
+                                "product_sold", "purchase_confirmed" -> "Purchase Information"
+                                "product_donated", "donation_made" -> "Donation Information"
+                                else -> "Notification Details"
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
@@ -986,8 +991,10 @@ fun NotificationDetailsDialog(
                         val (labelText, nameValue) = when (notificationType) {
                             "product_added" -> "Posted by" to ownerName
                             "product_sold" -> "Seller" to ownerName
-                            "product_donated" -> "Donated by" to (buyerName.ifEmpty { "Unknown Donor" })
-                            else -> "Posted by" to ownerName
+                            "purchase_confirmed" -> "Purchased by" to ownerName
+                            "product_donated" -> "Donated by" to buyerName
+                            "donation_made" -> "Donated to" to (organizationName ?: "Unknown Organization")
+                            else -> "User" to ownerName
                         }
 
                         DetailRow(
@@ -1000,17 +1007,28 @@ fun NotificationDetailsDialog(
                         when (notificationType) {
                             "product_sold" -> {
                                 DetailRow(
-                                    icon = Icons.Default.ShoppingCart,
+                                    icon = Icons.Default.Person,
                                     label = "Buyer",
                                     value = buyerName,
                                     primaryColor = dialogColor
                                 )
+                            }
+                            "purchase_confirmed" -> {
+
                             }
                             "product_donated" -> {
                                 DetailRow(
                                     icon = Icons.Default.Favorite,
                                     label = "Donated to",
                                     value = organizationName ?: "Unknown Organization",
+                                    primaryColor = dialogColor
+                                )
+                            }
+                            "donation_made" -> {
+                                DetailRow(
+                                    icon = Icons.Default.Person,
+                                    label = "From",
+                                    value = ownerName,
                                     primaryColor = dialogColor
                                 )
                             }

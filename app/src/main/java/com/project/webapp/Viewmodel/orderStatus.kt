@@ -33,24 +33,20 @@ fun createOrderRecord(
 ) {
     val firestore = FirebaseFirestore.getInstance()
     val orderId = UUID.randomUUID().toString()
-    val currentTimestamp = Timestamp.now() // Use Firebase Timestamp instead of Long
+    val currentTimestamp = Timestamp.now()
 
-    // Add debug logs to trace the items being saved
-    Log.d("OrderDebug", "Creating order for payment method: $paymentMethod")
-    Log.d("OrderDebug", "Items count: ${items.size}")
-
-    // Detailed logging of each item
-    items.forEachIndexed { index, item ->
-        Log.d("OrderDebug", "Item $index: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}")
-    }
-
-    // Check if we have items to process
     if (items.isEmpty()) {
         Log.e("Order", "No items to purchase!")
         return
     }
 
-    // Map items and ensure seller names are fetched correctly
+    // Extract ownerId from first item (all items should have same seller)
+    val ownerId = items.firstOrNull()?.sellerId ?: ""
+    if (ownerId.isEmpty()) {
+        Log.e("Order", "Missing sellerId in CartItem!")
+        return
+    }
+
     val orderItems = items.map { item ->
         mapOf(
             "productId" to item.productId,
@@ -58,17 +54,14 @@ fun createOrderRecord(
             "price" to item.price,
             "quantity" to item.quantity,
             "imageUrl" to item.imageUrl,
-            "sellerName" to item.sellerId
+            "sellerId" to item.sellerId
         )
     }
 
-    // Log the mapped items to ensure they're correctly transformed
-    Log.d("OrderDebug", "Mapped ${orderItems.size} items for order record")
-
-    // Create the order data
-    val orderData = hashMapOf(
+    val orderData = hashMapOf<String, Any>(
         "orderId" to orderId,
         "buyerId" to userId,
+        "ownerId" to ownerId,                    // THIS LINE ADDED
         "items" to orderItems,
         "status" to OrderStatus.PAYMENT_RECEIVED.name,
         "paymentMethod" to paymentMethod,
@@ -79,15 +72,14 @@ fun createOrderRecord(
         "estimatedDelivery" to Timestamp(calculateEstimatedDelivery(currentTimestamp.toDate().time))
     )
 
-    // Add the order to Firestore
     firestore.collection("orders").document(orderId)
         .set(orderData)
         .addOnSuccessListener {
-            Log.d("Order", "Order record created successfully with ID: $orderId")
+            Log.d("Order", "Order created: $orderId, ownerId: $ownerId")
             createOrderStatusHistory(orderId, OrderStatus.PAYMENT_RECEIVED.name, currentTimestamp)
         }
         .addOnFailureListener { e ->
-            Log.e("Order", "Error creating order record", e)
+            Log.e("Order", "Error creating order", e)
         }
 }
 
