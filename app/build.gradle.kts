@@ -19,7 +19,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Add this for Phone Authentication
+        // For Phone Authentication
         manifestPlaceholders["appAuthRedirectScheme"] = "com.project.webapp"
 
         // GCash API credentials
@@ -28,7 +28,7 @@ android {
         buildConfigField("String", "GCASH_MERCHANT_ID", "\"your_gcash_merchant_id_here\"")
     }
 
-    // Add signing configs for proper SHA fingerprint
+    // ✅ Add signing configs for proper SHA fingerprint
     signingConfigs {
         getByName("debug") {
             storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
@@ -36,22 +36,24 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
-        // Uncomment and configure for release build
-        // create("release") {
-        //     storeFile = file("path/to/your/release.keystore")
-        //     storePassword = "your_store_password"
-        //     keyAlias = "your_key_alias"
-        //     keyPassword = "your_key_password"
-        // }
+
+        // ✅ Release signing configuration (custom keystore)
+        create("release") {
+            storeFile = file("E:/fa/farmAid.jks") // 🔹 Path to your keystore
+            storePassword = "123456"
+            keyAlias = "fakey"
+            keyPassword = "123456"
+        }
     }
 
     buildTypes {
-        debug {
+        getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
         }
-        release {
+
+        getByName("release") {
             isMinifyEnabled = false
-            // signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("release") // ✅ Enable release signing
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -73,13 +75,14 @@ android {
         buildConfig = true
     }
 
-    // Add this to avoid duplicate classes
+    // Avoid duplicate class packaging issues
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
 }
+
 
 dependencies {
 
