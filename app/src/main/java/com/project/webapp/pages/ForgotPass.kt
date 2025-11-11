@@ -908,18 +908,11 @@ object PhoneVerificationManager {
 
         Log.d(TAG, "Checking phone number: $phoneNumber")
 
-        // Create list of possible phone number formats
-        val phoneFormats = listOf(
-            phoneNumber,                           // +639XXXXXXXXX
-            phoneNumber.removePrefix("+63"),       // 9XXXXXXXXX
-            phoneNumber.removePrefix("+"),         // 639XXXXXXXXX
-            "0${phoneNumber.removePrefix("+63")}", // 09XXXXXXXXX
-            phoneNumber.replace("+63", "63")       // 639XXXXXXXXX (no plus)
-        )
+        // Normalize the input phone number to compare
+        val normalizedInput = normalizePhoneNumber(phoneNumber)
+        Log.d(TAG, "Normalized input: $normalizedInput")
 
-        Log.d(TAG, "Searching for formats: $phoneFormats")
-
-        // Get all users and check manually (more flexible)
+        // Get all users and check manually
         firestore.collection("users")
             .get()
             .addOnSuccessListener { querySnapshot ->
@@ -927,14 +920,22 @@ object PhoneVerificationManager {
 
                 for (document in querySnapshot.documents) {
                     val storedPhone = document.getString("phoneNumber")
-                    Log.d(TAG, "Checking against stored: $storedPhone")
+                    val storedContact = document.getString("contact") // Also check contact field
 
-                    // Normalize both numbers for comparison
+                    Log.d(TAG, "Document ${document.id}:")
+                    Log.d(TAG, "  - phoneNumber: $storedPhone")
+                    Log.d(TAG, "  - contact: $storedContact")
+
+                    // Normalize stored numbers
                     val normalizedStored = normalizePhoneNumber(storedPhone)
-                    val normalizedInput = normalizePhoneNumber(phoneNumber)
+                    val normalizedContact = normalizePhoneNumber(storedContact)
 
-                    if (normalizedStored == normalizedInput) {
-                        Log.d(TAG, "Match found! User: ${document.id}")
+                    Log.d(TAG, "  - Normalized phoneNumber: $normalizedStored")
+                    Log.d(TAG, "  - Normalized contact: $normalizedContact")
+
+                    // Check against both fields
+                    if (normalizedInput == normalizedStored || normalizedInput == normalizedContact) {
+                        Log.d(TAG, "✓ Match found! User: ${document.id}")
                         foundUser = true
                         sendOtp(phoneNumber, auth, activity, onSuccess, onError)
                         break
@@ -942,7 +943,7 @@ object PhoneVerificationManager {
                 }
 
                 if (!foundUser) {
-                    Log.e(TAG, "No matching phone number found")
+                    Log.e(TAG, "No matching phone number found for normalized: $normalizedInput")
                     onError("This phone number is not registered. Please check your number or sign up.")
                 }
             }
@@ -952,24 +953,48 @@ object PhoneVerificationManager {
             }
     }
 
+    /**
+     * Normalizes phone number to 10-digit format starting with 9
+     * Examples:
+     * - "+639524876509" -> "9524876509"
+     * - "09524876509" -> "9524876509"
+     * - "639524876509" -> "9524876509"
+     * - "9524876509" -> "9524876509"
+     */
     private fun normalizePhoneNumber(phone: String?): String {
-        if (phone == null) return ""
+        if (phone.isNullOrBlank()) return ""
 
         // Remove all non-digit characters
         val digitsOnly = phone.replace(Regex("[^0-9]"), "")
 
+        Log.d(TAG, "Normalizing '$phone' -> digits: '$digitsOnly'")
+
         // Normalize to 10 digits (9XXXXXXXXX format)
-        return when {
-            digitsOnly.startsWith("639") && digitsOnly.length == 12 -> digitsOnly.substring(2) // 639XXXXXXXXX -> 9XXXXXXXXX
-            digitsOnly.startsWith("63") && digitsOnly.length == 11 -> digitsOnly.substring(1)  // 639XXXXXXXX -> 9XXXXXXXX
-            digitsOnly.startsWith("09") && digitsOnly.length == 11 -> digitsOnly.substring(1)  // 09XXXXXXXXX -> 9XXXXXXXXX
-            digitsOnly.startsWith("9") && digitsOnly.length == 10 -> digitsOnly                // 9XXXXXXXXX (correct)
-            digitsOnly.startsWith("0") && digitsOnly.length == 10 -> "9${digitsOnly.substring(1)}" // Handle 0XXXXXXXXX
+        val normalized = when {
+            // +639XXXXXXXXX (13 chars) or 639XXXXXXXXX (12 chars)
+            digitsOnly.startsWith("639") && digitsOnly.length >= 12 -> {
+                digitsOnly.substring(2, 12) // Take 10 digits after "63"
+            }
+            // 09XXXXXXXXX (11 chars) - common in Philippines
+            digitsOnly.startsWith("09") && digitsOnly.length == 11 -> {
+                digitsOnly.substring(1) // Remove leading 0
+            }
+            // 9XXXXXXXXX (10 chars) - already in correct format
+            digitsOnly.startsWith("9") && digitsOnly.length == 10 -> {
+                digitsOnly
+            }
+            // Edge case: 63 followed by 9 digits
+            digitsOnly.startsWith("63") && digitsOnly.length == 11 -> {
+                digitsOnly.substring(1) // Remove "6", keep "39XXXXXXXX"
+            }
             else -> {
                 Log.w(TAG, "Unhandled phone format: $phone (digits: $digitsOnly)")
                 digitsOnly // Return as-is if doesn't match patterns
             }
         }
+
+        Log.d(TAG, "Result: '$normalized'")
+        return normalized
     }
 
     private fun sendOtp(
@@ -1005,27 +1030,33 @@ object PhoneVerificationManager {
             }
         }
 
-        // Ensure phone number is in correct format for Firebase (+639XXXXXXXXX)
-        val formattedPhone = if (phoneNumber.startsWith("+")) {
-            phoneNumber
-        } else if (phoneNumber.startsWith("09")) {
-            "+63${phoneNumber.substring(1)}"
-        } else if (phoneNumber.startsWith("9")) {
-            "+63$phoneNumber"
-        } else {
-            phoneNumber
-        }
-
+        // Ensure phone number is in Firebase format (+63XXXXXXXXXX)
+        val formattedPhone = formatForFirebase(phoneNumber)
         Log.d(TAG, "Sending OTP to: $formattedPhone")
 
         val options = PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(formattedPhone.trim())
+            .setPhoneNumber(formattedPhone)
             .setTimeout(60L, TimeUnit.SECONDS)
             .setActivity(activity)
             .setCallbacks(callbacks)
             .build()
 
         PhoneAuthProvider.verifyPhoneNumber(options)
+    }
+
+    /**
+     * Formats phone number for Firebase Authentication (+63XXXXXXXXXX)
+     */
+    private fun formatForFirebase(phoneNumber: String): String {
+        val digitsOnly = phoneNumber.replace(Regex("[^0-9]"), "")
+
+        return when {
+            phoneNumber.startsWith("+63") -> phoneNumber
+            digitsOnly.startsWith("639") -> "+$digitsOnly"
+            digitsOnly.startsWith("09") -> "+63${digitsOnly.substring(1)}"
+            digitsOnly.startsWith("9") -> "+63$digitsOnly"
+            else -> phoneNumber
+        }
     }
 
     fun resendOTP(
@@ -1055,8 +1086,9 @@ object PhoneVerificationManager {
             }
         }
 
+        val formattedPhone = formatForFirebase(phoneNumber)
         val optionsBuilder = PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(phoneNumber.trim())
+            .setPhoneNumber(formattedPhone)
             .setTimeout(60L, TimeUnit.SECONDS)
             .setActivity(activity)
             .setCallbacks(callbacks)
