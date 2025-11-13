@@ -7,39 +7,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.Divider
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,7 +35,11 @@ import com.project.webapp.popup.Privacy
 import com.project.webapp.popup.Terms
 
 @Composable
-fun Register(modifier: Modifier = Modifier, navController: NavController, authViewModel: AuthViewModel = viewModel()) {
+fun Register(
+    modifier: Modifier = Modifier,
+    navController: NavController,
+    authViewModel: AuthViewModel = viewModel()
+) {
     // State variables
     var firstname by remember { mutableStateOf("") }
     var lastname by remember { mutableStateOf("") }
@@ -73,15 +51,15 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
     var termsChecked by remember { mutableStateOf(false) }
     var privacyChecked by remember { mutableStateOf(false) }
     var userType by remember { mutableStateOf("") }
+    var certificateUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Define colors
+    // Colors
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF5F5F5)
     val cardColor = Color.White
 
-    var authState = authViewModel.authState.observeAsState()
+    val authState by authViewModel.authState.observeAsState()
     val context = LocalContext.current
-    var certificateUri by remember { mutableStateOf<Uri?>(null) }
 
     val certificatePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -89,27 +67,19 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
         certificateUri = uri
     }
 
-    LaunchedEffect(authState.value) {
-        when (val state = authState.value) {
+    // Simplified authentication state handling
+    LaunchedEffect(authState) {
+        when (val state = authState) {
             is AuthState.Authenticated -> {
-                val userId = authViewModel.auth.currentUser?.uid
-                userId?.let {
-                    authViewModel.firestore.collection("users").document(it).get()
-                        .addOnSuccessListener { document ->
-                            val userType = document.getString("userType")
-                            if (userType.isNullOrEmpty()) {
-                                Toast.makeText(context, "User type not found", Toast.LENGTH_SHORT).show()
-                            } else {
-                                when (userType) {
-                                    "Farmer" -> navController.navigate(Route.FARMER_DASHBOARD)
-                                    "Market" -> navController.navigate(Route.FARMER_DASHBOARD)
-                                    else -> Toast.makeText(context, "Invalid user type", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                        .addOnFailureListener {
-                            Toast.makeText(context, "Failed to fetch user data", Toast.LENGTH_SHORT).show()
-                        }
+                // Navigate immediately based on stored userType
+                when (userType) {
+                    "Farmer", "Market" -> navController.navigate(Route.FARMER_DASHBOARD) {
+                        popUpTo(Route.REGISTER) { inclusive = true }
+                    }
+                    "Business", "Household" -> navController.navigate(Route.FARMER_DASHBOARD) {
+                        popUpTo(Route.REGISTER) { inclusive = true }
+                    }
+                    else -> Toast.makeText(context, "Registration successful", Toast.LENGTH_SHORT).show()
                 }
             }
             is AuthState.Error -> {
@@ -135,10 +105,8 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
             // Logo and Tagline
             Image(
                 painter = painterResource(id = R.drawable.logo),
-                contentDescription = "login image",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .size(80.dp)
+                contentDescription = "App logo",
+                modifier = Modifier.size(80.dp)
             )
 
             Text(
@@ -173,12 +141,12 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                         color = primaryColor
                     )
 
-                    Divider(
+                    HorizontalDivider(
                         modifier = Modifier
                             .padding(vertical = 12.dp)
                             .width(100.dp)
-                            .height(2.dp)
-                            .background(primaryColor)
+                            .height(2.dp),
+                        color = primaryColor
                     )
 
                     // Form Fields
@@ -188,8 +156,9 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = firstname,
                         onValueChange = { firstname = it },
-                        label = { Text(text = "First Name") },
-                        shape = RoundedCornerShape(8.dp)
+                        label = { Text("First Name") },
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
 
                     OutlinedTextField(
@@ -198,8 +167,9 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = lastname,
                         onValueChange = { lastname = it },
-                        label = { Text(text = "Last Name") },
-                        shape = RoundedCornerShape(8.dp)
+                        label = { Text("Last Name") },
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
 
                     OutlinedTextField(
@@ -208,8 +178,9 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = email,
                         onValueChange = { email = it },
-                        label = { Text(text = "Email Address") },
-                        shape = RoundedCornerShape(8.dp)
+                        label = { Text("Email Address") },
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
 
                     OutlinedTextField(
@@ -218,7 +189,7 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = address,
                         onValueChange = { address = it },
-                        label = { Text(text = "Address") },
+                        label = { Text("Address") },
                         shape = RoundedCornerShape(8.dp)
                     )
 
@@ -228,18 +199,18 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = phoneNumber,
                         onValueChange = { input ->
-                            // Ensure it starts with +63
-                            if (input.length >= 3 && input.startsWith("+63")) {
-                                val digitsOnly = input.substring(3).filter { it.isDigit() } // Remove non-numeric characters
-                                if (digitsOnly.length <= 10) { // Limit to 10 digits after +63
+                            if (input.startsWith("+63")) {
+                                val digitsOnly = input.substring(3).filter { it.isDigit() }
+                                if (digitsOnly.length <= 10) {
                                     phoneNumber = "+63$digitsOnly"
                                 }
                             } else {
-                                phoneNumber = "+63" // Reset if invalid
+                                phoneNumber = "+63"
                             }
                         },
-                        label = { Text(text = "Contact Number (e.g., +639123456789)") },
-                        shape = RoundedCornerShape(8.dp)
+                        label = { Text("Contact Number (e.g., +639123456789)") },
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
 
                     OutlinedTextField(
@@ -248,9 +219,10 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text(text = "Password") },
+                        label = { Text("Password") },
                         visualTransformation = PasswordVisualTransformation(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
 
                     OutlinedTextField(
@@ -259,110 +231,24 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .padding(vertical = 6.dp),
                         value = confirmpass,
                         onValueChange = { confirmpass = it },
-                        label = { Text(text = "Confirm Password") },
+                        label = { Text("Confirm Password") },
                         visualTransformation = PasswordVisualTransformation(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // User Type Selection Card
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF6EE)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                text = "Select User Type:",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = primaryColor,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
+                    // User Type Selection
+                    UserTypeSelector(
+                        selectedType = userType,
+                        onTypeSelected = { userType = it },
+                        primaryColor = primaryColor
+                    )
 
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly
-                                ) {
-                                    // Farmer option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (userType == "Farmer") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
-                                            .padding(8.dp)
-                                            .clickable { userType = "Farmer" }
-                                    ) {
-                                        RadioButton(
-                                            selected = userType == "Farmer",
-                                            onClick = { userType = "Farmer" },
-                                            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
-                                        )
-                                        Text("Farmer", fontSize = 14.sp)
-                                    }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    // Business option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (userType == "Business") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
-                                            .padding(8.dp)
-                                            .clickable { userType = "Business" }
-                                    ) {
-                                        RadioButton(
-                                            selected = userType == "Business",
-                                            onClick = { userType = "Business" },
-                                            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
-                                        )
-                                        Text("Business", fontSize = 14.sp)
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    // Household option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (userType == "Household") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
-                                            .padding(8.dp)
-                                            .clickable { userType = "Household" }
-                                    ) {
-                                        RadioButton(
-                                            selected = userType == "Household",
-                                            onClick = { userType = "Household" },
-                                            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
-                                        )
-                                        Text("Household", fontSize = 14.sp)
-                                    }
-
-                                    // Empty space to center the Household option
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Certificate Upload
                     Text(
                         text = "Upload Certificate or ID",
                         fontWeight = FontWeight.Medium,
@@ -378,7 +264,10 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                             .fillMaxWidth()
                             .padding(vertical = 6.dp)
                     ) {
-                        Text(text = if (certificateUri != null) "Change File" else "Choose File")
+                        Text(
+                            text = if (certificateUri != null) "Change File" else "Choose File",
+                            color = Color.Black
+                        )
                     }
 
                     certificateUri?.let {
@@ -401,17 +290,15 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                     )
 
                     TermsAndCondition(
-                        "Accept Terms & Conditions",
-                        termsChecked,
-                        { termsChecked = it },
-                        primaryColor
+                        isChecked = termsChecked,
+                        onCheckedChange = { termsChecked = it },
+                        primaryColor = primaryColor
                     )
 
                     DataPrivacy(
-                        "Data Privacy Consent",
-                        privacyChecked,
-                        { privacyChecked = it },
-                        primaryColor
+                        isChecked = privacyChecked,
+                        onCheckedChange = { privacyChecked = it },
+                        primaryColor = primaryColor
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -419,44 +306,89 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
                     // Register Button
                     Button(
                         onClick = {
-                            if (!termsChecked || !privacyChecked) {
-                                Toast.makeText(context, "You must accept the terms and privacy policy", Toast.LENGTH_SHORT).show()
-                            } else if (userType.isEmpty()) {
-                                Toast.makeText(context, "Please select a user type", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val formattedPhone = formatPhoneNumber(phoneNumber)
-
-                                if (password != confirmpass) {
-                                    Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
-                                } else if (password.length < 6) {
-                                    Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
-                                } else if (firstname.isEmpty() || lastname.isEmpty() || email.isEmpty() || address.isEmpty()) {
-                                    Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    authViewModel.signup(email, password, firstname, lastname, address, formattedPhone, userType, confirmpass, certificateUri, context)
+                            when {
+                                !termsChecked || !privacyChecked -> {
+                                    Toast.makeText(
+                                        context,
+                                        "You must accept the terms and privacy policy",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                userType.isEmpty() -> {
+                                    Toast.makeText(
+                                        context,
+                                        "Please select a user type",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                firstname.isBlank() || lastname.isBlank() ||
+                                        email.isBlank() || address.isBlank() -> {
+                                    Toast.makeText(
+                                        context,
+                                        "Please fill in all fields",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                password != confirmpass -> {
+                                    Toast.makeText(
+                                        context,
+                                        "Passwords do not match",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                password.length < 6 -> {
+                                    Toast.makeText(
+                                        context,
+                                        "Password must be at least 6 characters",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                else -> {
+                                    val formattedPhone = formatPhoneNumber(phoneNumber)
+                                    authViewModel.signup(
+                                        email = email,
+                                        password = password,
+                                        firstname = firstname,
+                                        lastname = lastname,
+                                        address = address,
+                                        phoneNumber = formattedPhone,
+                                        userType = userType,
+                                        confirmpass = confirmpass,
+                                        certificateUri = certificateUri,
+                                        context = context
+                                    )
                                 }
                             }
                         },
-                        enabled = authState.value != AuthState.Loading,
+                        enabled = authState != AuthState.Loading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                         shape = RoundedCornerShape(25.dp)
                     ) {
-                        Text(
-                            text = "Register",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (authState == AuthState.Loading) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = "Register",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
-                    if (authState.value is AuthState.Error) {
+                    if (authState is AuthState.Error) {
                         Text(
-                            text = (authState.value as AuthState.Error).message,
-                            color = Color.Red,
+                            text = (authState as AuthState.Error).message,
+                            color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(top = 8.dp),
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp
                         )
                     }
 
@@ -479,8 +411,83 @@ fun Register(modifier: Modifier = Modifier, navController: NavController, authVi
 }
 
 @Composable
+fun UserTypeSelector(
+    selectedType: String,
+    onTypeSelected: (String) -> Unit,
+    primaryColor: Color
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF6EE)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "Select User Type:",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = primaryColor,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                UserTypeOption("Farmer", selectedType, onTypeSelected, primaryColor)
+                Spacer(modifier = Modifier.width(8.dp))
+                UserTypeOption("Business", selectedType, onTypeSelected, primaryColor)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                UserTypeOption("Household", selectedType, onTypeSelected, primaryColor)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+fun RowScope.UserTypeOption(
+    type: String,
+    selectedType: String,
+    onTypeSelected: (String) -> Unit,
+    primaryColor: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selectedType == type) primaryColor.copy(alpha = 0.2f)
+                else Color.Transparent
+            )
+            .padding(8.dp)
+            .clickable { onTypeSelected(type) }
+    ) {
+        RadioButton(
+            selected = selectedType == type,
+            onClick = { onTypeSelected(type) },
+            colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
+        )
+        Text(type, fontSize = 14.sp)
+    }
+}
+
+@Composable
 fun TermsAndCondition(
-    label: String,
     isChecked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     primaryColor: Color
@@ -511,7 +518,6 @@ fun TermsAndCondition(
             text = "I have read and agree to the Terms and Conditions",
             fontSize = 14.sp,
             modifier = Modifier
-                .fillMaxWidth()
                 .weight(1f)
                 .clickable { showDialog = true }
         )
@@ -520,7 +526,6 @@ fun TermsAndCondition(
 
 @Composable
 fun DataPrivacy(
-    label: String,
     isChecked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     primaryColor: Color
@@ -551,7 +556,6 @@ fun DataPrivacy(
             text = "I consent to the collection and processing of my data as described in the Privacy Policy",
             fontSize = 14.sp,
             modifier = Modifier
-                .fillMaxWidth()
                 .weight(1f)
                 .clickable { showDialog = true }
         )
@@ -563,7 +567,7 @@ fun formatPhoneNumber(input: String): String {
 
     return when {
         cleaned.startsWith("+63") -> cleaned
-        cleaned.startsWith("09") -> "+63" + cleaned.removePrefix("0")
+        cleaned.startsWith("09") -> "+63${cleaned.removePrefix("0")}"
         else -> "+63"
     }
 }

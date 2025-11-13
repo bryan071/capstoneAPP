@@ -106,6 +106,7 @@ class CartViewModel : ViewModel() {
 
     fun loadCartItems() {
         val uid = userId ?: run {
+            Log.e("CartViewModel", "User not logged in")
             _isCartLoading.value = false
             _cartLoadError.value = "User not logged in"
             _cartItems.value = emptyList()
@@ -113,12 +114,16 @@ class CartViewModel : ViewModel() {
             return
         }
 
+        Log.d("CartViewModel", "Loading cart items for user: $uid")
         _isCartLoading.value = true
         _cartLoadError.value = null
 
-        firestore.collection("carts").document(uid).collection("items")
+        firestore.collection("carts")
+            .document(uid)
+            .collection("items")
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
+                    Log.e("CartViewModel", "Error loading cart: ${e.message}", e)
                     _isCartLoading.value = false
                     _cartLoadError.value = e.message
                     _cartItems.value = emptyList()
@@ -126,30 +131,55 @@ class CartViewModel : ViewModel() {
                     return@addSnapshotListener
                 }
 
+                Log.d("CartViewModel", "Snapshot received: ${snapshot?.documents?.size ?: 0} documents")
+
                 viewModelScope.launch {
                     val invalidDocs = mutableListOf<com.google.firebase.firestore.DocumentReference>()
                     val items = snapshot?.documents?.mapNotNull { doc ->
-                        val cartItem = doc.toObject(CartItem::class.java)
-                        if (cartItem != null) {
-                            if (cartItem.productId.isEmpty()) {
-                                cartItem.productId = doc.id
-                                doc.reference.update("productId", doc.id)
-                            }
+                        try {
+                            Log.d("CartViewModel", "Processing document: ${doc.id}")
+                            Log.d("CartViewModel", "Document data: ${doc.data}")
 
-                            if (cartItem.price <= 0 || cartItem.quantity <= 0 || cartItem.productId.isEmpty()) {
-                                invalidDocs.add(doc.reference)
-                                null
+                            val cartItem = doc.toObject(CartItem::class.java)
+
+                            if (cartItem != null) {
+                                // Ensure productId is set
+                                if (cartItem.productId.isEmpty()) {
+                                    cartItem.productId = doc.id
+                                    doc.reference.update("productId", doc.id)
+                                }
+
+                                // Validate cart item
+                                if (cartItem.price <= 0 || cartItem.quantity <= 0 || cartItem.productId.isEmpty()) {
+                                    Log.w("CartViewModel", "Invalid cart item: $cartItem")
+                                    invalidDocs.add(doc.reference)
+                                    null
+                                } else {
+                                    Log.d("CartViewModel", "Valid cart item: ${cartItem.name}")
+                                    cartItem
+                                }
                             } else {
-                                cartItem
+                                Log.w("CartViewModel", "Failed to parse document ${doc.id}")
+                                null
                             }
-                        } else null
+                        } catch (ex: Exception) {
+                            Log.e("CartViewModel", "Error parsing cart item: ${ex.message}", ex)
+                            null
+                        }
                     } ?: emptyList()
+
+                    Log.d("CartViewModel", "Loaded ${items.size} valid cart items")
 
                     // Remove invalid items
                     if (invalidDocs.isNotEmpty()) {
-                        val batch = firestore.batch()
-                        invalidDocs.forEach { batch.delete(it) }
-                        batch.commit().await()
+                        try {
+                            val batch = firestore.batch()
+                            invalidDocs.forEach { batch.delete(it) }
+                            batch.commit().await()
+                            Log.d("CartViewModel", "Removed ${invalidDocs.size} invalid items")
+                        } catch (ex: Exception) {
+                            Log.e("CartViewModel", "Error removing invalid items: ${ex.message}", ex)
+                        }
                     }
 
                     _cartItems.value = items
@@ -176,6 +206,8 @@ class CartViewModel : ViewModel() {
 
                     val finalTotal = baseTotal * (1 - discount)
                     _totalCartPrice.value = finalTotal
+
+                    Log.d("CartViewModel", "Total price: $finalTotal (discount: ${discount * 100}%)")
 
                     _isCartLoading.value = false
                 }
@@ -204,7 +236,11 @@ class CartViewModel : ViewModel() {
     }
 
     fun addToCart(product: Product, userType: String, navController: NavController) {
-        val uid = userId ?: return
+        val uid = userId ?: run {
+            Log.e("CartViewModel", "User ID is null")
+            return
+        }
+
         triggerCartShake()
 
         if (userType == "direct_buying") {
@@ -214,13 +250,28 @@ class CartViewModel : ViewModel() {
         }
 
         viewModelScope.launch {
-            val cartRef = firestore.collection("carts").document(uid).collection("items").document(product.prodId)
+            val cartRef = firestore.collection("carts")
+                .document(uid)
+                .collection("items")
+                .document(product.prodId)
+
             try {
                 val document = cartRef.get().await()
+
                 if (document.exists()) {
-                    val newQuantity = (document.getLong("quantity") ?: 1) + 1
-                    cartRef.update("quantity", newQuantity).await()
+                    // Update quantity if item already exists
+                    val currentQuantity = document.getLong("quantity")?.toInt() ?: 1
+                    val newQuantity = currentQuantity + 1
+
+                    cartRef.update(
+                        mapOf(
+                            "quantity" to newQuantity
+                        )
+                    ).await()
+
+                    Log.d("CartViewModel", "Updated quantity to $newQuantity for ${product.name}")
                 } else {
+                    // Create new cart item
                     val cartItem = CartItem(
                         productId = product.prodId,
                         name = product.name,
@@ -232,11 +283,34 @@ class CartViewModel : ViewModel() {
                         sellerId = product.ownerId,
                         isDirectBuy = false
                     )
-                    cartRef.set(cartItem).await()
+
+                    // Use a map to ensure proper serialization
+                    val cartItemMap = hashMapOf(
+                        "productId" to cartItem.productId,
+                        "name" to cartItem.name,
+                        "price" to cartItem.price,
+                        "weight" to cartItem.weight,
+                        "unit" to cartItem.unit,
+                        "quantity" to cartItem.quantity,
+                        "imageUrl" to cartItem.imageUrl,
+                        "sellerId" to cartItem.sellerId,
+                        "isDirectBuy" to cartItem.isDirectBuy
+                    )
+
+                    cartRef.set(cartItemMap).await()
+
+                    Log.d("CartViewModel", "Added new item: ${product.name}")
                 }
+
                 _snackbarMessage.value = "${product.name} added to cart!"
                 _showSnackbar.value = true
+
+                // Force refresh cart items
+                delay(300)
+                refreshCartItems()
+
             } catch (e: Exception) {
+                Log.e("CartViewModel", "Failed to add to cart: ${e.message}", e)
                 _cartLoadError.value = "Failed to add to cart: ${e.message}"
             }
         }
