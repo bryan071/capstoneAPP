@@ -4,6 +4,7 @@ import CartViewModel
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -35,12 +36,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.Surface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -100,9 +105,9 @@ import com.airbnb.lottie.compose.rememberLottieComposition
 import com.google.firebase.Timestamp
 import com.project.webapp.datas.Product
 import androidx.compose.material.icons.filled.Chat
+import com.google.firebase.firestore.SetOptions
 import com.project.webapp.Viewmodel.ChatViewModel
-
-
+import com.project.webapp.components.delivery.OrderStatusTimeline
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FarmerNotificationScreen(
@@ -112,7 +117,6 @@ fun FarmerNotificationScreen(
     firestore: FirebaseFirestore,
     cartViewModel: CartViewModel,
     chatViewModel: ChatViewModel
-
 ) {
     val notifications = remember { mutableStateListOf<Map<String, Any>>() }
     var selectedNotification by remember { mutableStateOf<Map<String, Any>?>(null) }
@@ -120,18 +124,16 @@ fun FarmerNotificationScreen(
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF7FAF9)
-    val notificationList = remember { mutableStateListOf<Map<String, Any>>() }
 
     LaunchedEffect(Unit) {
         if (currentUserId != null) {
             firestore.collection("notifications")
-                .whereEqualTo("userId", currentUserId) // Filter notifications by current user ID
+                .whereEqualTo("userId", currentUserId)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .addSnapshotListener { snapshot, error ->
                     isLoading = false
                     if (error != null) {
                         Log.e("Firestore", "Error fetching notifications", error)
-                        Log.d("NotificationDebug", "Current logged-in user ID: $currentUserId")
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
@@ -141,12 +143,9 @@ fun FarmerNotificationScreen(
                                 doc.data?.plus("id" to doc.id)
                             }
                         )
-
-                        Log.d("Firestore", "Fetched notifications: $notifications")
                     }
                 }
         } else {
-            // Handle case when user is not logged in
             isLoading = false
         }
     }
@@ -154,7 +153,6 @@ fun FarmerNotificationScreen(
     val context = LocalContext.current
     var userType by remember { mutableStateOf<String?>(null) }
 
-    // Fetch userType from Firebase
     LaunchedEffect(Unit) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid
         userId?.let {
@@ -166,6 +164,7 @@ fun FarmerNotificationScreen(
                 }
         }
     }
+
     Scaffold(
         topBar = {
             SmallTopAppBar(
@@ -229,7 +228,6 @@ fun FarmerNotificationScreen(
                                 val notificationType = notification["type"] as? String
                                 val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
 
-                                // Determine the other party's ID based on notification type
                                 val otherUserId = when (notificationType) {
                                     "product_sold", "product_donated" -> notification["buyerId"] as? String
                                     "purchase_confirmed", "donation_made" -> notification["sellerId"] as? String
@@ -239,19 +237,13 @@ fun FarmerNotificationScreen(
                                 val transactionId = notification["transactionId"] as? String ?: ""
 
                                 if (otherUserId != null && transactionId.isNotEmpty()) {
-                                    Log.d("ChatDebug", "Creating chat - Current: $currentUserId, Other: $otherUserId, Transaction: $transactionId")
-
-                                    // FIXED: Create the chat room FIRST, then navigate
                                     chatViewModel.createOrGetTransactionChatRoom(
                                         user1Id = currentUserId,
                                         user2Id = otherUserId,
                                         notificationId = transactionId
                                     ) { chatRoomId ->
-                                        Log.d("ChatDebug", "Chat room created: $chatRoomId")
                                         navController.navigate("chat/$chatRoomId/false")
                                     }
-                                } else {
-                                    Log.e("ChatDebug", "Missing otherUserId or transactionId: other=$otherUserId, tx=$transactionId")
                                 }
                             },
                             chatViewModel = chatViewModel
@@ -267,7 +259,7 @@ fun FarmerNotificationScreen(
             notification = notification,
             onDismiss = { selectedNotification = null },
             primaryColor = primaryColor,
-            currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+            currentUserId = currentUserId ?: ""
         )
     }
 }
@@ -337,9 +329,8 @@ fun NotificationItem(
     onDelete: (String) -> Unit,
     onChatClick: (Map<String, Any>) -> Unit,
     primaryColor: Color,
-    chatViewModel: ChatViewModel // ADD THIS PARAMETER
+    chatViewModel: ChatViewModel
 ) {
-
     val notificationType = notification["type"] as? String ?: "product_added"
     val imageUrl = notification["imageUrl"] as? String ?: ""
     val name = notification["name"] as? String ?: "Unnamed"
@@ -350,21 +341,26 @@ fun NotificationItem(
     val organizationName = notification["organizationName"] as? String
     val buyerId = notification["buyerId"] as? String
     val sellerId = notification["sellerId"] as? String
+    val orderStatus = notification["orderStatus"] as? String
 
     var otherPartyName by remember { mutableStateOf("Loading...") }
     var isPressed by remember { mutableStateOf(false) }
 
-    // Determine notification icon and color based on type
-    val (notificationIcon, notificationIconTint) = when (notificationType) {
-        "product_sold" -> Icons.Default.ShoppingCart to Color(0xFF0DA54B)
-        "product_donated" -> Icons.Default.Favorite to Color(0xFFE91E63)
-        "purchase_confirmed" -> Icons.Default.ShoppingCart to Color(0xFF2196F3)
-        "donation_made" -> Icons.Default.Favorite to Color(0xFFFF9800)
-        "product_added" -> Icons.Default.Notifications to Color(0xFFE91E63)
-        else -> Icons.Default.Notifications to primaryColor
+    val (notificationIcon, notificationIconTint) = when (orderStatus) {
+        "To Pay" -> Icons.Default.CreditCard to Color(0xFFFFC107)
+        "To Ship" -> Icons.Default.LocalShipping to Color(0xFFFF9800)
+        "To Deliver" -> Icons.Default.LocalShipping to Color(0xFF9C27B0)
+        "To Receive" -> Icons.Default.CheckCircle to Color(0xFF2196F3)
+        "Completed" -> Icons.Default.Check to Color(0xFF4CAF50)
+        else -> when (notificationType) {
+            "product_sold" -> Icons.Default.ShoppingCart to Color(0xFF0DA54B)
+            "product_donated" -> Icons.Default.Favorite to Color(0xFFE91E63)
+            "purchase_confirmed" -> Icons.Default.ShoppingCart to Color(0xFF2196F3)
+            "donation_made" -> Icons.Default.Favorite to Color(0xFFFF9800)
+            else -> Icons.Default.Notifications to primaryColor
+        }
     }
 
-    // Fetch the OTHER party's name
     LaunchedEffect(buyerId, sellerId, notificationType) {
         val otherPartyId = when (notificationType) {
             "product_sold", "product_donated" -> buyerId
@@ -425,7 +421,6 @@ fun NotificationItem(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(16.dp)
         ) {
-            // Product Image or Icon
             if (imageUrl.isNotEmpty()) {
                 Box(
                     modifier = Modifier
@@ -462,7 +457,6 @@ fun NotificationItem(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Main Content Column
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -525,62 +519,90 @@ fun NotificationItem(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = notificationIcon,
-                        contentDescription = "Status",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = when (notificationType) {
-                            "product_sold" -> "Sold"
-                            "product_donated" -> "Donated"
-                            "purchase_confirmed" -> "Purchased"
-                            "donation_made" -> "Donated"
-                            else -> "Notification"
-                        },
-                        fontSize = 13.sp,
-                        color = notificationIconTint,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
+                if (orderStatus != null && notificationType in listOf("product_sold", "purchase_confirmed")) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(
+                                color = getOrderStatusColor(orderStatus).copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = when (orderStatus) {
+                                "To Pay" -> Icons.Default.CreditCard
+                                "To Ship" -> Icons.Default.LocalShipping
+                                "To Receive" -> Icons.Default.CheckCircle
+                                "Completed" -> Icons.Default.Check
+                                else -> Icons.Default.Schedule
+                            },
+                            contentDescription = "Status Icon",
+                            tint = getOrderStatusColor(orderStatus),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = orderStatus,
+                            fontSize = 13.sp,
+                            color = getOrderStatusColor(orderStatus),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = notificationIcon,
+                            contentDescription = "Status",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = when (notificationType) {
+                                "product_sold" -> "Sold"
+                                "product_donated" -> "Donated"
+                                "purchase_confirmed" -> "Purchased"
+                                "donation_made" -> "Donated"
+                                else -> "Notification"
+                            },
+                            fontSize = 13.sp,
+                            color = notificationIconTint,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = "Time",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Just now",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = "Time",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Just now",
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
                 }
             }
 
             val transactionId = notification["transactionId"] as? String ?: ""
             val hasValidTransaction = transactionId.isNotEmpty()
 
-            // Action Buttons Column
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Chat Button
                 IconButton(
                     onClick = {
                         if (hasValidTransaction) {
                             onChatClick(notification)
-                        } else {
-                            Log.w("ChatDebug", "Cannot chat - missing transactionId")
                         }
                     },
                     enabled = hasValidTransaction,
@@ -602,7 +624,6 @@ fun NotificationItem(
                     )
                 }
 
-                // Delete Button
                 if (!notificationId.isNullOrEmpty()) {
                     IconButton(
                         onClick = {
@@ -625,15 +646,6 @@ fun NotificationItem(
     }
 }
 
-// Helper function to get default message based on notification type
-private fun getDefaultMessage(notificationType: String): String {
-    return when (notificationType) {
-        "product_sold" -> "Your product was sold!"
-        "product_donated" -> "You donated a product!"
-        else -> "New product added!"
-    }
-}
-
 @Composable
 fun NotificationDetailsDialog(
     notification: Map<String, Any>,
@@ -652,6 +664,7 @@ fun NotificationDetailsDialog(
     val location = notification["location"] as? String ?: "Location not available"
     val userId = notification["userId"] as? String ?: "Unknown"
     val buyerId = notification["buyerId"] as? String
+    val sellerId = notification["sellerId"] as? String
     val timestamp = notification["timestamp"] as? Timestamp ?: null
     val message = notification["message"] as? String ?: getDefaultMessage(notificationType)
     val paymentMethod = notification["paymentMethod"] as? String
@@ -659,155 +672,236 @@ fun NotificationDetailsDialog(
     val organizationName = notification["organizationName"] as? String
     val transactionId = notification["transactionId"] as? String
     val notificationId = notification["id"] as? String
+    val orderId = notification["orderId"] as? String
 
-    // Get payment status from notification instead of transaction
     var paymentStatus by remember { mutableStateOf(notification["paymentStatus"] as? String ?: "Payment Pending") }
+    var orderStatus by remember { mutableStateOf(notification["orderStatus"] as? String ?: "To Pay") }
     var isUpdatingPayment by remember { mutableStateOf(false) }
+    var isUpdatingShipping by remember { mutableStateOf(false) }
 
-    Log.d("PaymentDebug", "Retrieved payment method from notification: $paymentMethod")
-    Log.d("PaymentDebug", "Payment status from notification: $paymentStatus")
-    Log.d("PaymentDebug", "Transaction ID: $transactionId")
+    val context = LocalContext.current
 
-    val formattedTime = timestamp
     var ownerName by remember { mutableStateOf("Loading...") }
     var buyerName by remember { mutableStateOf("Loading...") }
     var isImageLoading by remember { mutableStateOf(true) }
 
-    // Function to update payment status in notification
-    fun confirmPaymentReceived() {
-        if (notificationId.isNullOrEmpty()) {
-            Log.e("PaymentDebug", "No notification ID available")
-            return
-        }
+    // FIXED: Correct buyer detection
+    val isSeller = userId == currentUserId && notificationType == "product_sold"
+    val isBuyer = userId == currentUserId && notificationType == "purchase_confirmed"
 
-        isUpdatingPayment = true
+    val showTimeline = notificationType in listOf("product_sold", "purchase_confirmed")
 
-        // Update both notification and transaction (if exists)
-        val updates = hashMapOf<String, Any>(
-            "paymentStatus" to "Payment Received"
-        )
+    val showPaymentConfirmButton = isSeller &&
+            notificationType == "product_sold" &&
+            paymentStatus != "Payment Received" &&
+            orderStatus == "To Pay"
 
-        firestore.collection("notifications")
-            .document(notificationId)
-            .update(updates)
-            .addOnSuccessListener {
-                paymentStatus = "Payment Received"
-                Log.d("PaymentDebug", "Notification payment status updated successfully")
+    val showShipButton = isSeller &&
+            notificationType == "product_sold" &&
+            orderStatus == "To Ship" &&
+            paymentStatus == "Payment Received"
 
-                // Also update transaction if transactionId exists
-                if (!transactionId.isNullOrEmpty()) {
-                    firestore.collection("transactions")
-                        .document(transactionId)
-                        .update("Payment_received", true)
-                        .addOnSuccessListener {
-                            Log.d("PaymentDebug", "Transaction payment status also updated")
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e("PaymentDebug", "Error updating transaction payment status", e)
-                        }
-                }
+    val showReceivedButton = isBuyer &&
+            notificationType == "purchase_confirmed" &&
+            orderStatus == "To Deliver"
 
-                isUpdatingPayment = false
-            }
-            .addOnFailureListener { e ->
-                isUpdatingPayment = false
-                Log.e("PaymentDebug", "Error updating notification payment status", e)
-            }
-    }
-
-    // Determine notification icon and color based on type
     val (dialogIcon, dialogTitle, dialogColor) = when (notificationType) {
         "product_sold", "purchase_confirmed" -> Triple(
             Icons.Default.ShoppingCart,
-            "Purchase Details",
-            Color(0xFF2196F3) // Blue for purchases
+            "Order Details",
+            Color(0xFF2196F3)
         )
         "product_donated", "donation_made" -> Triple(
             Icons.Default.Favorite,
             "Donation Details",
-            Color(0xFFE91E63) // Pink for donations
+            Color(0xFFE91E63)
         )
         "product_added" -> Triple(
             Icons.Default.Notifications,
             "New Product",
             Color(0xFF0DA54B)
         )
-        else -> Triple(
-            Icons.Default.Notifications,
-            "Notification",
-            primaryColor
-        )
+        else -> Triple(Icons.Default.Notifications, "Notification", primaryColor)
     }
 
-    // Fetch owner name (seller or poster)
-    LaunchedEffect(userId) {
-        firestore.collection("users").document(userId)
-            .get()
-            .addOnSuccessListener { document ->
-                if (document.exists()) {
-                    val firstName = document.getString("firstname") ?: ""
-                    val lastName = document.getString("lastname") ?: ""
+    LaunchedEffect(userId, sellerId) {
+        val sellerIdToFetch = if (notificationType == "purchase_confirmed") sellerId else userId
 
-                    ownerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
-                        "$firstName $lastName".trim()
-                    } else {
-                        document.getString("email") ?: "Unknown"
-                    }
-                } else {
-                    ownerName = "Unknown"
+        if (sellerIdToFetch != null) {
+            firestore.collection("users").document(sellerIdToFetch)
+                .get()
+                .addOnSuccessListener { doc ->
+                    ownerName = if (doc.exists()) {
+                        val first = doc.getString("firstname") ?: ""
+                        val last = doc.getString("lastname") ?: ""
+                        if (first.isNotEmpty() || last.isNotEmpty()) "$first $last".trim()
+                        else doc.getString("email") ?: "Unknown"
+                    } else "Unknown"
                 }
-            }
-            .addOnFailureListener {
-                ownerName = "Unknown"
-                Log.e("Firestore", "Error fetching owner name for userId: $userId")
-            }
+                .addOnFailureListener { ownerName = "Unknown" }
+        }
     }
 
-    // Fetch buyer name for sales or set organization name for donations
     LaunchedEffect(buyerId, notificationType) {
-        if (notificationType == "product_sold" && buyerId != null) {
+        if (buyerId != null && (notificationType == "product_sold" || notificationType == "product_donated")) {
             firestore.collection("users").document(buyerId)
                 .get()
-                .addOnSuccessListener { document ->
-                    if (document.exists()) {
-                        val firstName = document.getString("firstname") ?: ""
-                        val lastName = document.getString("lastname") ?: ""
+                .addOnSuccessListener { doc ->
+                    buyerName = if (doc.exists()) {
+                        val first = doc.getString("firstname") ?: ""
+                        val last = doc.getString("lastname") ?: ""
+                        if (first.isNotEmpty() || last.isNotEmpty()) "$first $last".trim()
+                        else doc.getString("email") ?: "Unknown"
+                    } else "Unknown"
+                }
+                .addOnFailureListener { buyerName = "Unknown" }
+        }
+    }
 
-                        buyerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
-                            "$firstName $lastName".trim()
-                        } else {
-                            document.getString("email") ?: "Unknown"
-                        }
-                    } else {
-                        buyerName = "Unknown"
-                    }
-                }
-                .addOnFailureListener {
-                    buyerName = "Unknown"
-                    Log.e("Firestore", "Error fetching buyer name for buyerId: $buyerId")
-                }
-        } else if (notificationType == "product_donated" && buyerId != null) {
-            firestore.collection("users").document(buyerId)
-                .get()
-                .addOnSuccessListener { document ->
-                    if (document.exists()) {
-                        val firstName = document.getString("firstname") ?: ""
-                        val lastName = document.getString("lastname") ?: ""
+    // Real-time status listener
+    LaunchedEffect(orderId, transactionId) {
+        if (!orderId.isNullOrEmpty() && notificationType in listOf("product_sold", "purchase_confirmed")) {
+            firestore.collection("notifications")
+                .document(notificationId ?: return@LaunchedEffect)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
 
-                        buyerName = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
-                            "$firstName $lastName".trim()
-                        } else {
-                            document.getString("email") ?: "Unknown"
-                        }
-                    } else {
-                        buyerName = "Unknown"
-                    }
-                }
-                .addOnFailureListener {
-                    buyerName = "Unknown"
-                    Log.e("Firestore", "Error fetching buyer name for buyerId: $buyerId")
+                    val newOrderStatus = snapshot.getString("orderStatus") ?: "To Pay"
+                    val newPaymentStatus = snapshot.getString("paymentStatus") ?: "Payment Pending"
+
+                    orderStatus = newOrderStatus
+                    paymentStatus = newPaymentStatus
+
+                    Log.d("NotificationSync", "Status updated in dialog: $newOrderStatus, Payment: $newPaymentStatus")
                 }
         }
+    }
+
+    fun confirmPaymentReceived() {
+        if (notificationId.isNullOrEmpty() || orderId.isNullOrEmpty()) {
+            Toast.makeText(context, "Missing notification or order ID", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isUpdatingPayment = true
+
+        val updates = mapOf(
+            "paymentStatus" to "Payment Received",
+            "orderStatus" to "To Ship"
+        )
+
+        firestore.collection("notifications").document(notificationId!!)
+            .update(updates)
+            .addOnSuccessListener {
+                paymentStatus = "Payment Received"
+                orderStatus = "To Ship"
+
+                firestore.collection("orders").document(orderId!!)
+                    .update("status", "To Ship")
+                    .addOnSuccessListener {
+                        Log.d("NotificationSync", "✓ Order status updated to To Ship")
+
+                        updateBuyerStatus(firestore, orderId!!, "To Ship", "Payment Received")
+
+                        Toast.makeText(context, "Payment confirmed! Ready to ship.", Toast.LENGTH_SHORT).show()
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("NotificationSync", "✗ Failed to update order", e)
+                    }
+
+                if (!transactionId.isNullOrEmpty()) {
+                    firestore.collection("transactions").document(transactionId!!)
+                        .update(mapOf(
+                            "Payment_received" to true,
+                            "status" to "To Ship"
+                        ))
+                }
+
+                isUpdatingPayment = false
+            }
+            .addOnFailureListener { e ->
+                isUpdatingPayment = false
+                Log.e("NotificationSync", "✗ Failed to confirm payment", e)
+                Toast.makeText(context, "Failed to confirm payment", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    fun confirmItemShipped() {
+        if (notificationId.isNullOrEmpty() || orderId.isNullOrEmpty()) {
+            Toast.makeText(context, "Missing notification or order ID", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isUpdatingShipping = true
+
+        firestore.collection("notifications").document(notificationId!!)
+            .update("orderStatus", "To Deliver")
+            .addOnSuccessListener {
+                orderStatus = "To Deliver"
+
+                firestore.collection("orders").document(orderId!!)
+                    .update("status", "To Deliver")
+                    .addOnSuccessListener {
+                        Log.d("NotificationSync", "✓ Order status updated to To Deliver")
+
+                        updateBuyerStatus(firestore, orderId!!, "To Deliver", null)
+
+                        Toast.makeText(context, "Item marked as shipped!", Toast.LENGTH_SHORT).show()
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("NotificationSync", "✗ Failed to update order", e)
+                    }
+
+                if (!transactionId.isNullOrEmpty()) {
+                    firestore.collection("transactions").document(transactionId!!)
+                        .update("status", "To Deliver")
+                }
+
+                isUpdatingShipping = false
+            }
+            .addOnFailureListener { e ->
+                isUpdatingShipping = false
+                Log.e("NotificationSync", "✗ Failed to update shipping", e)
+                Toast.makeText(context, "Failed to update shipping", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    fun confirmItemReceived() {
+        if (notificationId.isNullOrEmpty() || orderId.isNullOrEmpty()) {
+            Toast.makeText(context, "Missing notification or order ID", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isUpdatingShipping = true
+
+        firestore.collection("notifications").document(notificationId!!)
+            .update("orderStatus", "Completed")
+            .addOnSuccessListener {
+                orderStatus = "Completed"
+
+                firestore.collection("orders").document(orderId!!)
+                    .update("status", "Completed")
+                    .addOnSuccessListener {
+                        Log.d("NotificationSync", "✓ Order completed")
+
+                        updateSellerStatus(firestore, orderId!!, "Completed")
+
+                        Toast.makeText(context, "Order completed successfully!", Toast.LENGTH_SHORT).show()
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("NotificationSync", "✗ Failed to update order", e)
+                    }
+
+                if (!transactionId.isNullOrEmpty()) {
+                    firestore.collection("transactions").document(transactionId!!)
+                        .update("status", "Completed")
+                }
+
+                isUpdatingShipping = false
+                onDismiss()
+            }
+            .addOnFailureListener { e ->
+                isUpdatingShipping = false
+                Log.e("NotificationSync", "✗ Failed to confirm delivery", e)
+                Toast.makeText(context, "Failed to confirm delivery", Toast.LENGTH_SHORT).show()
+            }
     }
 
     AlertDialog(
@@ -821,17 +915,33 @@ fun NotificationDetailsDialog(
             ) {
                 Icon(
                     imageVector = dialogIcon,
-                    contentDescription = dialogTitle,
+                    contentDescription = null,
                     tint = dialogColor,
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    dialogTitle,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    color = dialogColor
-                )
+                Column {
+                    Text(
+                        text = dialogTitle,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = Color.DarkGray
+                    )
+                    if (showTimeline) {
+                        Surface(
+                            color = getOrderStatusColor(orderStatus).copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = orderStatus,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = getOrderStatusColor(orderStatus),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
             }
         },
         text = {
@@ -851,12 +961,8 @@ fun NotificationDetailsDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         if (isImageLoading) {
-                            CircularProgressIndicator(
-                                color = dialogColor,
-                                modifier = Modifier.size(40.dp)
-                            )
+                            CircularProgressIndicator(color = dialogColor, modifier = Modifier.size(40.dp))
                         }
-
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
                                 .data(imageUrl)
@@ -879,54 +985,26 @@ fun NotificationDetailsDialog(
                             .background(Color(0xFFEDF7F0)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = dialogIcon,
-                            contentDescription = "Default Icon",
-                            modifier = Modifier.size(90.dp),
-                            tint = dialogColor
-                        )
+                        Icon(imageVector = dialogIcon, contentDescription = null, tint = dialogColor, modifier = Modifier.size(90.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Product name and price section
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp,
-                            color = Color.DarkGray
-                        )
-
+                        Text(text = name, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Color.DarkGray)
                         Spacer(modifier = Modifier.height(4.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Category,
-                                contentDescription = "Category",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(16.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Category, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = category,
-                                fontSize = 15.sp,
-                                color = Color.Gray
-                            )
+                            Text(text = category, fontSize = 15.sp, color = Color.Gray)
                         }
                     }
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = dialogColor),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
+                    Card(colors = CardDefaults.cardColors(containerColor = dialogColor), shape = RoundedCornerShape(12.dp)) {
                         Text(
                             text = "₱${String.format("%.2f", price)}",
                             fontWeight = FontWeight.Bold,
@@ -939,18 +1017,40 @@ fun NotificationDetailsDialog(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Details section
+                if (showTimeline) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Order Status",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = primaryColor
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OrderStatusTimeline(
+                                currentStatus = orderStatus,
+                                paymentStatus = paymentStatus,
+                                orderId = orderId,
+                                primaryColor = dialogColor,
+                                showActions = false
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             text = when (notificationType) {
                                 "product_added" -> "Product Information"
@@ -962,148 +1062,61 @@ fun NotificationDetailsDialog(
                             fontSize = 18.sp,
                             color = dialogColor
                         )
-
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        DetailRow(
-                            icon = Icons.Default.Category,
-                            label = "Category",
-                            value = category,
-                            primaryColor = dialogColor
-                        )
-
+                        DetailRow(icon = Icons.Default.Category, label = "Category", value = category, primaryColor = dialogColor)
                         if (quantity != null && quantityUnit != null) {
-                            DetailRow(
-                                icon = Icons.Default.ShoppingBasket,
-                                label = "Quantity",
-                                value = "$quantity $quantityUnit",
-                                primaryColor = dialogColor
-                            )
+                            DetailRow(icon = Icons.Default.ShoppingBasket, label = "Quantity", value = "$quantity $quantityUnit", primaryColor = dialogColor)
                         }
-
-                        DetailRow(
-                            icon = Icons.Default.LocationOn,
-                            label = "Location",
-                            value = location,
-                            primaryColor = dialogColor
-                        )
+                        DetailRow(icon = Icons.Default.LocationOn, label = "Location", value = location, primaryColor = dialogColor)
 
                         val (labelText, nameValue) = when (notificationType) {
                             "product_added" -> "Posted by" to ownerName
                             "product_sold" -> "Seller" to ownerName
-                            "purchase_confirmed" -> "Purchased by" to ownerName
+                            "purchase_confirmed" -> "Seller" to ownerName
                             "product_donated" -> "Donated by" to buyerName
                             "donation_made" -> "Donated to" to (organizationName ?: "Unknown Organization")
                             else -> "User" to ownerName
                         }
-
-                        DetailRow(
-                            icon = Icons.Default.Person,
-                            label = labelText,
-                            value = nameValue,
-                            primaryColor = dialogColor
-                        )
+                        DetailRow(icon = Icons.Default.Person, label = labelText, value = nameValue, primaryColor = dialogColor)
 
                         when (notificationType) {
                             "product_sold" -> {
-                                DetailRow(
-                                    icon = Icons.Default.Person,
-                                    label = "Buyer",
-                                    value = buyerName,
-                                    primaryColor = dialogColor
-                                )
-                            }
-                            "purchase_confirmed" -> {
-
+                                DetailRow(icon = Icons.Default.Person, label = "Buyer", value = buyerName, primaryColor = dialogColor)
                             }
                             "product_donated" -> {
-                                DetailRow(
-                                    icon = Icons.Default.Favorite,
-                                    label = "Donated to",
-                                    value = organizationName ?: "Unknown Organization",
-                                    primaryColor = dialogColor
-                                )
+                                DetailRow(icon = Icons.Default.Favorite, label = "Donated to", value = organizationName ?: "Unknown", primaryColor = dialogColor)
                             }
                             "donation_made" -> {
-                                DetailRow(
-                                    icon = Icons.Default.Person,
-                                    label = "From",
-                                    value = ownerName,
-                                    primaryColor = dialogColor
-                                )
+                                DetailRow(icon = Icons.Default.Person, label = "From", value = ownerName, primaryColor = dialogColor)
                             }
                         }
 
-                        if (notificationType == "product_sold" || notificationType == "product_donated") {
-                            if (notificationType == "product_sold") {
-                                DetailRow(
-                                    icon = Icons.Default.CreditCard,
-                                    label = "Payment",
-                                    value = paymentMethod ?: "Not specified",
-                                    primaryColor = dialogColor
-                                )
+                        if (notificationType == "product_sold" || notificationType == "purchase_confirmed") {
+                            DetailRow(icon = Icons.Default.CreditCard, label = "Payment", value = paymentMethod ?: "Not specified", primaryColor = dialogColor)
 
-                                // Payment status row - now using paymentStatus from notification
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CreditCard, contentDescription = null, tint = if (paymentStatus == "Payment Received") Color(0xFF4CAF50) else Color.Gray, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(text = "Status:", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.DarkGray, modifier = Modifier.width(80.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (paymentStatus == "Payment Received") Color(0xFF4CAF50).copy(alpha = 0.1f) else Color.Red.copy(alpha = 0.1f)
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CreditCard,
-                                        contentDescription = "Payment Status",
-                                        tint = if (paymentStatus == "Payment Received") Color(0xFF4CAF50) else Color.Gray,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-
-                                    Spacer(modifier = Modifier.width(12.dp))
-
                                     Text(
-                                        text = "Status:",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = Color.DarkGray,
-                                        modifier = Modifier.width(80.dp)
-                                    )
-
-                                    Card(
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (paymentStatus == "Payment Received")
-                                                Color(0xFF4CAF50).copy(alpha = 0.1f)
-                                            else
-                                                Color.Red.copy(alpha = 0.1f)
-                                        ),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(
-                                            text = paymentStatus,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = if (paymentStatus == "Payment Received") Color(0xFF4CAF50) else Color.Red,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-
-                                if (paymentMethod?.equals("GCash", ignoreCase = true) == true) {
-                                    DetailRow(
-                                        icon = Icons.Default.CreditCard,
-                                        label = "GCash Info",
-                                        value = "Paid electronically",
-                                        primaryColor = dialogColor
+                                        text = paymentStatus,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (paymentStatus == "Payment Received") Color(0xFF4CAF50) else Color.Red,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
+                            }
 
-                                // Show delivery address if available
-                                if (deliveryAddress != null) {
-                                    DetailRow(
-                                        icon = Icons.Default.Home,
-                                        label = "Delivery to",
-                                        value = deliveryAddress,
-                                        primaryColor = dialogColor
-                                    )
-                                }
+                            if (deliveryAddress != null) {
+                                DetailRow(icon = Icons.Default.Home, label = "Delivery to", value = deliveryAddress, primaryColor = dialogColor)
                             }
                         }
 
@@ -1118,27 +1131,9 @@ fun NotificationDetailsDialog(
                             Spacer(modifier = Modifier.height(16.dp))
                             Divider(color = Color.LightGray)
                             Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = "Message",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = dialogColor
-                            )
-
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color.White),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp)
-                            ) {
-                                Text(
-                                    text = message,
-                                    fontSize = 15.sp,
-                                    modifier = Modifier.padding(12.dp),
-                                    lineHeight = 24.sp
-                                )
+                            Text(text = "Message", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = dialogColor)
+                            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                Text(text = message, fontSize = 15.sp, modifier = Modifier.padding(12.dp), lineHeight = 24.sp)
                             }
                         }
                     }
@@ -1147,69 +1142,171 @@ fun NotificationDetailsDialog(
         },
         confirmButton = {
             Column {
-                // Show Confirm Payment button only for sale details and if payment not yet confirmed
-                if (notificationType == "product_sold" && paymentStatus != "Payment Received" && userId == currentUserId) {
+                if (showPaymentConfirmButton) {
                     Button(
                         onClick = { confirmPaymentReceived() },
                         enabled = !isUpdatingPayment,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF4CAF50),
-                            disabledContainerColor = Color.Gray
-                        ),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), disabledContainerColor = Color.Gray),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                         contentPadding = PaddingValues(vertical = 12.dp)
                     ) {
                         if (isUpdatingPayment) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Confirming...",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Text("Confirming...", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        } else {
+                            Icon(imageVector = Icons.Default.CreditCard, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Confirm Payment Received", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
+                if (showShipButton) {
+                    Button(
+                        onClick = { confirmItemShipped() },
+                        enabled = !isUpdatingShipping,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3), disabledContainerColor = Color.Gray),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp)
+                    ) {
+                        if (isUpdatingShipping) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Processing...", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        } else {
+                            Icon(imageVector = Icons.Default.LocalShipping, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Mark as Shipped", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
+                if (showReceivedButton) {
+                    Button(
+                        onClick = { confirmItemReceived() },
+                        enabled = !isUpdatingShipping,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryColor,
+                            disabledContainerColor = Color.Gray
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp)
+                    ) {
+                        if (isUpdatingShipping) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Confirming...", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         } else {
                             Icon(
-                                imageVector = Icons.Default.CreditCard,
-                                contentDescription = "Confirm Payment",
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Confirm Payment Received",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Text("Confirm Delivered", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
 
                 Button(
                     onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(containerColor = dialogColor),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
-                    Text(
-                        "Close",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text("Close", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
     )
 }
 
+fun getOrderStatusColor(status: String): Color {
+    return when (status.uppercase()) {
+        "TO PAY", "PAYMENT PENDING" -> Color(0xFFFFC107)
+        "TO SHIP" -> Color(0xFFFF9800)
+        "TO DELIVER" -> Color(0xFF9C27B0)
+        "TO RECEIVE" -> Color(0xFF2196F3)
+        "COMPLETED" -> Color(0xFF4CAF50)
+        "CANCELLED" -> Color(0xFFF44336)
+        else -> Color.Gray
+    }
+}
+
+private fun updateBuyerStatus(
+    firestore: FirebaseFirestore,
+    orderId: String,
+    newStatus: String,
+    paymentStatus: String? = null
+) {
+    Log.d("NotificationSync", "Updating buyer notifications for orderId: $orderId to status: $newStatus")
+
+    firestore.collection("notifications")
+        .whereEqualTo("orderId", orderId)
+        .whereEqualTo("type", "purchase_confirmed")
+        .get()
+        .addOnSuccessListener { docs ->
+            if (docs.isEmpty) {
+                Log.w("NotificationSync", "⚠ No buyer notifications found for orderId: $orderId")
+            }
+
+            docs.forEach { doc ->
+                val updates = mutableMapOf<String, Any>("orderStatus" to newStatus)
+                if (paymentStatus != null) {
+                    updates["paymentStatus"] = paymentStatus
+                }
+
+                firestore.collection("notifications").document(doc.id)
+                    .update(updates)
+                    .addOnSuccessListener {
+                        Log.d("NotificationSync", "✓ Buyer notification updated: ${doc.id} -> $newStatus")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("NotificationSync", "✗ Failed to update buyer notification: ${doc.id}", e)
+                    }
+            }
+        }
+        .addOnFailureListener { e ->
+            Log.e("NotificationSync", "✗ Failed to query buyer notifications for orderId: $orderId", e)
+        }
+}
+
+private fun updateSellerStatus(firestore: FirebaseFirestore, orderId: String, newStatus: String) {
+    Log.d("NotificationSync", "Updating seller notifications for orderId: $orderId to status: $newStatus")
+
+    firestore.collection("notifications")
+        .whereEqualTo("orderId", orderId)
+        .whereEqualTo("type", "product_sold")
+        .get()
+        .addOnSuccessListener { docs ->
+            if (docs.isEmpty) {
+                Log.w("NotificationSync", "⚠ No seller notifications found for orderId: $orderId")
+            }
+
+            docs.forEach { doc ->
+                firestore.collection("notifications").document(doc.id)
+                    .update("orderStatus", newStatus)
+                    .addOnSuccessListener {
+                        Log.d("NotificationSync", "✓ Seller notification updated: ${doc.id} -> $newStatus")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("NotificationSync", "✗ Failed to update seller notification: ${doc.id}", e)
+                    }
+            }
+        }
+        .addOnFailureListener { e ->
+            Log.e("NotificationSync", "✗ Failed to query seller notifications for orderId: $orderId", e)
+        }
+}
+
 @Composable
- fun DetailRow(
+fun DetailRow(
     icon: ImageVector,
     label: String,
     value: String,
@@ -1259,7 +1356,6 @@ fun EmptyNotificationScreen() {
             LottieCompositionSpec.RawRes(R.raw.empty)
         )
 
-        // If you don't have a Lottie animation, use this fallback
         if (composition == null) {
             Icon(
                 imageVector = Icons.Outlined.Notifications,
@@ -1296,7 +1392,6 @@ fun EmptyNotificationScreen() {
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Add a refresh button with bounce animation
         var isRefreshing by remember { mutableStateOf(false) }
         val rotation by animateFloatAsState(
             targetValue = if (isRefreshing) 360f else 0f,
@@ -1310,7 +1405,6 @@ fun EmptyNotificationScreen() {
         Button(
             onClick = {
                 isRefreshing = true
-                // Simulate refresh
                 Handler(Looper.getMainLooper()).postDelayed({
                     isRefreshing = false
                 }, 1500)
@@ -1340,81 +1434,115 @@ fun EmptyNotificationScreen() {
     }
 }
 
-// Function to create sale notification in Firestore
 fun createSaleNotification(
     firestore: FirebaseFirestore,
     product: Product,
     buyerId: String,
     paymentMethod: String? = null,
     deliveryAddress: String? = null,
-    transactionId: String? = null
+    transactionId: String? = null,
+    orderId: String? = null,
+    quantity: Int = 1  // ✅ Add quantity parameter
 ) {
+    val finalOrderId = orderId ?: firestore.collection("orders").document().id
+
+    Log.d("NotificationCreate", "Creating order: $finalOrderId")
+
+    val orderData = hashMapOf(
+        "orderId" to finalOrderId,
+        "buyerId" to buyerId,
+        "sellerId" to product.ownerId,
+        "paymentMethod" to (paymentMethod ?: "Not specified"),
+        "deliveryAddress" to (deliveryAddress ?: ""),
+        "transactionId" to (transactionId ?: ""),
+        "status" to "To Pay",
+        "paymentStatus" to "Payment Pending",
+        "timestamp" to Timestamp.now()
+    )
+
+    firestore.collection("orders").document(finalOrderId)
+        .set(orderData, SetOptions.merge())
+        .addOnSuccessListener {
+            Log.d("OrderCreate", "✓ Order created: $finalOrderId")
+
+            // ✅ FIX: Create order_items subcollection
+            val orderItem = hashMapOf(
+                "productId" to product.prodId,
+                "name" to product.name,
+                "price" to product.price,
+                "quantity" to quantity,
+                "quantityUnit" to product.quantityUnit,
+                "imageUrl" to product.imageUrl,
+                "category" to product.category,
+                "location" to product.cityName,
+                "sellerId" to product.ownerId
+            )
+
+            firestore.collection("orders").document(finalOrderId)
+                .collection("order_items")
+                .add(orderItem)
+                .addOnSuccessListener { itemDoc ->
+                    Log.d("OrderCreate", "✓ Item added to subcollection: ${itemDoc.id}")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("OrderCreate", "✗ Failed to add item", e)
+                }
+        }
+        .addOnFailureListener { e ->
+            Log.e("OrderCreate", "✗ Failed to create order", e)
+        }
+
+    // Notifications (same as before)
     val sellerNotification = hashMapOf(
         "type" to "product_sold",
         "productId" to product.prodId,
         "name" to product.name,
         "price" to product.price,
-        "quantity" to product.quantity,
+        "quantity" to quantity,
         "quantityUnit" to product.quantityUnit,
         "imageUrl" to product.imageUrl,
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to product.ownerId, // Seller receives this notification
+        "userId" to product.ownerId,
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
         "transactionType" to "sale",
         "paymentStatus" to "Payment Pending",
-        "paymentMethod" to (paymentMethod ?: "Not specified")
+        "paymentMethod" to (paymentMethod ?: "Not specified"),
+        "orderStatus" to "To Pay",
+        "orderId" to finalOrderId,
+        "deliveryAddress" to (deliveryAddress ?: "")
     )
-
-    deliveryAddress?.let { sellerNotification["deliveryAddress"] = it }
     transactionId?.let { sellerNotification["transactionId"] = it }
 
-    // Save seller notification
-    firestore.collection("notifications")
-        .add(sellerNotification)
-        .addOnSuccessListener {
-            Log.d("Firestore", "Seller notification created with ID: ${it.id}")
-        }
-        .addOnFailureListener { e ->
-            Log.e("Firestore", "Error creating seller notification", e)
-        }
+    firestore.collection("notifications").add(sellerNotification)
 
-    // 2. NEW: Create purchase notification for BUYER (Customer)
     val buyerNotification = hashMapOf(
-        "type" to "purchase_confirmed", // Different type for buyer
+        "type" to "purchase_confirmed",
         "productId" to product.prodId,
         "name" to product.name,
         "price" to product.price,
-        "quantity" to product.quantity,
+        "quantity" to quantity,
         "quantityUnit" to product.quantityUnit,
         "imageUrl" to product.imageUrl,
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to buyerId, // Buyer receives this notification
-        "sellerId" to product.ownerId, // Seller's ID stored here
-        "message" to "Purchase successful! Your order has been placed.",
+        "userId" to buyerId,
+        "sellerId" to product.ownerId,
+        "message" to "Purchase successful!",
         "transactionType" to "purchase",
         "paymentStatus" to "Payment Pending",
-        "paymentMethod" to (paymentMethod ?: "Not specified")
+        "paymentMethod" to (paymentMethod ?: "Not specified"),
+        "orderStatus" to "To Pay",
+        "orderId" to finalOrderId,
+        "deliveryAddress" to (deliveryAddress ?: "")
     )
-
-    deliveryAddress?.let { buyerNotification["deliveryAddress"] = it }
     transactionId?.let { buyerNotification["transactionId"] = it }
 
-    // Save buyer notification
-    firestore.collection("notifications")
-        .add(buyerNotification)
-        .addOnSuccessListener {
-            Log.d("Firestore", "Buyer notification created with ID: ${it.id}")
-        }
-        .addOnFailureListener { e ->
-            Log.e("Firestore", "Error creating buyer notification", e)
-        }
+    firestore.collection("notifications").add(buyerNotification)
 }
-
 
 fun createDonationNotification(
     firestore: FirebaseFirestore,
@@ -1423,9 +1551,8 @@ fun createDonationNotification(
     organizationName: String,
     transactionId: String? = null
 ) {
-    // Notification for donor (customer who donated)
     val donorNotification = hashMapOf(
-        "type" to "donation_made", // New type for donor
+        "type" to "donation_made",
         "productId" to product.prodId,
         "name" to product.name,
         "price" to product.price,
@@ -1435,7 +1562,7 @@ fun createDonationNotification(
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to donatorId, // Donor receives this
+        "userId" to donatorId,
         "sellerId" to product.ownerId,
         "message" to "Thank you for donating ${product.name} to $organizationName!",
         "transactionType" to "donation",
@@ -1443,7 +1570,6 @@ fun createDonationNotification(
     )
     transactionId?.let { donorNotification["transactionId"] = it }
 
-    // Notification for seller (farmer whose product was donated)
     val sellerNotification = hashMapOf(
         "type" to "product_donated",
         "productId" to product.prodId,
@@ -1455,7 +1581,7 @@ fun createDonationNotification(
         "category" to product.category,
         "location" to product.cityName,
         "timestamp" to Timestamp.now(),
-        "userId" to product.ownerId, // Seller receives this
+        "userId" to product.ownerId,
         "buyerId" to donatorId,
         "message" to "${product.name} was donated to $organizationName.",
         "transactionType" to "donation",
@@ -1463,7 +1589,6 @@ fun createDonationNotification(
     )
     transactionId?.let { sellerNotification["transactionId"] = it }
 
-    // Send donor's notification
     firestore.collection("notifications")
         .add(donorNotification)
         .addOnSuccessListener {
@@ -1473,7 +1598,6 @@ fun createDonationNotification(
             Log.e("Firestore", "Error creating donor notification", e)
         }
 
-    // Send seller's notification
     firestore.collection("notifications")
         .add(sellerNotification)
         .addOnSuccessListener {
@@ -1483,7 +1607,6 @@ fun createDonationNotification(
             Log.e("Firestore", "Error creating seller notification", e)
         }
 }
-
 
 fun deleteNotification(
     firestore: FirebaseFirestore,
@@ -1499,9 +1622,18 @@ fun deleteNotification(
         .delete()
         .addOnSuccessListener {
             Log.d("Firestore", "Notification deleted successfully: $notificationId")
-            onSuccess() // Call the callback to remove from UI
+            onSuccess()
         }
         .addOnFailureListener { e ->
             Log.e("Firestore", "Error deleting notification: $notificationId", e)
         }
+}
+
+private fun getDefaultMessage(notificationType: String): String {
+    return when (notificationType) {
+        "product_sold" -> "Your product was sold!"
+        "product_donated" -> "You donated a product!"
+        "purchase_confirmed" -> "Purchase successful! Your order has been placed."
+        else -> "New product added!"
+    }
 }

@@ -98,7 +98,7 @@ class CartViewModel : ViewModel() {
             } catch (e: Exception) {
                 attempt++
                 if (attempt == retries) return Result.failure(e)
-                delay(min(1000L shl (attempt - 1), 4000L)) // Exponential backoff
+                delay(min(1000L shl (attempt - 1), 4000L))
             }
         }
         return Result.failure(Exception("Operation failed after $retries attempts"))
@@ -140,27 +140,38 @@ class CartViewModel : ViewModel() {
                             Log.d("CartViewModel", "Processing document: ${doc.id}")
                             Log.d("CartViewModel", "Document data: ${doc.data}")
 
-                            val cartItem = doc.toObject(CartItem::class.java)
+                            // ✅ FIX: Manually map fields to handle any serialization issues
+                            val productId = doc.getString("productId") ?: doc.id
+                            val name = doc.getString("name") ?: ""
+                            val price = doc.getDouble("price") ?: 0.0
+                            val weight = doc.getDouble("weight") ?: 0.0
+                            val unit = doc.getString("unit") ?: ""
+                            val quantity = doc.getLong("quantity")?.toInt() ?: 1
+                            val imageUrl = doc.getString("imageUrl") ?: ""
+                            val sellerId = doc.getString("sellerId") ?: ""
+                            val isDirectBuy = doc.getBoolean("isDirectBuy") ?: false
 
-                            if (cartItem != null) {
-                                // Ensure productId is set
-                                if (cartItem.productId.isEmpty()) {
-                                    cartItem.productId = doc.id
-                                    doc.reference.update("productId", doc.id)
-                                }
+                            // ✅ Create CartItem manually
+                            val cartItem = CartItem(
+                                productId = productId,
+                                name = name,
+                                price = price,
+                                weight = weight,
+                                unit = unit,
+                                quantity = quantity,
+                                imageUrl = imageUrl,
+                                sellerId = sellerId,
+                                isDirectBuy = isDirectBuy
+                            )
 
-                                // Validate cart item
-                                if (cartItem.price <= 0 || cartItem.quantity <= 0 || cartItem.productId.isEmpty()) {
-                                    Log.w("CartViewModel", "Invalid cart item: $cartItem")
-                                    invalidDocs.add(doc.reference)
-                                    null
-                                } else {
-                                    Log.d("CartViewModel", "Valid cart item: ${cartItem.name}")
-                                    cartItem
-                                }
-                            } else {
-                                Log.w("CartViewModel", "Failed to parse document ${doc.id}")
+                            // Validate cart item
+                            if (cartItem.price <= 0 || cartItem.quantity <= 0 || cartItem.productId.isEmpty()) {
+                                Log.w("CartViewModel", "Invalid cart item: $cartItem")
+                                invalidDocs.add(doc.reference)
                                 null
+                            } else {
+                                Log.d("CartViewModel", "Valid cart item: ${cartItem.name}")
+                                cartItem
                             }
                         } catch (ex: Exception) {
                             Log.e("CartViewModel", "Error parsing cart item: ${ex.message}", ex)
@@ -271,30 +282,17 @@ class CartViewModel : ViewModel() {
 
                     Log.d("CartViewModel", "Updated quantity to $newQuantity for ${product.name}")
                 } else {
-                    // Create new cart item
-                    val cartItem = CartItem(
-                        productId = product.prodId,
-                        name = product.name,
-                        price = product.price,
-                        weight = product.quantity,
-                        unit = product.quantityUnit,
-                        quantity = 1,
-                        imageUrl = product.imageUrl,
-                        sellerId = product.ownerId,
-                        isDirectBuy = false
-                    )
-
-                    // Use a map to ensure proper serialization
+                    // ✅ FIX: Ensure all fields are explicitly set
                     val cartItemMap = hashMapOf(
-                        "productId" to cartItem.productId,
-                        "name" to cartItem.name,
-                        "price" to cartItem.price,
-                        "weight" to cartItem.weight,
-                        "unit" to cartItem.unit,
-                        "quantity" to cartItem.quantity,
-                        "imageUrl" to cartItem.imageUrl,
-                        "sellerId" to cartItem.sellerId,
-                        "isDirectBuy" to cartItem.isDirectBuy
+                        "productId" to product.prodId,
+                        "name" to product.name,
+                        "price" to product.price,
+                        "weight" to product.quantity,
+                        "unit" to product.quantityUnit,
+                        "quantity" to 1,
+                        "imageUrl" to product.imageUrl,
+                        "sellerId" to product.ownerId,
+                        "isDirectBuy" to false
                     )
 
                     cartRef.set(cartItemMap).await()
@@ -305,10 +303,7 @@ class CartViewModel : ViewModel() {
                 _snackbarMessage.value = "${product.name} added to cart!"
                 _showSnackbar.value = true
 
-                // Force refresh cart items
-                delay(300)
-                refreshCartItems()
-
+                // ✅ FIX: No need to manually refresh, snapshot listener will handle it
             } catch (e: Exception) {
                 Log.e("CartViewModel", "Failed to add to cart: ${e.message}", e)
                 _cartLoadError.value = "Failed to add to cart: ${e.message}"
@@ -411,14 +406,7 @@ class CartViewModel : ViewModel() {
                 val cartRef = firestore.collection("carts").document(uid).collection("items").document(productId)
                 cartRef.update("quantity", newQuantity).await()
 
-                val currentCart = _cartItems.value.toMutableList()
-                val index = currentCart.indexOfFirst { it.productId == productId }
-                if (index != -1) {
-                    currentCart[index] = currentCart[index].copy(quantity = newQuantity)
-                    _cartItems.value = currentCart
-                    _checkoutItems.value = currentCart
-                    _totalCartPrice.value = currentCart.sumOf { it.price * it.quantity }
-                }
+                // ✅ The snapshot listener will automatically update the UI
             } catch (e: Exception) {
                 _cartLoadError.value = "Failed to update quantity: ${e.message}"
             }

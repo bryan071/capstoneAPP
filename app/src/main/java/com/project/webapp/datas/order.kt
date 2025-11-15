@@ -11,6 +11,7 @@ data class Order(
     val paymentMethod: String = "",
     val deliveryAddress: String = "",
     val status: String = "",
+    var paymentStatus: String = "Payment Pending",
     val timestamp: Timestamp = Timestamp.now()
 )
 
@@ -28,4 +29,11 @@ data class DialogDetails(
     val status: String,
     val timestamp: String,
     val detailsContent: @Composable () -> Unit
+)
+
+data class TimelineStep(
+    val label: String,
+    val isCompleted: Boolean,
+    val icon: ImageVector,
+    val message: String
 )

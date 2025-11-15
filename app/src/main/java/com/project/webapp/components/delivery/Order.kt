@@ -5,6 +5,7 @@ import Order
 import OrderItemDetails
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,17 +43,49 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-// Order Status Enum
+/* -------------------------------------------------------------------------
+   ENUMS & HELPERS
+   ------------------------------------------------------------------------- */
 enum class OrderStatus(val displayName: String, val icon: ImageVector) {
     ALL("All", Icons.Default.ShoppingBag),
-    TO_PAY("To Pay", Icons.Default.AccountBalanceWallet),
-    TO_SHIP("To Ship", Icons.Default.Inventory),
-    TO_RECEIVE("To Receive", Icons.Default.LocalShipping),
     COMPLETED("Completed", Icons.Default.CheckCircle),
     CANCELLED("Cancelled", Icons.Default.Cancel),
     RETURN_REFUND("Return/Refund", Icons.Default.Refresh)
 }
 
+private fun getOrderStatusColor(status: String): Color = when (status.uppercase()) {
+    "TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY" -> Color(0xFFFFC107)
+    "TO SHIP", "TOSHIP", "PROCESSING", "PREPARING" -> Color(0xFFFF9800)
+    "TO DELIVER", "TODELIVER" -> Color(0xFF9C27B0)
+    "TO RECEIVE", "TORECEIVE", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY" -> Color(0xFF2196F3)
+    "COMPLETED", "COMPLETE", "DELIVERED" -> Color(0xFF4CAF50)
+    "CANCELLED", "CANCELED" -> Color(0xFFF44336)
+    else -> Color.Gray
+}
+
+private fun getStatusDisplayText(status: String): String = when (status.uppercase()) {
+    "TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY" -> "To Pay"
+    "TO SHIP", "TOSHIP", "PROCESSING", "PREPARING" -> "To Ship"
+    "TO DELIVER", "TODELIVER" -> "To Deliver"
+    "TO RECEIVE", "TORECEIVE", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY" -> "To Receive"
+    "COMPLETED", "COMPLETE", "DELIVERED" -> "Completed"
+    "CANCELLED", "CANCELED" -> "Cancelled"
+    else -> status.replaceFirstChar { it.uppercase() }
+}
+
+private fun getStatusIcon(status: String): ImageVector = when (status.uppercase()) {
+    "TO PAY", "PAYMENT PENDING" -> Icons.Default.AccountBalanceWallet
+    "TO SHIP" -> Icons.Default.Inventory
+    "TO DELIVER" -> Icons.Default.LocalShipping
+    "TO RECEIVE" -> Icons.Default.CheckCircle
+    "COMPLETED" -> Icons.Default.CheckCircle
+    "CANCELLED" -> Icons.Default.Cancel
+    else -> Icons.Default.Schedule
+}
+
+/* -------------------------------------------------------------------------
+   MAIN SCREEN
+   ------------------------------------------------------------------------- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(
@@ -70,105 +103,124 @@ fun OrdersScreen(
     var selectedItem by remember { mutableStateOf<OrderItem?>(null) }
     var selectedStatus by remember { mutableStateOf(OrderStatus.ALL) }
 
-    // Fetch orders and donations
+    /* --------------------------------------------------------------
+       REAL-TIME SYNC:
+       1. orders (buyer side)
+       2. notifications (purchase_confirmed) → latest status
+       3. donations
+       -------------------------------------------------------------- */
     LaunchedEffect(currentUserId) {
-        if (currentUserId != null) {
-            firestore.collection("orders")
-                .whereEqualTo("buyerId", currentUserId)
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.e("Orders", "Error fetching orders", error)
-                        return@addSnapshotListener
-                    }
-
-                    val orders = snapshot?.documents?.mapNotNull { doc ->
-                        doc.toObject(Order::class.java)
-                    }?.map { OrderItem.Purchase(it) } ?: emptyList()
-
-                    firestore.collection("transactions")
-                        .whereEqualTo("buyerId", currentUserId)
-                        .whereEqualTo("transactionType", "donation")
-                        .addSnapshotListener { transactionSnapshot, transactionError ->
-                            isLoading = false
-                            if (transactionError != null) {
-                                Log.e("Orders", "Error fetching donations", transactionError)
-                                return@addSnapshotListener
-                            }
-
-                            val donations = transactionSnapshot?.documents?.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                Transaction(
-                                    id = doc.id,
-                                    buyerId = data["buyerId"] as? String ?: "",
-                                    item = data["item"] as? String ?: "",
-                                    quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                                    totalAmount = (data["totalAmount"] as? Double) ?: 0.0,
-                                    organization = data["organization"] as? String,
-                                    transactionType = data["transactionType"] as? String ?: "",
-                                    status = data["status"] as? String ?: "",
-                                    timestamp = doc.getTimestamp("timestamp") ?: Timestamp.now(),
-                                    paymentMethod = data["paymentMethod"] as? String ?: "",
-                                    referenceId = data["referenceId"] as? String
-                                )
-                            }?.map { OrderItem.Donation(it) } ?: emptyList()
-
-                            orderItems = (orders + donations).sortedByDescending {
-                                when (it) {
-                                    is OrderItem.Purchase -> it.order.timestamp
-                                    is OrderItem.Donation -> it.transaction.timestamp
-                                }
-                            }
-                        }
-                }
-        } else {
+        if (currentUserId == null) {
             isLoading = false
+            return@LaunchedEffect
         }
-    }
 
-    if (showScaffold) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "My Orders",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
+        // ---- 1. orders -------------------------------------------------
+        firestore.collection("orders")
+            .whereEqualTo("buyerId", currentUserId)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e("Orders", "orders error", err)
+                    return@addSnapshotListener
+                }
+
+                val purchases = snap?.documents?.mapNotNull { doc ->
+                    try {
+                        val status = doc.getString("status") ?: "To Pay"
+
+                        // CRITICAL FIX: Skip orders with "PAYMENT_RECEIVED" status
+                        // These are old incomplete orders that should not be shown
+                        if (status.equals("PAYMENT_RECEIVED", ignoreCase = true)) {
+                            Log.d("Orders", "⚠️ Skipping old PAYMENT_RECEIVED order: ${doc.id}")
+                            return@mapNotNull null
+                        }
+
+                        doc.toObject(Order::class.java)?.copy(
+                            orderId = doc.id,
+                            status = status
+                        )?.let { OrderItem.Purchase(it) }
+                    } catch (e: Exception) {
+                        Log.e("Orders", "parse order ${doc.id}", e)
+                        null
+                    }
+                } ?: emptyList()
+
+                // ---- 2. notifications (buyer) ---------------------------------
+                firestore.collection("notifications")
+                    .whereEqualTo("userId", currentUserId)
+                    .whereEqualTo("type", "purchase_confirmed")
+                    .addSnapshotListener { nSnap, nErr ->
+                        if (nErr != null) {
+                            Log.e("Orders", "notif error", nErr)
+                            return@addSnapshotListener
+                        }
+
+                        val notifMap = nSnap?.documents?.associateBy { it.getString("orderId") ?: "" } ?: emptyMap()
+
+                        // Merge latest status from notification
+                        val merged = purchases.map { purchase ->
+                            val notif = notifMap[purchase.order.orderId]
+                            val latestStatus = notif?.getString("orderStatus") ?: purchase.order.status
+                            val latestPayment = notif?.getString("paymentStatus") ?: "Payment Pending"
+
+                            purchase.copy(
+                                order = purchase.order.copy(
+                                    status = latestStatus,
+                                    paymentStatus = latestPayment
+                                )
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = primaryColor
-                    )
-                )
-            },
-            containerColor = Color(0xFFF5F5F5)
-        ) { paddingValues ->
-            OrdersContent(
-                paddingValues = paddingValues,
-                isLoading = isLoading,
-                orderItems = orderItems,
-                selectedItem = selectedItem,
-                selectedStatus = selectedStatus,
-                onStatusSelected = { selectedStatus = it },
-                onItemSelected = { selectedItem = it },
-                primaryColor = primaryColor,
-                modifier = modifier
-            )
-        }
-    } else {
+
+                        // ---- 3. donations -----------------------------------------
+                        firestore.collection("transactions")
+                            .whereEqualTo("buyerId", currentUserId)
+                            .whereEqualTo("transactionType", "donation")
+                            .addSnapshotListener { tSnap, tErr ->
+                                isLoading = false
+                                if (tErr != null) {
+                                    Log.e("Orders", "donations error", tErr)
+                                    return@addSnapshotListener
+                                }
+
+                                val donations = tSnap?.documents?.mapNotNull { doc ->
+                                    val d = doc.data ?: return@mapNotNull null
+                                    Transaction(
+                                        id = doc.id,
+                                        buyerId = d["buyerId"] as? String ?: "",
+                                        item = d["item"] as? String ?: "",
+                                        quantity = (d["quantity"] as? Long)?.toInt() ?: 0,
+                                        totalAmount = (d["totalAmount"] as? Double) ?: 0.0,
+                                        organization = d["organization"] as? String,
+                                        transactionType = d["transactionType"] as? String ?: "",
+                                        status = d["status"] as? String ?: "",
+                                        timestamp = doc.getTimestamp("timestamp") ?: Timestamp.now(),
+                                        paymentMethod = d["paymentMethod"] as? String ?: "",
+                                        referenceId = d["referenceId"] as? String
+                                    )
+                                }?.map { OrderItem.Donation(it) } ?: emptyList()
+
+                                // Final list (PAYMENT_RECEIVED orders are excluded)
+                                orderItems = (merged + donations).sortedByDescending {
+                                    when (it) {
+                                        is OrderItem.Purchase -> it.order.timestamp
+                                        is OrderItem.Donation -> it.transaction.timestamp
+                                    }
+                                }
+
+                                Log.d("OrdersScreen", "✓ Synced ${orderItems.size} orders (PAYMENT_RECEIVED excluded)")
+                            }
+                    }
+            }
+    }
+
+
+    // -----------------------------------------------------------------
+    // UI
+    // -----------------------------------------------------------------
+    val content: @Composable (PaddingValues) -> Unit = { pv ->
         OrdersContent(
-            paddingValues = PaddingValues(0.dp),
+            paddingValues = pv,
             isLoading = isLoading,
             orderItems = orderItems,
             selectedItem = selectedItem,
@@ -180,9 +232,39 @@ fun OrdersScreen(
         )
     }
 
-    selectedItem?.let { item ->
+    if (showScaffold) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "My Orders",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryColor)
+                )
+            },
+            containerColor = Color(0xFFF5F5F5),
+            content = { content(it) }
+        )
+    } else {
+        content(PaddingValues())
+    }
+
+    // -----------------------------------------------------------------
+    // Dialog
+    // -----------------------------------------------------------------
+    selectedItem?.let {
         OrderDetailsDialog(
-            item = item,
+            item = it,
             onDismiss = { selectedItem = null },
             primaryColor = primaryColor,
             navController = navController,
@@ -191,6 +273,9 @@ fun OrdersScreen(
     }
 }
 
+/* -------------------------------------------------------------------------
+   CONTENT (tabs + list)
+   ------------------------------------------------------------------------- */
 @Composable
 private fun OrdersContent(
     paddingValues: PaddingValues,
@@ -203,12 +288,7 @@ private fun OrdersContent(
     primaryColor: Color,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .padding(paddingValues)
-            .fillMaxSize()
-    ) {
-        // Status Tabs
+    Column(modifier = modifier.padding(paddingValues).fillMaxSize()) {
         OrderStatusTabs(
             selectedStatus = selectedStatus,
             onStatusSelected = onStatusSelected,
@@ -216,33 +296,26 @@ private fun OrdersContent(
             primaryColor = primaryColor
         )
 
-        // Content
         Box(modifier = Modifier.fillMaxSize()) {
-            if (isLoading) {
-                CircularProgressIndicator(
+            when {
+                isLoading -> CircularProgressIndicator(
                     color = primaryColor,
-                    modifier = Modifier
-                        .size(50.dp)
-                        .align(Alignment.Center)
+                    modifier = Modifier.size(50.dp).align(Alignment.Center)
                 )
-            } else {
-                val filteredItems = filterOrdersByStatus(orderItems, selectedStatus)
-
-                if (filteredItems.isEmpty()) {
-                    EmptyOrdersState(
-                        status = selectedStatus,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                } else {
+                filterOrdersByStatus(orderItems, selectedStatus).isEmpty() -> EmptyOrdersState(
+                    status = selectedStatus,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                else -> {
+                    val filtered = filterOrdersByStatus(orderItems, selectedStatus)
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(filteredItems.size) { index ->
+                        items(filtered.size) { idx ->
                             OrderItemCard(
-                                orderItem = filteredItems[index],
-                                onClick = { onItemSelected(filteredItems[index]) },
+                                orderItem = filtered[idx],
+                                onClick = { onItemSelected(filtered[idx]) },
                                 primaryColor = primaryColor
                             )
                         }
@@ -254,6 +327,40 @@ private fun OrdersContent(
 }
 
 @Composable
+private fun EmptyOrdersState(status: OrderStatus, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            status.icon,
+            contentDescription = null,
+            tint = Color.LightGray,
+            modifier = Modifier.size(80.dp)
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "No ${status.displayName} Orders",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Gray
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            getEmptyStateMessage(status),
+            fontSize = 14.sp,
+            color = Color.Gray,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+private fun getEmptyStateMessage(status: OrderStatus) = when (status) {
+    OrderStatus.ALL -> "Start shopping or donating to see your orders here!"
+    OrderStatus.COMPLETED -> "You haven't completed any orders yet."
+    OrderStatus.CANCELLED -> "You don't have any cancelled orders."
+    OrderStatus.RETURN_REFUND -> "No returns or refunds have been processed."
+}
+/* -------------------------------------------------------------------------
+   TABS
+   ------------------------------------------------------------------------- */
+@Composable
 private fun OrderStatusTabs(
     selectedStatus: OrderStatus,
     onStatusSelected: (OrderStatus) -> Unit,
@@ -263,23 +370,20 @@ private fun OrderStatusTabs(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(0.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(OrderStatus.values().size) { index ->
-                val status = OrderStatus.values()[index]
-                val count = getOrderCountByStatus(orderItems, status)
-
+            items(OrderStatus.values().size) { i ->
+                val s = OrderStatus.values()[i]
+                val cnt = getOrderCountByStatus(orderItems, s)
                 OrderStatusChip(
-                    status = status,
-                    count = count,
-                    isSelected = selectedStatus == status,
-                    onClick = { onStatusSelected(status) },
+                    status = s,
+                    count = cnt,
+                    isSelected = selectedStatus == s,
+                    onClick = { onStatusSelected(s) },
                     primaryColor = primaryColor
                 )
             }
@@ -295,43 +399,40 @@ private fun OrderStatusChip(
     onClick: () -> Unit,
     primaryColor: Color
 ) {
-    val backgroundColor = if (isSelected) primaryColor else Color(0xFFF5F5F5)
-    val contentColor = if (isSelected) Color.White else Color.DarkGray
+    val bg = if (isSelected) primaryColor else Color(0xFFF5F5F5)
+    val fg = if (isSelected) Color.White else Color.DarkGray
 
     Card(
-        modifier = Modifier.clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        modifier = Modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = bg),
         shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(if (isSelected) 4.dp else 0.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Icon(
-                imageVector = status.icon,
-                contentDescription = status.displayName,
-                tint = contentColor,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = status.displayName,
-                color = contentColor,
-                fontSize = 14.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-            )
+            Icon(status.icon, null, tint = fg, modifier = Modifier.size(18.dp))
+            Text(status.displayName, color = fg, fontSize = 14.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
             if (count > 0 && status != OrderStatus.ALL) {
-                Text(
-                    text = "($count)",
-                    color = contentColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("($count)", color = fg, fontSize = 12.sp)
             }
         }
     }
 }
+
+/* -------------------------------------------------------------------------
+   CARD (list item)
+   ------------------------------------------------------------------------- */
+private data class OrderCardInfo(
+    val title: String,
+    val subtitle: String,
+    val status: String,
+    val timestamp: Timestamp,
+    val quantity: Int,
+    val totalAmount: Double
+)
 
 @Composable
 private fun OrderItemCard(
@@ -339,49 +440,130 @@ private fun OrderItemCard(
     onClick: () -> Unit,
     primaryColor: Color
 ) {
-    val (title, subtitle, status, timestamp, quantity, totalAmount) = when (orderItem) {
-        is OrderItem.Purchase -> {
-            val order = orderItem.order
-            val firstItem = order.items.firstOrNull()
-            val itemName = firstItem?.get("name") as? String ?: "Order"
-            val itemCount = order.items.size
-            val qty = order.items.sumOf { (it["quantity"] as? Number)?.toInt() ?: 0 }
+    var previewName by remember { mutableStateOf("Loading...") }
+    var previewQty by remember { mutableStateOf(0) }
+    var previewTotal by remember { mutableStateOf(0.0) }
+    var itemCount by remember { mutableStateOf(0) }
+    var isLoading by remember { mutableStateOf(true) }
 
-            Tuple6(
-                itemName,
-                if (itemCount > 1) "+${itemCount - 1} more items" else "",
-                order.status,
-                order.timestamp,
-                qty,
-                order.totalAmount
+    if (orderItem is OrderItem.Purchase) {
+        val orderId = orderItem.order.orderId
+
+        Log.d("OrderItemCard", "========================================")
+        Log.d("OrderItemCard", "Loading order: $orderId")
+
+        LaunchedEffect(orderId) {
+            FirebaseFirestore.getInstance()
+                .collection("orders").document(orderId)
+                .collection("order_items")
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.e("OrderItemCard", "❌ Error loading subcollection", err)
+                        isLoading = false
+                        return@addSnapshotListener
+                    }
+
+                    // ✅ NEW SYSTEM: Has order_items subcollection
+                    if (snap != null && !snap.isEmpty) {
+                        val allItems = snap.documents.mapNotNull { it.data }
+                        itemCount = allItems.size
+
+                        val firstItem = allItems.firstOrNull()
+                        if (firstItem != null) {
+                            previewName = firstItem["name"] as? String ?: "Order"
+                            previewQty = (firstItem["quantity"] as? Number)?.toInt() ?: 1
+
+                            val itemsTotal = allItems.sumOf {
+                                val qty = (it["quantity"] as? Number)?.toInt() ?: 0
+                                val price = (it["price"] as? Number)?.toDouble() ?: 0.0
+                                price * qty
+                            }
+                            previewTotal = itemsTotal + 50.0
+                        }
+
+                        Log.d("OrderItemCard", "✓ Loaded $itemCount items")
+                        isLoading = false
+                        return@addSnapshotListener
+                    }
+
+                    // ⚠️ Empty subcollection - Try old system
+                    Log.w("OrderItemCard", "⚠️ Empty subcollection, trying fallback...")
+
+                    FirebaseFirestore.getInstance()
+                        .collection("orders").document(orderId)
+                        .get()
+                        .addOnSuccessListener { doc ->
+                            isLoading = false
+
+                            if (!doc.exists()) {
+                                previewName = "Order not found"
+                                return@addOnSuccessListener
+                            }
+
+                            // Try items array field
+                            val itemsArray = doc.get("items") as? List<Map<String, Any>>
+
+                            if (!itemsArray.isNullOrEmpty()) {
+                                itemCount = itemsArray.size
+                                val firstItem = itemsArray.firstOrNull()
+
+                                if (firstItem != null) {
+                                    previewName = firstItem["name"] as? String ?: "Order"
+                                    previewQty = (firstItem["quantity"] as? Number)?.toInt() ?: 1
+                                    previewTotal = doc.getDouble("totalAmount") ?: 0.0
+                                }
+
+                                Log.d("OrderItemCard", "✓ Loaded from items field")
+                            } else {
+                                // This order has no items - it shouldn't be displayed
+                                previewName = "Invalid order"
+                                itemCount = 0
+                                Log.e("OrderItemCard", "✗ Order has no items!")
+                            }
+                        }
+                        .addOnFailureListener { e ->
+                            isLoading = false
+                            Log.e("OrderItemCard", "✗ Failed to load order", e)
+                            previewName = "Error loading"
+                        }
+                }
+        }
+    }
+
+    val info = when (orderItem) {
+        is OrderItem.Purchase -> {
+            val extra = if (itemCount > 1) "+${itemCount - 1} more items" else ""
+            OrderCardInfo(
+                title = if (isLoading) "Loading..." else previewName,
+                subtitle = extra,
+                status = orderItem.order.status,
+                timestamp = orderItem.order.timestamp,
+                quantity = previewQty,
+                totalAmount = previewTotal
             )
         }
         is OrderItem.Donation -> {
-            val transaction = orderItem.transaction
-            Tuple6(
-                transaction.item,
-                "Donation to ${transaction.organization ?: "Organization"}",
-                transaction.status,
-                transaction.timestamp,
-                transaction.quantity,
-                transaction.totalAmount
+            val t = orderItem.transaction
+            OrderCardInfo(
+                t.item,
+                "Donation to ${t.organization ?: "Organization"}",
+                t.status,
+                t.timestamp,
+                t.quantity,
+                t.totalAmount
             )
         }
     }
 
-    val statusColor = getStatusColor(status, primaryColor)
-    val statusText = getStatusDisplayText(status)
+    val statusColor = getOrderStatusColor(info.status)
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(2.dp),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header with status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -389,167 +571,119 @@ private fun OrderItemCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = when (orderItem) {
-                            is OrderItem.Purchase -> Icons.Default.ShoppingBag
-                            is OrderItem.Donation -> Icons.Default.Favorite
-                        },
+                        imageVector = if (orderItem is OrderItem.Purchase) Icons.Default.ShoppingBag else Icons.Default.Favorite,
                         contentDescription = null,
                         tint = primaryColor,
                         modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = when (orderItem) {
-                            is OrderItem.Purchase -> "Purchase"
-                            is OrderItem.Donation -> "Donation"
-                        },
-                        fontSize = 13.sp,
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = if (orderItem is OrderItem.Purchase) "Purchase Order" else "Donation",
+                            fontSize = 13.sp,
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Medium
+                        )
+                        if (orderItem is OrderItem.Purchase) {
+                            Text(
+                                text = "#${orderItem.order.orderId.takeLast(8)}",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
                 }
-
-                Surface(
-                    color = statusColor.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = statusText,
-                        color = statusColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
+                Surface(color = statusColor, shape = RoundedCornerShape(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = getStatusIcon(info.status),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            getStatusDisplayText(info.status),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
             Divider(color = Color(0xFFEEEEEE))
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // Order item details
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier
-                        .size(70.dp)
-                        .background(Color(0xFFF8F8F8), RoundedCornerShape(8.dp)),
+                    modifier = Modifier.size(70.dp).background(Color(0xFFF8F8F8), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = when (orderItem) {
-                            is OrderItem.Purchase -> Icons.Default.ShoppingBag
-                            is OrderItem.Donation -> Icons.Default.Favorite
-                        },
-                        contentDescription = null,
-                        tint = primaryColor,
-                        modifier = Modifier.size(32.dp)
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            color = primaryColor,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        Icon(Icons.Default.ShoppingBag, null, tint = primaryColor, modifier = Modifier.size(32.dp))
+                    }
                 }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = title,
+                        info.title,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        color = Color.DarkGray
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (subtitle.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = subtitle,
-                            fontSize = 13.sp,
-                            color = Color.Gray
-                        )
+                    if (info.subtitle.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(info.subtitle, fontSize = 13.sp, color = Color.Gray)
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Qty: $quantity",
-                        fontSize = 13.sp,
-                        color = Color.Gray
-                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text("Items: $itemCount", fontSize = 13.sp, color = Color.Gray)
                 }
-
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowRight,
-                    contentDescription = "View Details",
-                    tint = Color.Gray,
-                    modifier = Modifier.size(24.dp)
-                )
+                Icon(Icons.Default.KeyboardArrowRight, "Details", tint = Color.Gray, modifier = Modifier.size(24.dp))
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
             Divider(color = Color(0xFFEEEEEE))
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // Footer with total and date
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = formatDate(timestamp.toDate()),
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-
+                Text(formatDate(info.timestamp.toDate()), fontSize = 12.sp, color = Color.Gray)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Total: ",
-                        fontSize = 13.sp,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = "₱${String.format("%.2f", totalAmount)}",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = primaryColor
-                    )
+                    Text("Total: ", fontSize = 13.sp, color = Color.Gray)
+                    if (isLoading) {
+                        Text("...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                    } else {
+                        Text(
+                            "₱${String.format("%.2f", info.totalAmount)}",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryColor
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun EmptyOrdersState(
-    status: OrderStatus,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = status.icon,
-            contentDescription = null,
-            tint = Color.LightGray,
-            modifier = Modifier.size(80.dp)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "No ${status.displayName} Orders",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.Gray
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = getEmptyStateMessage(status),
-            fontSize = 14.sp,
-            color = Color.Gray,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
+/* -------------------------------------------------------------------------
+   DIALOG – LIVE STATUS FROM NOTIFICATION
+   ------------------------------------------------------------------------- */
 @Composable
 fun OrderDetailsDialog(
     item: OrderItem,
@@ -558,56 +692,129 @@ fun OrderDetailsDialog(
     navController: NavController,
     chatViewModel: com.project.webapp.Viewmodel.ChatViewModel
 ) {
-    val dialogDetails = when (item) {
-        is OrderItem.Purchase -> createPurchaseDialogDetails(item.order, primaryColor, onDismiss, navController, chatViewModel)
-        is OrderItem.Donation -> createDonationDialogDetails(item.transaction)
+    // Live status from notification (same as before)
+    var liveStatus by remember { mutableStateOf("") }
+    var livePayment by remember { mutableStateOf("Payment Pending") }
+
+    if (item is OrderItem.Purchase) {
+        val orderId = item.order.orderId
+        val firestore = FirebaseFirestore.getInstance()
+
+        LaunchedEffect(orderId) {
+            firestore.collection("notifications")
+                .whereEqualTo("orderId", orderId)
+                .whereEqualTo("type", "purchase_confirmed")
+                .addSnapshotListener { snap, err ->
+                    if (err != null || snap == null) return@addSnapshotListener
+                    val doc = snap.documents.firstOrNull() ?: return@addSnapshotListener
+                    liveStatus = doc.getString("orderStatus") ?: "To Pay"
+                    livePayment = doc.getString("paymentStatus") ?: "Payment Pending"
+                }
+        }
+    } else {
+        liveStatus = (item as OrderItem.Donation).transaction.status
     }
 
-    val statusColor = getStatusColor(dialogDetails.status, primaryColor)
+    val statusToShow = if (item is OrderItem.Purchase) liveStatus else (item as OrderItem.Donation).transaction.status
+    val statusColor = getOrderStatusColor(statusToShow)
+
+    // -------------------------------------------------------------
+    // NEW: Load real order items from sub-collection
+    // -------------------------------------------------------------
+    var realItems by remember { mutableStateOf<List<Map<String, Any>>?>(null) }
+    var itemsLoading by remember { mutableStateOf(true) }
+
+    if (item is OrderItem.Purchase) {
+        val orderId = item.order.orderId
+        LaunchedEffect(orderId) {
+            FirebaseFirestore.getInstance()
+                .collection("orders").document(orderId)
+                .collection("order_items")
+                .orderBy("name")
+                .addSnapshotListener { snap, err ->
+                    itemsLoading = false
+                    if (err != null) {
+                        Log.e("OrderDialog", "order_items error", err)
+                        realItems = emptyList()
+                        return@addSnapshotListener
+                    }
+                    realItems = snap?.documents?.mapNotNull { it.data } ?: emptyList()
+                }
+        }
+    }
+
+    val details = when (item) {
+        is OrderItem.Purchase -> purchaseDialogDetails(
+            order = item.order,
+            liveStatus = liveStatus,
+            livePayment = livePayment,
+            realItems = realItems ?: emptyList(),
+            itemsLoading = itemsLoading,
+            primaryColor = primaryColor,
+            onDismiss = onDismiss,
+            navController = navController,
+            chatViewModel = chatViewModel
+        )
+        is OrderItem.Donation -> donationDialogDetails(item.transaction)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(20.dp),
         containerColor = Color.White,
         title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = when (item) {
-                        is OrderItem.Purchase -> Icons.Default.ShoppingBag
-                        is OrderItem.Donation -> Icons.Default.Favorite
-                    },
+                    imageVector = if (item is OrderItem.Purchase) Icons.Default.ShoppingBag else Icons.Default.Favorite,
                     contentDescription = null,
                     tint = primaryColor,
                     modifier = Modifier.size(28.dp)
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(Modifier.width(12.dp))
                 Column {
-                    Text(
-                        text = dialogDetails.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = Color.DarkGray
-                    )
-                    Text(
-                        text = getStatusDisplayText(dialogDetails.status),
-                        fontSize = 14.sp,
-                        color = statusColor,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text(details.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.DarkGray)
+                    Surface(color = statusColor, shape = RoundedCornerShape(8.dp)) {
+                        Text(
+                            getStatusDisplayText(statusToShow),
+                            fontSize = 13.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
         },
         text = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 500.dp)
-                    .verticalScroll(rememberScrollState())
+                modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState())
             ) {
-                dialogDetails.detailsContent()
+                // Timeline (unchanged)
+                if (item is OrderItem.Purchase) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "Order Status Timeline",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = primaryColor
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            OrderStatusTimeline(
+                                currentStatus = liveStatus,
+                                paymentStatus = livePayment,
+                                primaryColor = statusColor,
+                                showActions = true
+                            )
+                        }
+                    }
+                }
+
+                details.detailsContent()
             }
         },
         confirmButton = {
@@ -616,190 +823,100 @@ fun OrderDetailsDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Close", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            }
+            ) { Text("Close", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
     )
 }
 
+/* -------------------------------------------------------------------------
+   PURCHASE DIALOG (uses live status)
+   ------------------------------------------------------------------------- */
 @Composable
-private fun createPurchaseDialogDetails(
+private fun purchaseDialogDetails(
     order: Order,
+    liveStatus: String,
+    livePayment: String,
+    realItems: List<Map<String, Any>>,
+    itemsLoading: Boolean,
     primaryColor: Color,
-    onDismiss: () -> Unit = {},
+    onDismiss: () -> Unit,
     navController: NavController,
     chatViewModel: com.project.webapp.Viewmodel.ChatViewModel
 ): DialogDetails {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var showCancelDialog by remember { mutableStateOf(false) }
-    var showTrackingDialog by remember { mutableStateOf(false) }
-    var isProcessing by remember { mutableStateOf(false) }
-    var orderStatus by remember { mutableStateOf(order.status) }
-    val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    var showCancel by remember { mutableStateOf(false) }
+    var showTrack by remember { mutableStateOf(false) }
+    var processing by remember { mutableStateOf(false) }
 
-    // Check if order can be cancelled
-    val canCancel = orderStatus.uppercase() in listOf("PENDING", "TO_PAY", "TOPAY", "PAYMENT_RECEIVED", "TO_SHIP", "TOSHIP", "PROCESSING") &&
-            !orderStatus.equals("CANCELLED", ignoreCase = true) &&
-            !orderStatus.equals("COMPLETED", ignoreCase = true)
+    val canCancel = liveStatus.uppercase() in listOf(
+        "PENDING", "TO_PAY", "TOPAY", "PAYMENT_RECEIVED",
+        "TO_SHIP", "TOSHIP", "PROCESSING"
+    ) && !liveStatus.equals("CANCELLED", ignoreCase = true)
+            && !liveStatus.equals("COMPLETED", ignoreCase = true)
 
-    val canTrack = orderStatus.uppercase() in listOf("SHIPPED", "SHIPPING", "TO_RECEIVE", "TORECEIVE", "IN_TRANSIT", "OUT_FOR_DELIVERY", "TO_DELIVER")
+    val canTrack = liveStatus.uppercase() in listOf(
+        "SHIPPED", "SHIPPING",
+        "TO_DELIVER", "TODELIVER",
+        "TO_RECEIVE", "TORECEIVE",
+        "IN_TRANSIT", "OUT_FOR_DELIVERY"
+    )
+
+    // Compute totals from REAL items (fallback to order.totalAmount if empty)
+    val itemsTotal = realItems.sumOf { (it["price"] as? Number)?.toDouble()?.times((it["quantity"] as? Number)?.toInt() ?: 1) ?: 0.0 }
+    val shippingFee = 50.0
+    val displayTotal = if (realItems.isEmpty()) order.totalAmount else itemsTotal + shippingFee
 
     return DialogDetails(
         title = "Order #${order.orderId.takeLast(8)}",
-        status = orderStatus,
+        status = liveStatus,
         timestamp = order.timestamp.toDate().toString(),
         detailsContent = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // Action Buttons at the top
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (canCancel) {
-                        OutlinedButton(
-                            onClick = { showCancelDialog = true },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Color(0xFFF44336)
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF44336)),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Cancel,
-                                contentDescription = "Cancel",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Cancel", fontSize = 13.sp)
-                        }
-                    }
-
-                    if (canTrack) {
-                        Button(
-                            onClick = { showTrackingDialog = true },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LocalShipping,
-                                contentDescription = "Track",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Track", fontSize = 13.sp)
-                        }
-                    }
-                }
-
-                Divider(color = Color(0xFFEEEEEE))
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Order Status Timeline
-                SectionHeader("Order Status")
-                OrderStatusTimeline(
-                    currentStatus = orderStatus,
-                    orderId = order.orderId,
-                    primaryColor = primaryColor,
-                    modifier = Modifier.fillMaxWidth(),
-                    showActions = false,
-                    onStatusUpdated = {
-                        orderStatus = "CANCELLED"
-                        onDismiss()
-                    }
+            Column(Modifier.fillMaxWidth()) {
+                OrderActions(
+                    canCancel = canCancel,
+                    canTrack = canTrack,
+                    onCancel = { showCancel = true },
+                    onTrack = { showTrack = true },
+                    primaryColor = primaryColor
                 )
 
+                Divider(color = Color(0xFFEEEEEE))
+                Spacer(Modifier.height(16.dp))
 
-                // Cancel Order Dialog
-                if (showCancelDialog) {
-                    CancelOrderDialog(
-                        orderId = order.orderId,
-                        isProcessing = isProcessing,
-                        onConfirm = { reason ->
-                            scope.launch {
-                                isProcessing = true
-                                try {
-                                    com.project.webapp.components.delivery.cancelOrder(
-                                        orderId = order.orderId,
-                                        reason = reason,
-                                        onSuccess = {
-                                            Toast.makeText(context, "Order cancelled successfully", Toast.LENGTH_SHORT).show()
-                                            showCancelDialog = false
-                                            orderStatus = "CANCELLED"
-                                            onDismiss()
-                                        },
-                                        onError = { error ->
-                                            Toast.makeText(context, "Failed to cancel: ${error.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                } finally {
-                                    isProcessing = false
-                                }
-                            }
-                        },
-                        onDismiss = { showCancelDialog = false }
-                    )
-                }
-
-                // Tracking Dialog
-                if (showTrackingDialog) {
-                    TrackingInfoDialog(
-                        orderId = order.orderId,
-                        onDismiss = { showTrackingDialog = false },
-                        primaryColor = primaryColor
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Order Items
-                SectionHeader("Order Items (${order.items.size})")
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        order.items.forEachIndexed { index, item ->
-                            OrderItemRow(item, primaryColor)
-                            if (index < order.items.size - 1) {
-                                Divider(
-                                    color = Color.LightGray,
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                )
+                SectionHeader("Order Items (${realItems.size})")
+                if (itemsLoading) {
+                    Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = primaryColor, strokeWidth = 2.dp)
+                    }
+                } else if (realItems.isEmpty()) {
+                    Text("No items found", color = Color.Gray, modifier = Modifier.padding(16.dp))
+                } else {
+                    Card(colors = CardDefaults.cardColors(Color(0xFFF8F8F8)), shape = RoundedCornerShape(12.dp)) {
+                        Column(Modifier.padding(12.dp)) {
+                            realItems.forEachIndexed { i, it ->
+                                OrderItemRow(it, primaryColor)
+                                if (i < realItems.size - 1) Divider(color = Color.LightGray, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(Modifier.height(20.dp))
 
-                // Payment Information
                 SectionHeader("Payment Information")
                 InfoCard {
-                    val shippingFee = 50.0
-                    val subtotal = order.totalAmount - shippingFee
-
                     InfoRow("Payment Method", order.paymentMethod)
                     InfoRow("Order Date", formatDate(order.timestamp.toDate()))
-                    InfoRow("Items Subtotal", "₱${String.format("%.2f", subtotal)}")
+                    InfoRow("Items Subtotal", "₱${String.format("%.2f", itemsTotal)}")
                     InfoRow("Shipping Fee", "₱${String.format("%.2f", shippingFee)}")
-
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(Modifier.height(8.dp))
                     Divider()
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Total", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text(
-                            "₱${String.format("%.2f", order.totalAmount)}",
+                            "₱${String.format("%.2f", displayTotal)}",
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             color = primaryColor
@@ -807,15 +924,42 @@ private fun createPurchaseDialogDetails(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(Modifier.height(20.dp))
 
-                // Shipping Information
                 SectionHeader("Shipping Address")
-                InfoCard {
-                    Text(
-                        text = order.deliveryAddress,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
+                InfoCard { Text(order.deliveryAddress, fontSize = 14.sp, lineHeight = 20.sp) }
+
+                // Cancel / Track dialogs (unchanged)
+                if (showCancel) {
+                    CancelOrderDialog(
+                        orderId = order.orderId,
+                        isProcessing = processing,
+                        onConfirm = { reason ->
+                            scope.launch {
+                                processing = true
+                                try {
+                                    com.project.webapp.components.delivery.cancelOrder(
+                                        orderId = order.orderId,
+                                        reason = reason,
+                                        onSuccess = {
+                                            Toast.makeText(context, "Order cancelled", Toast.LENGTH_SHORT).show()
+                                            showCancel = false
+                                            onDismiss()
+                                        },
+                                        onError = { Toast.makeText(context, "Cancel failed: ${it.message}", Toast.LENGTH_SHORT).show() }
+                                    )
+                                } finally { processing = false }
+                            }
+                        },
+                        onDismiss = { showCancel = false }
+                    )
+                }
+
+                if (showTrack) {
+                    TrackingInfoDialog(
+                        orderId = order.orderId,
+                        onDismiss = { showTrack = false },
+                        primaryColor = primaryColor
                     )
                 }
             }
@@ -823,65 +967,95 @@ private fun createPurchaseDialogDetails(
     )
 }
 
+/* -------------------------------------------------------------------------
+   DONATION DIALOG (unchanged)
+   ------------------------------------------------------------------------- */
 @Composable
-private fun createDonationDialogDetails(transaction: Transaction): DialogDetails {
-    return DialogDetails(
-        title = "Donation",
-        status = transaction.status,
-        timestamp = transaction.timestamp.toDate().toString(),
-        detailsContent = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                SectionHeader("Donation Details")
-                InfoCard {
-                    InfoRow("Item", transaction.item)
-                    InfoRow("Quantity", transaction.quantity.toString())
-                    InfoRow("Organization", transaction.organization ?: "Unknown")
-                    InfoRow("Date", formatDate(transaction.timestamp.toDate()))
-                    InfoRow("Payment Method", transaction.paymentMethod)
-                    if (!transaction.referenceId.isNullOrEmpty()) {
-                        InfoRow("Reference ID", transaction.referenceId)
-                    }
+private fun donationDialogDetails(t: Transaction): DialogDetails = DialogDetails(
+    title = "Donation",
+    status = t.status,
+    timestamp = t.timestamp.toDate().toString(),
+    detailsContent = {
+        Column(Modifier.fillMaxWidth()) {
+            SectionHeader("Donation Details")
+            InfoCard {
+                InfoRow("Item", t.item)
+                InfoRow("Quantity", t.quantity.toString())
+                InfoRow("Organization", t.organization ?: "Unknown")
+                InfoRow("Date", formatDate(t.timestamp.toDate()))
+                InfoRow("Payment Method", t.paymentMethod)
+                if (!t.referenceId.isNullOrEmpty()) InfoRow("Reference ID", t.referenceId)
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Divider()
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    InfoRow(
-                        "Total Amount",
-                        "₱${String.format("%.2f", transaction.totalAmount)}",
-                        valueColor = Color(0xFF0DA54B),
-                        valueFontWeight = FontWeight.Bold
-                    )
-                }
+                Spacer(Modifier.height(8.dp))
+                Divider()
+                Spacer(Modifier.height(8.dp))
+                InfoRow(
+                    "Total Amount",
+                    "₱${String.format("%.2f", t.totalAmount)}",
+                    valueColor = Color(0xFF0DA54B),
+                    valueFontWeight = FontWeight.Bold
+                )
             }
         }
-    )
+    }
+)
+
+/* -------------------------------------------------------------------------
+   RE-USABLE SMALL COMPOSABLES
+   ------------------------------------------------------------------------- */
+@Composable
+private fun OrderActions(
+    canCancel: Boolean,
+    canTrack: Boolean,
+    onCancel: () -> Unit,
+    onTrack: () -> Unit,
+    primaryColor: Color
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (canCancel) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF44336)),
+                border = BorderStroke(1.dp, Color(0xFFF44336)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Cancel, "Cancel", modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Cancel", fontSize = 13.sp)
+            }
+        }
+        if (canTrack) {
+            Button(
+                onClick = onTrack,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.LocalShipping, "Track", modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Track", fontSize = 13.sp)
+            }
+        }
+    }
 }
 
-// Helper Composables
 @Composable
 private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        fontWeight = FontWeight.Bold,
-        fontSize = 16.sp,
-        color = Color.DarkGray
-    )
-    Spacer(modifier = Modifier.height(8.dp))
+    Text(text, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.DarkGray)
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
 private fun InfoCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
+        colors = CardDefaults.cardColors(Color(0xFFF8F8F8)),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            content = content
-        )
-    }
+    ) { Column(Modifier.padding(16.dp), content = content) }
 }
 
 @Composable
@@ -892,19 +1066,12 @@ private fun InfoRow(
     valueFontWeight: FontWeight = FontWeight.Normal
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
+        Text(label, fontSize = 14.sp, color = Color.Gray, modifier = Modifier.weight(1f))
         Text(
-            text = label,
-            fontSize = 14.sp,
-            color = Color.Gray,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = value,
+            value,
             fontSize = 14.sp,
             color = valueColor,
             fontWeight = valueFontWeight,
@@ -916,146 +1083,51 @@ private fun InfoRow(
 
 @Composable
 private fun OrderItemRow(item: Map<String, Any>, primaryColor: Color) {
-    val name = item["name"] as? String ?: "Unnamed Product"
+    val name = item["name"] as? String ?: "Unnamed"
     val price = (item["price"] as? Number)?.toDouble() ?: 0.0
-    val quantity = (item["quantity"] as? Number)?.toInt() ?: 1
+    val qty = (item["quantity"] as? Number)?.toInt() ?: 1
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(vertical = 8.dp)
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
         Box(
-            modifier = Modifier
-                .size(50.dp)
-                .background(Color(0xFFEDF7F0), RoundedCornerShape(6.dp)),
+            modifier = Modifier.size(50.dp).background(Color(0xFFEDF7F0), RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.ShoppingBag,
-                contentDescription = null,
-                tint = primaryColor,
-                modifier = Modifier.size(28.dp)
-            )
+            Icon(Icons.Default.ShoppingBag, null, tint = primaryColor, modifier = Modifier.size(28.dp))
         }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = name,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "Qty: $quantity",
-                fontSize = 13.sp,
-                color = Color.Gray
-            )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("Qty: $qty", fontSize = 13.sp, color = Color.Gray)
         }
-
-        Text(
-            text = "₱${String.format("%.2f", price * quantity)}",
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = Color.DarkGray
-        )
+        Text("₱${String.format("%.2f", price * qty)}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.DarkGray)
     }
 }
 
-// Utility Functions
+/* -------------------------------------------------------------------------
+   FILTERING / COUNTING
+   ------------------------------------------------------------------------- */
 private fun filterOrdersByStatus(orders: List<OrderItem>, status: OrderStatus): List<OrderItem> {
     if (status == OrderStatus.ALL) return orders
-
-    return orders.filter { item ->
-        val itemStatus = when (item) {
-            is OrderItem.Purchase -> item.order.status
-            is OrderItem.Donation -> item.transaction.status
-        }
-        matchesStatus(itemStatus, status)
-    }
+    return orders.filter { matchesStatus(statusOf(it), status) }
 }
 
-private fun matchesStatus(itemStatus: String, filterStatus: OrderStatus): Boolean {
-    return when (filterStatus) {
-        OrderStatus.TO_PAY -> itemStatus.uppercase() in listOf("PENDING", "TO_PAY", "TOPAY")
-        OrderStatus.TO_SHIP -> itemStatus.uppercase() in listOf("PROCESSING", "TO_SHIP", "TOSHIP", "PREPARING")
-        OrderStatus.TO_RECEIVE -> itemStatus.uppercase() in listOf("SHIPPED", "TO_RECEIVE", "TORECEIVE", "IN_TRANSIT", "OUT_FOR_DELIVERY")
-        OrderStatus.COMPLETED -> itemStatus.uppercase() in listOf("COMPLETED", "DELIVERED", "COMPLETE")
-        OrderStatus.CANCELLED -> itemStatus.uppercase() in listOf("CANCELLED", "CANCELED")
-        OrderStatus.RETURN_REFUND -> itemStatus.uppercase() in listOf("RETURNED", "REFUNDED", "RETURN", "REFUND")
-        OrderStatus.ALL -> true
-    }
+private fun statusOf(item: OrderItem) = when (item) {
+    is OrderItem.Purchase -> item.order.status
+    is OrderItem.Donation -> item.transaction.status
 }
 
-private fun getOrderCountByStatus(orders: List<OrderItem>, status: OrderStatus): Int {
-    return filterOrdersByStatus(orders, status).size
+private fun matchesStatus(itemStatus: String, filter: OrderStatus): Boolean = when (filter) {
+    OrderStatus.COMPLETED -> itemStatus.uppercase() in listOf("COMPLETED", "COMPLETE", "DELIVERED")
+    OrderStatus.CANCELLED -> itemStatus.uppercase() in listOf("CANCELLED", "CANCELED")
+    OrderStatus.RETURN_REFUND -> itemStatus.uppercase() in listOf("RETURNED", "REFUNDED", "RETURN", "REFUND")
+    OrderStatus.ALL -> true
 }
 
-private fun getStatusColor(status: String, primaryColor: Color): Color {
-    return when (status.uppercase()) {
-        "COMPLETED", "DELIVERED", "COMPLETE" -> primaryColor
-        "PROCESSING", "PREPARING", "TO_SHIP", "TOSHIP" -> Color(0xFFFF9800)
-        "SHIPPED", "TO_RECEIVE", "TORECEIVE", "IN_TRANSIT", "OUT_FOR_DELIVERY" -> Color(0xFF2196F3)
-        "PENDING", "TO_PAY", "TOPAY" -> Color(0xFFFFC107)
-        "CANCELLED", "CANCELED" -> Color(0xFFF44336)
-        "RETURNED", "REFUNDED", "RETURN", "REFUND" -> Color(0xFF9C27B0)
-        else -> Color.Gray
-    }
-}
+private fun getOrderCountByStatus(orders: List<OrderItem>, status: OrderStatus) =
+    filterOrdersByStatus(orders, status).size
 
-private fun getStatusDisplayText(status: String): String {
-    return when (status.uppercase()) {
-        "COMPLETED", "COMPLETE" -> "Completed"
-        "DELIVERED" -> "Delivered"
-        "PROCESSING" -> "Processing"
-        "PREPARING" -> "Preparing"
-        "TO_SHIP", "TOSHIP" -> "To Ship"
-        "SHIPPED" -> "Shipped"
-        "TO_RECEIVE", "TORECEIVE" -> "To Receive"
-        "IN_TRANSIT" -> "In Transit"
-        "OUT_FOR_DELIVERY" -> "Out for Delivery"
-        "PENDING" -> "Pending Payment"
-        "TO_PAY", "TOPAY" -> "To Pay"
-        "CANCELLED", "CANCELED" -> "Cancelled"
-        "RETURNED" -> "Returned"
-        "REFUNDED" -> "Refunded"
-        "RETURN" -> "Return"
-        "REFUND" -> "Refund"
-        else -> status.replaceFirstChar { it.uppercase() }
-    }
-}
-
-private fun getEmptyStateMessage(status: OrderStatus): String {
-    return when (status) {
-        OrderStatus.ALL -> "Start shopping or donating to see your orders here!"
-        OrderStatus.TO_PAY -> "You don't have any orders waiting for payment."
-        OrderStatus.TO_SHIP -> "No orders are being prepared for shipment."
-        OrderStatus.TO_RECEIVE -> "No orders are currently on the way to you."
-        OrderStatus.COMPLETED -> "You haven't completed any orders yet."
-        OrderStatus.CANCELLED -> "You don't have any cancelled orders."
-        OrderStatus.RETURN_REFUND -> "No returns or refunds have been processed."
-    }
-}
-
-private fun formatDate(date: Date): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault())
-    return sdf.format(date)
-}
-
-// Data class for tuple
-private data class Tuple6<A, B, C, D, E, F>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D,
-    val fifth: E,
-    val sixth: F
-)
-
-// Deprecated: Keep for backward compatibility
-@Composable
-private fun ReceiptRow(label: String, value: String) {
-    InfoRow(label, value)
-}
+/* -------------------------------------------------------------------------
+   DATE FORMATTER
+   ------------------------------------------------------------------------- */
+private fun formatDate(date: Date): String =
+    SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()).format(date)
