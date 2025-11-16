@@ -41,8 +41,8 @@ fun OrderStatusTimeline(
     onStatusUpdated: (() -> Unit)? = null,
     chatViewModel: com.project.webapp.Viewmodel.ChatViewModel,
     navController: NavController,
-    order: Order,                     // the full Order object (has sellerId, transactionId, etc.)
-    onDismiss: () -> Unit             // close the dialog after opening chat
+    order: Order,
+    onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -50,18 +50,21 @@ fun OrderStatusTimeline(
     var showTrackingDialog by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
 
-    // Unified status list: To Pay → To Ship → To Receive → Completed
+    // Check if order is cancelled
+    val isCancelled = currentStatus.uppercase() in listOf("CANCELLED", "CANCELED")
+
+    // Unified status list
     val orderStatuses = listOf(
         TimelineStep(
             label = "To Pay",
             isCompleted = paymentStatus == "Payment Received" ||
-                    currentStatus.uppercase() !in listOf("TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY"),
+                    currentStatus.uppercase() !in listOf("TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY", "CANCELLED", "CANCELED"),
             icon = Icons.Default.AccountBalanceWallet,
             message = "Waiting for payment confirmation"
         ),
         TimelineStep(
             label = "To Ship",
-            isCompleted = currentStatus.uppercase() !in listOf("TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY", "TO SHIP", "TOSHIP"),
+            isCompleted = currentStatus.uppercase() !in listOf("TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY", "TO SHIP", "TOSHIP", "CANCELLED", "CANCELED"),
             icon = Icons.Default.Inventory,
             message = "Your order is being prepared"
         ),
@@ -79,61 +82,44 @@ fun OrderStatusTimeline(
         )
     )
 
-    // Determine current step
+    // Determine current step - cancelled orders stop at their last active step
     val currentStepIndex = when (currentStatus.uppercase()) {
         "TO PAY", "PAYMENT PENDING", "PENDING", "TOPAY" -> 0
         "TO SHIP", "TOSHIP", "PROCESSING", "PREPARING" -> 1
         "TO DELIVER", "TODELIVER" -> 2
         "COMPLETED", "COMPLETE", "DELIVERED" -> 3
-        "TO RECEIVE", "TORECEIVE", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY" -> 2 // Map old "To Receive" to "To Deliver"
+        "TO RECEIVE", "TORECEIVE", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY" -> 2
+        "CANCELLED", "CANCELED" -> -1 // Will be determined by checking which step was last active
         else -> -1
     }
 
-    // Action visibility
-    val canCancel = currentStepIndex <= 1 && currentStatus.uppercase() !in listOf("CANCELLED", "COMPLETED")
-    val canTrack = currentStepIndex >= 2 && currentStatus.uppercase() !in listOf("CANCELLED", "COMPLETED")
+    // For cancelled orders, determine which step they were cancelled at
+    val cancelledAtStep = if (isCancelled) {
+        when {
+            paymentStatus != "Payment Received" -> 0 // Cancelled during payment
+            currentStepIndex <= 1 -> 1 // Cancelled during "To Ship"
+            else -> 2 // Cancelled during delivery
+        }
+    } else -1
+
+    // Action visibility - Fixed to include both spellings of CANCELLED
+    val canCancel = currentStatus.uppercase() !in listOf(
+        "CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "DELIVERED"
+    ) && currentStepIndex <= 1
+
+    val canTrack = currentStepIndex >= 2 &&
+            currentStatus.uppercase() !in listOf("CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "DELIVERED")
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Action Buttons
-        if (showActions && orderId != null && currentStatus.uppercase() !in listOf("CANCELLED", "COMPLETED")) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (canCancel) {
-                    OutlinedButton(
-                        onClick = { showCancelDialog = true },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF44336)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF44336)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Cancel, contentDescription = "Cancel", modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Cancel", fontSize = 13.sp)
-                    }
-                }
+        if (showActions && orderId != null) {
+            val isCancelled = currentStatus.uppercase() in listOf("CANCELLED", "CANCELED")
+            val isCompleted = currentStatus.uppercase() in listOf("COMPLETED", "COMPLETE", "DELIVERED")
 
-                if (canTrack) {
-                    Button(
-                        onClick = { showTrackingDialog = true },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.LocalShipping, contentDescription = "Track", modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Track", fontSize = 13.sp)
-                    }
-                }
-
+            if (isCancelled || isCompleted) {
+                // Show only Contact button for cancelled/completed orders
                 Button(
                     onClick = {
-                        val canChat = !order.sellerId.isNullOrEmpty()
-                        if (!canChat) return@Button
-
                         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@Button
                         val sellerId = order.sellerId ?: return@Button
                         val transactionId = order.transactionId ?: order.orderId
@@ -147,7 +133,9 @@ fun OrderStatusTimeline(
                             onDismiss()
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -155,7 +143,66 @@ fun OrderStatusTimeline(
                     Spacer(Modifier.width(4.dp))
                     Text("Contact", fontSize = 13.sp)
                 }
+            } else {
+                // For active orders: Show Cancel, Track, and Contact buttons
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Only show Cancel button if canCancel is true
+                    if (canCancel) {
+                        OutlinedButton(
+                            onClick = { showCancelDialog = true },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF44336)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF44336)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Cancel, contentDescription = "Cancel", modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancel", fontSize = 13.sp)
+                        }
+                    }
 
+                    if (canTrack) {
+                        Button(
+                            onClick = { showTrackingDialog = true },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.LocalShipping, contentDescription = "Track", modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Track", fontSize = 13.sp)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@Button
+                            val sellerId = order.sellerId ?: return@Button
+                            val transactionId = order.transactionId ?: order.orderId
+
+                            chatViewModel.createOrGetTransactionChatRoom(
+                                user1Id = currentUserId,
+                                user2Id = sellerId,
+                                notificationId = transactionId
+                            ) { chatRoomId ->
+                                navController.navigate("chat/$chatRoomId/false")
+                                onDismiss()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Chat, contentDescription = "Chat", modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Contact", fontSize = 13.sp)
+                    }
+                }
             }
 
             Divider(modifier = Modifier.padding(vertical = 16.dp), color = Color.LightGray)
@@ -195,7 +242,7 @@ fun OrderStatusTimeline(
         }
 
         // Cancelled state
-        if (currentStatus.equals("CANCELLED", ignoreCase = true)) {
+        if (currentStatus.uppercase() in listOf("CANCELLED", "CANCELED")) {
             Spacer(Modifier.height(16.dp))
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFF44336).copy(alpha = 0.1f)),
@@ -230,7 +277,7 @@ fun OrderStatusTimeline(
         }
     }
 
-    // Dialogs
+    // Dialogs - Fixed with proper callback handling
     if (showCancelDialog) {
         CancelOrderDialog(
             orderId = orderId ?: "",
@@ -245,13 +292,17 @@ fun OrderStatusTimeline(
                             onSuccess = {
                                 Toast.makeText(context, "Order cancelled successfully", Toast.LENGTH_SHORT).show()
                                 showCancelDialog = false
+                                isProcessing = false
+                                // CRITICAL: Call the callback to refresh the UI
                                 onStatusUpdated?.invoke()
                             },
                             onError = { error ->
-                                Toast.makeText(context, "Failed to cancel: ${error.message}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Failed to cancel: ${error.message}", Toast.LENGTH_LONG).show()
+                                isProcessing = false
                             }
                         )
-                    } finally {
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         isProcessing = false
                     }
                 }
@@ -272,64 +323,6 @@ fun OrderStatusTimeline(
 @Composable
 fun StatusTimelineItem(
     label: String,
-    isCompleted: Boolean,
-    isActive: Boolean,
-    primaryColor: Color,
-    message: String? = null
-) {
-    val pointColor = when {
-        isActive -> primaryColor
-        isCompleted -> Color(0xFF4CAF50)
-        else -> Color.LightGray
-    }
-
-    val textColor = when {
-        isActive -> primaryColor
-        isCompleted -> Color.DarkGray
-        else -> Color.Gray
-    }
-
-    val bgColor = if (isActive) primaryColor.copy(alpha = 0.1f) else Color.Transparent
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(color = bgColor, shape = RoundedCornerShape(8.dp))
-            .padding(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .background(color = pointColor, shape = CircleShape)
-                .then(if (!isCompleted && !isActive) Modifier.border(2.dp, Color.LightGray, CircleShape) else Modifier),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isCompleted) {
-                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-            }
-        }
-
-        Spacer(Modifier.width(16.dp))
-
-        Column {
-            Text(
-                text = label,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                fontSize = 16.sp,
-                color = textColor
-            )
-            if (isActive && message != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(text = message, fontSize = 14.sp, color = Color.Gray)
-            }
-        }
-    }
-}
-
-@Composable
-fun StatusTimelineItem(
-    label: String,
     icon: ImageVector,
     isCompleted: Boolean,
     isActive: Boolean,
@@ -337,9 +330,9 @@ fun StatusTimelineItem(
     message: String? = null
 ) {
     val pointColor = when {
-        isCompleted -> Color(0xFF4CAF50)  // Green for completed
-        isActive -> primaryColor           // Primary color for active
-        else -> Color.LightGray            // Gray for pending
+        isCompleted -> Color(0xFF4CAF50)
+        isActive -> primaryColor
+        else -> Color.LightGray
     }
 
     val textColor = when {
@@ -357,7 +350,6 @@ fun StatusTimelineItem(
             .background(color = bgColor, shape = RoundedCornerShape(8.dp))
             .padding(horizontal = 8.dp, vertical = 12.dp)
     ) {
-        // Circle with icon or checkmark
         Box(
             modifier = Modifier
                 .size(32.dp)
@@ -417,7 +409,6 @@ fun StatusTimelineItem(
             }
         }
 
-        // Status indicator
         if (isCompleted) {
             Surface(
                 color = Color(0xFF4CAF50).copy(alpha = 0.1f),
@@ -448,7 +439,6 @@ fun StatusTimelineItem(
     }
 }
 
-// === KEEP ALL EXISTING DIALOGS & FIREBASE FUNCTIONS BELOW UNCHANGED ===
 @Composable
 fun CancelOrderDialog(
     orderId: String,
@@ -623,10 +613,17 @@ fun TrackingInfoRow(icon: ImageVector, label: String, value: String, primaryColo
     }
 }
 
-// === FIREBASE FUNCTIONS (UNCHANGED) ===
-fun cancelOrder(orderId: String, reason: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+// === FIREBASE FUNCTIONS WITH LOGGING ===
+fun cancelOrder(
+    orderId: String,
+    reason: String,
+    onSuccess: () -> Unit,
+    onError: (Exception) -> Unit
+) {
     val firestore = FirebaseFirestore.getInstance()
     val currentTime = System.currentTimeMillis()
+
+    Log.d("CancelOrder", "Starting cancellation for order: $orderId")
 
     firestore.collection("orders").document(orderId)
         .update(
@@ -638,48 +635,48 @@ fun cancelOrder(orderId: String, reason: String, onSuccess: () -> Unit, onError:
             )
         )
         .addOnSuccessListener {
+            Log.d("CancelOrder", "Order status updated to CANCELLED")
+
             val historyEntry = hashMapOf(
                 "status" to "CANCELLED",
                 "timestamp" to currentTime,
                 "notes" to "Order cancelled: $reason"
             )
-            firestore.collection("orders").document(orderId).collection("statusHistory").add(historyEntry)
-                .addOnSuccessListener { notifyBuyerOfCancellation(orderId, reason); onSuccess() }
-                .addOnFailureListener(onError)
+
+            firestore.collection("orders")
+                .document(orderId)
+                .collection("statusHistory")
+                .add(historyEntry)
+                .addOnSuccessListener {
+                    Log.d("CancelOrder", "Status history added")
+
+                    // UPDATE BUYER'S NOTIFICATION
+                    firestore.collection("notifications")
+                        .whereEqualTo("orderId", orderId)
+                        .whereEqualTo("type", "purchase_confirmed")
+                        .get()
+                        .addOnSuccessListener { querySnapshot ->
+                            for (doc in querySnapshot.documents) {
+                                doc.reference.update(
+                                    "orderStatus", "CANCELLED",
+                                    "cancelReason", reason
+                                ).addOnSuccessListener {
+                                    Log.d("CancelOrder", "Buyer notification updated to CANCELLED")
+                                }
+                            }
+                        }
+
+                    notifyBuyerOfCancellation(orderId, reason)
+                    onSuccess()
+                }
+                .addOnFailureListener {
+                    Log.e("CancelOrder", "Failed to add status history", it)
+                    onSuccess()
+                }
         }
-        .addOnFailureListener(onError)
-}
-
-fun updateOrderStatus(orderId: String, newStatus: OrderStatus, notes: String = "", onSuccess: () -> Unit, onError: (Exception) -> Unit) {
-    val firestore = FirebaseFirestore.getInstance()
-    val currentTime = System.currentTimeMillis()
-
-    firestore.collection("orders").document(orderId)
-        .update(mapOf("status" to newStatus.name, "updatedAt" to currentTime))
-        .addOnSuccessListener {
-            val historyEntry = hashMapOf("status" to newStatus.name, "timestamp" to currentTime, "notes" to notes.ifEmpty { newStatus.displayName })
-            firestore.collection("orders").document(orderId).collection("statusHistory").add(historyEntry)
-                .addOnSuccessListener { notifyBuyerOfStatusUpdate(orderId, newStatus); onSuccess() }
-                .addOnFailureListener(onError)
-        }
-        .addOnFailureListener(onError)
-}
-
-fun notifyBuyerOfStatusUpdate(orderId: String, status: OrderStatus) {
-    val firestore = FirebaseFirestore.getInstance()
-    firestore.collection("orders").document(orderId).get()
-        .addOnSuccessListener { doc ->
-            val buyerId = doc.getString("buyerId") ?: return@addOnSuccessListener
-            val notification = hashMapOf(
-                "userId" to buyerId,
-                "title" to "Order Status Update",
-                "message" to "Your order #${orderId.takeLast(6)} has been updated to: ${status.displayName}",
-                "timestamp" to System.currentTimeMillis(),
-                "type" to "order_update",
-                "orderId" to orderId,
-                "read" to false
-            )
-            firestore.collection("notifications").add(notification)
+        .addOnFailureListener { e ->
+            Log.e("CancelOrder", "Failed to update order status", e)
+            onError(e)
         }
 }
 

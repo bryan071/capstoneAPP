@@ -268,7 +268,8 @@ fun OrdersScreen(
             onDismiss = { selectedItem = null },
             primaryColor = primaryColor,
             navController = navController,
-            chatViewModel = chatViewModel
+            chatViewModel = chatViewModel,
+            onRefresh = { /* Trigger reload of orders */ }
         )
     }
 }
@@ -688,7 +689,8 @@ fun OrderDetailsDialog(
     onDismiss: () -> Unit,
     primaryColor: Color,
     navController: NavController,
-    chatViewModel: com.project.webapp.Viewmodel.ChatViewModel
+    chatViewModel: com.project.webapp.Viewmodel.ChatViewModel,
+    onRefresh: () -> Unit = {}  // Add this
 ) {
     // Live status from notification
     var liveStatus by remember { mutableStateOf("") }
@@ -851,11 +853,12 @@ private fun purchaseDialogDetails(
     var showTrack by remember { mutableStateOf(false) }
     var processing by remember { mutableStateOf(false) }
 
-    val canCancel = liveStatus.uppercase() in listOf(
+    val canCancel = liveStatus.uppercase() !in listOf("CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "DELIVERED") &&
+            liveStatus.uppercase() in listOf(
         "PENDING", "TO_PAY", "TOPAY", "PAYMENT_RECEIVED",
         "TO_SHIP", "TOSHIP", "PROCESSING"
-    ) && !liveStatus.equals("CANCELLED", ignoreCase = true)
-            && !liveStatus.equals("COMPLETED", ignoreCase = true)
+    )
+
 
     val canTrack = liveStatus.uppercase() in listOf(
         "SHIPPED", "SHIPPING",
@@ -868,7 +871,7 @@ private fun purchaseDialogDetails(
     val itemsTotal = realItems.sumOf { (it["price"] as? Number)?.toDouble()?.times((it["quantity"] as? Number)?.toInt() ?: 1) ?: 0.0 }
     val shippingFee = 50.0
     val displayTotal = if (realItems.isEmpty()) order.totalAmount else itemsTotal + shippingFee
-    val canChat = true
+    val canChat = false
 
     return DialogDetails(
         title = "Order #${order.orderId.takeLast(8)}",
@@ -885,7 +888,7 @@ private fun purchaseDialogDetails(
                     onChat = {
                         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@OrderActions
                         val sellerId = order.sellerId
-                        val transactionId = order.transactionId ?: order.orderId   // fallback
+                        val transactionId = order.transactionId ?: order.orderId
 
                         if (sellerId.isNullOrEmpty()) {
                             Toast.makeText(context, "Seller not found", Toast.LENGTH_SHORT).show()
@@ -898,7 +901,7 @@ private fun purchaseDialogDetails(
                             notificationId = transactionId
                         ) { chatRoomId ->
                             navController.navigate("chat/$chatRoomId/false")
-                            onDismiss()               // close the dialog after opening chat
+                            onDismiss()
                         }
                     },
                     primaryColor = primaryColor
