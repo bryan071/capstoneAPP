@@ -6,8 +6,10 @@ import com.google.firebase.Timestamp
 data class Order(
     val orderId: String = "",
     val buyerId: String = "",
+    val sellerId: String? = null,
     val items: List<Map<String, Any>> = emptyList(),
     val totalAmount: Double = 0.0,
+    val transactionId: String? = null,
     val paymentMethod: String = "",
     val deliveryAddress: String = "",
     val status: String = "",

@@ -67,19 +67,23 @@ fun Register(
         certificateUri = uri
     }
 
-    // Simplified authentication state handling
+    // Updated authentication state handling
     LaunchedEffect(authState) {
         when (val state = authState) {
-            is AuthState.Authenticated -> {
-                // Navigate immediately based on stored userType
-                when (userType) {
-                    "Farmer", "Market" -> navController.navigate(Route.FARMER_DASHBOARD) {
-                        popUpTo(Route.REGISTER) { inclusive = true }
-                    }
-                    "Business", "Household" -> navController.navigate(Route.FARMER_DASHBOARD) {
-                        popUpTo(Route.REGISTER) { inclusive = true }
-                    }
-                    else -> Toast.makeText(context, "Registration successful", Toast.LENGTH_SHORT).show()
+            is AuthState.RegistrationSuccess -> {
+                // Show success message
+                Toast.makeText(
+                    context,
+                    "Registration successful! Please wait for admin approval before logging in.",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                // Logout the user immediately after registration
+                authViewModel.logout()
+
+                // Navigate to login page
+                navController.navigate(Route.LOGIN) {
+                    popUpTo(Route.REGISTER) { inclusive = true }
                 }
             }
             is AuthState.Error -> {

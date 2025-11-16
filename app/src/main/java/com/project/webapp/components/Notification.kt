@@ -1,6 +1,7 @@
 package com.project.webapp.components
 
 import CartViewModel
+import Order
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -259,7 +260,9 @@ fun FarmerNotificationScreen(
             notification = notification,
             onDismiss = { selectedNotification = null },
             primaryColor = primaryColor,
-            currentUserId = currentUserId ?: ""
+            currentUserId = currentUserId ?: "",
+            chatViewModel = chatViewModel,     // ADD
+            navController = navController      // ADD
         )
     }
 }
@@ -651,8 +654,11 @@ fun NotificationDetailsDialog(
     notification: Map<String, Any>,
     onDismiss: () -> Unit,
     primaryColor: Color,
-    currentUserId: String
+    currentUserId: String,
+    chatViewModel: ChatViewModel,
+    navController: NavController
 ) {
+
     val firestore = FirebaseFirestore.getInstance()
     val notificationType = notification["type"] as? String ?: "product_added"
     val category = notification["category"] as? String ?: "Unknown"
@@ -1037,7 +1043,16 @@ fun NotificationDetailsDialog(
                                 paymentStatus = paymentStatus,
                                 orderId = orderId,
                                 primaryColor = dialogColor,
-                                showActions = false
+                                showActions = false,
+                                chatViewModel = chatViewModel,
+                                navController = navController,
+                                order = Order(
+                                    orderId = orderId ?: "",
+                                    sellerId = if (notificationType == "purchase_confirmed") sellerId else buyerId,
+                                    transactionId = transactionId,
+                                    status = orderStatus
+                                ),
+                                onDismiss = { }
                             )
                         }
                     }

@@ -1,5 +1,6 @@
 package com.project.webapp.components.delivery
 
+import Order
 import TimelineStep
 import android.util.Log
 import android.widget.Toast
@@ -21,10 +22,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.project.webapp.Viewmodel.OrderStatus
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import androidx.compose.runtime.rememberCoroutineScope
 
 @Composable
 fun OrderStatusTimeline(
@@ -34,7 +38,11 @@ fun OrderStatusTimeline(
     primaryColor: Color,
     modifier: Modifier = Modifier,
     showActions: Boolean = true,
-    onStatusUpdated: (() -> Unit)? = null
+    onStatusUpdated: (() -> Unit)? = null,
+    chatViewModel: com.project.webapp.Viewmodel.ChatViewModel,
+    navController: NavController,
+    order: Order,                     // the full Order object (has sellerId, transactionId, etc.)
+    onDismiss: () -> Unit             // close the dialog after opening chat
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -122,7 +130,23 @@ fun OrderStatusTimeline(
                 }
 
                 Button(
-                    onClick = { Toast.makeText(context, "Contact seller feature coming soon", Toast.LENGTH_SHORT).show() },
+                    onClick = {
+                        val canChat = !order.sellerId.isNullOrEmpty()
+                        if (!canChat) return@Button
+
+                        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@Button
+                        val sellerId = order.sellerId ?: return@Button
+                        val transactionId = order.transactionId ?: order.orderId
+
+                        chatViewModel.createOrGetTransactionChatRoom(
+                            user1Id = currentUserId,
+                            user2Id = sellerId,
+                            notificationId = transactionId
+                        ) { chatRoomId ->
+                            navController.navigate("chat/$chatRoomId/false")
+                            onDismiss()
+                        }
+                    },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
                     shape = RoundedCornerShape(8.dp)
@@ -131,6 +155,7 @@ fun OrderStatusTimeline(
                     Spacer(Modifier.width(4.dp))
                     Text("Contact", fontSize = 13.sp)
                 }
+
             }
 
             Divider(modifier = Modifier.padding(vertical = 16.dp), color = Color.LightGray)

@@ -446,91 +446,97 @@ private fun OrderItemCard(
     var itemCount by remember { mutableStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
 
+    // ------------------------------------------------------------
+    //  FIXED: PURCHASE and DONATION now handled separately
+    // ------------------------------------------------------------
     if (orderItem is OrderItem.Purchase) {
-        val orderId = orderItem.order.orderId
 
-        Log.d("OrderItemCard", "========================================")
-        Log.d("OrderItemCard", "Loading order: $orderId")
+        val orderId = orderItem.order.orderId
 
         LaunchedEffect(orderId) {
             FirebaseFirestore.getInstance()
                 .collection("orders").document(orderId)
                 .collection("order_items")
                 .addSnapshotListener { snap, err ->
+
                     if (err != null) {
-                        Log.e("OrderItemCard", "❌ Error loading subcollection", err)
                         isLoading = false
+                        previewName = "Error loading"
                         return@addSnapshotListener
                     }
 
-                    // ✅ NEW SYSTEM: Has order_items subcollection
+                    // NEW SYSTEM: subcollection exists
                     if (snap != null && !snap.isEmpty) {
-                        val allItems = snap.documents.mapNotNull { it.data }
-                        itemCount = allItems.size
 
-                        val firstItem = allItems.firstOrNull()
-                        if (firstItem != null) {
-                            previewName = firstItem["name"] as? String ?: "Order"
-                            previewQty = (firstItem["quantity"] as? Number)?.toInt() ?: 1
+                        val items = snap.documents.mapNotNull { it.data }
+                        itemCount = items.size
 
-                            val itemsTotal = allItems.sumOf {
-                                val qty = (it["quantity"] as? Number)?.toInt() ?: 0
-                                val price = (it["price"] as? Number)?.toDouble() ?: 0.0
-                                price * qty
-                            }
-                            previewTotal = itemsTotal + 50.0
+                        val first = items.firstOrNull()
+                        previewName = first?.get("name") as? String ?: "Item"
+                        previewQty = (first?.get("quantity") as? Number)?.toInt() ?: 1
+
+                        val subtotal = items.sumOf {
+                            val price = (it["price"] as? Number)?.toDouble() ?: 0.0
+                            val qty = (it["quantity"] as? Number)?.toInt() ?: 1
+                            price * qty
                         }
 
-                        Log.d("OrderItemCard", "✓ Loaded $itemCount items")
+                        previewTotal = subtotal + 50.0 // shipping
+
                         isLoading = false
                         return@addSnapshotListener
                     }
 
-                    // ⚠️ Empty subcollection - Try old system
-                    Log.w("OrderItemCard", "⚠️ Empty subcollection, trying fallback...")
-
+                    // OLD SYSTEM fallback: items field
                     FirebaseFirestore.getInstance()
                         .collection("orders").document(orderId)
                         .get()
                         .addOnSuccessListener { doc ->
                             isLoading = false
 
-                            if (!doc.exists()) {
-                                previewName = "Order not found"
-                                return@addOnSuccessListener
-                            }
+                            val arr = doc.get("items") as? List<Map<String, Any>>
 
-                            // Try items array field
-                            val itemsArray = doc.get("items") as? List<Map<String, Any>>
+                            if (!arr.isNullOrEmpty()) {
+                                itemCount = arr.size
+                                val first = arr.first()
 
-                            if (!itemsArray.isNullOrEmpty()) {
-                                itemCount = itemsArray.size
-                                val firstItem = itemsArray.firstOrNull()
-
-                                if (firstItem != null) {
-                                    previewName = firstItem["name"] as? String ?: "Order"
-                                    previewQty = (firstItem["quantity"] as? Number)?.toInt() ?: 1
-                                    previewTotal = doc.getDouble("totalAmount") ?: 0.0
-                                }
-
-                                Log.d("OrderItemCard", "✓ Loaded from items field")
+                                previewName = first["name"] as? String ?: "Item"
+                                previewQty = (first["quantity"] as? Number)?.toInt() ?: 1
+                                previewTotal = doc.getDouble("totalAmount") ?: 0.0
                             } else {
-                                // This order has no items - it shouldn't be displayed
                                 previewName = "Invalid order"
                                 itemCount = 0
-                                Log.e("OrderItemCard", "✗ Order has no items!")
                             }
                         }
-                        .addOnFailureListener { e ->
-                            isLoading = false
-                            Log.e("OrderItemCard", "✗ Failed to load order", e)
+                        .addOnFailureListener {
                             previewName = "Error loading"
+                            isLoading = false
                         }
                 }
         }
+
+    }
+    // ------------------------------------------------------------
+    //          🟢 FIXED DONATION HANDLING
+    // ------------------------------------------------------------
+    else if (orderItem is OrderItem.Donation) {
+
+        val t = orderItem.transaction
+
+        isLoading = false         // ← IMPORTANT (no spinner)
+        itemCount = 1             // donations always 1 item
+
+        previewName = t.item
+        previewQty = t.quantity
+        previewTotal = t.totalAmount
     }
 
+
+    // ------------------------------------------------------------
+    // Build UI card info
+    // ------------------------------------------------------------
     val info = when (orderItem) {
+
         is OrderItem.Purchase -> {
             val extra = if (itemCount > 1) "+${itemCount - 1} more items" else ""
             OrderCardInfo(
@@ -542,21 +548,26 @@ private fun OrderItemCard(
                 totalAmount = previewTotal
             )
         }
+
         is OrderItem.Donation -> {
             val t = orderItem.transaction
+
             OrderCardInfo(
-                t.item,
-                "Donation to ${t.organization ?: "Organization"}",
-                t.status,
-                t.timestamp,
-                t.quantity,
-                t.totalAmount
+                title = t.item,
+                subtitle = "Donation to ${t.organization ?: "Organization"}",
+                status = t.status,
+                timestamp = t.timestamp,
+                quantity = t.quantity,
+                totalAmount = t.totalAmount
             )
         }
     }
 
     val statusColor = getOrderStatusColor(info.status)
 
+    // ------------------------------------------------------------
+    // UI Card Layout (unchanged)
+    // ------------------------------------------------------------
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -564,122 +575,109 @@ private fun OrderItemCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+
+            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+
                     Icon(
                         imageVector = if (orderItem is OrderItem.Purchase) Icons.Default.ShoppingBag else Icons.Default.Favorite,
                         contentDescription = null,
                         tint = primaryColor,
                         modifier = Modifier.size(20.dp)
                     )
+
                     Spacer(Modifier.width(8.dp))
+
                     Column {
                         Text(
                             text = if (orderItem is OrderItem.Purchase) "Purchase Order" else "Donation",
                             fontSize = 13.sp,
-                            color = Color.Gray,
-                            fontWeight = FontWeight.Medium
+                            color = Color.Gray
                         )
                         if (orderItem is OrderItem.Purchase) {
-                            Text(
-                                text = "#${orderItem.order.orderId.takeLast(8)}",
-                                fontSize = 11.sp,
-                                color = Color.Gray
-                            )
+                            Text("#${orderItem.order.orderId.takeLast(8)}", fontSize = 11.sp, color = Color.Gray)
                         }
                     }
                 }
+
                 Surface(color = statusColor, shape = RoundedCornerShape(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = getStatusIcon(info.status),
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            getStatusDisplayText(info.status),
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        getStatusDisplayText(info.status),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
             Spacer(Modifier.height(12.dp))
-            Divider(color = Color(0xFFEEEEEE))
+            Divider()
             Spacer(Modifier.height(12.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(70.dp).background(Color(0xFFF8F8F8), RoundedCornerShape(8.dp)),
+                    modifier = Modifier.size(70.dp)
+                        .background(Color(0xFFF8F8F8), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = primaryColor,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(24.dp)
-                        )
+                    if (orderItem is OrderItem.Purchase && isLoading) {
+                        CircularProgressIndicator(color = primaryColor, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
                     } else {
-                        Icon(Icons.Default.ShoppingBag, null, tint = primaryColor, modifier = Modifier.size(32.dp))
+                        Icon(
+                            imageVector = if (orderItem is OrderItem.Purchase) Icons.Default.ShoppingBag else Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = primaryColor,
+                            modifier = Modifier.size(30.dp)
+                        )
                     }
                 }
+
                 Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        info.title,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+
+                Column(Modifier.weight(1f)) {
+                    Text(info.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                     if (info.subtitle.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
                         Text(info.subtitle, fontSize = 13.sp, color = Color.Gray)
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text("Items: $itemCount", fontSize = 13.sp, color = Color.Gray)
+
+                    // FIXED: Item count for donations
+                    Text(
+                        text = if (orderItem is OrderItem.Donation) "Donation Item"
+                        else "Items: $itemCount",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
                 }
-                Icon(Icons.Default.KeyboardArrowRight, "Details", tint = Color.Gray, modifier = Modifier.size(24.dp))
+
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Color.Gray)
             }
 
             Spacer(Modifier.height(12.dp))
-            Divider(color = Color(0xFFEEEEEE))
+            Divider()
             Spacer(Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(formatDate(info.timestamp.toDate()), fontSize = 12.sp, color = Color.Gray)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Total: ", fontSize = 13.sp, color = Color.Gray)
-                    if (isLoading) {
-                        Text("...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryColor)
-                    } else {
-                        Text(
-                            "₱${String.format("%.2f", info.totalAmount)}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor
-                        )
-                    }
-                }
+                Text(
+                    "₱${String.format("%.2f", info.totalAmount)}",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = primaryColor
+                )
             }
         }
     }
 }
+
 
 /* -------------------------------------------------------------------------
    DIALOG – LIVE STATUS FROM NOTIFICATION
@@ -692,7 +690,7 @@ fun OrderDetailsDialog(
     navController: NavController,
     chatViewModel: com.project.webapp.Viewmodel.ChatViewModel
 ) {
-    // Live status from notification (same as before)
+    // Live status from notification
     var liveStatus by remember { mutableStateOf("") }
     var livePayment by remember { mutableStateOf("Payment Pending") }
 
@@ -718,9 +716,7 @@ fun OrderDetailsDialog(
     val statusToShow = if (item is OrderItem.Purchase) liveStatus else (item as OrderItem.Donation).transaction.status
     val statusColor = getOrderStatusColor(statusToShow)
 
-    // -------------------------------------------------------------
-    // NEW: Load real order items from sub-collection
-    // -------------------------------------------------------------
+    // Load real order items from sub-collection
     var realItems by remember { mutableStateOf<List<Map<String, Any>>?>(null) }
     var itemsLoading by remember { mutableStateOf(true) }
 
@@ -789,7 +785,7 @@ fun OrderDetailsDialog(
             Column(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState())
             ) {
-                // Timeline (unchanged)
+                // Timeline with action buttons for Purchase orders
                 if (item is OrderItem.Purchase) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
@@ -807,8 +803,14 @@ fun OrderDetailsDialog(
                             OrderStatusTimeline(
                                 currentStatus = liveStatus,
                                 paymentStatus = livePayment,
+                                orderId = item.order.orderId,
                                 primaryColor = statusColor,
-                                showActions = true
+                                showActions = true,
+                                onStatusUpdated = { onDismiss() },
+                                chatViewModel = chatViewModel,
+                                navController = navController,
+                                order = item.order,
+                                onDismiss = onDismiss
                             )
                         }
                     }
@@ -866,6 +868,7 @@ private fun purchaseDialogDetails(
     val itemsTotal = realItems.sumOf { (it["price"] as? Number)?.toDouble()?.times((it["quantity"] as? Number)?.toInt() ?: 1) ?: 0.0 }
     val shippingFee = 50.0
     val displayTotal = if (realItems.isEmpty()) order.totalAmount else itemsTotal + shippingFee
+    val canChat = true
 
     return DialogDetails(
         title = "Order #${order.orderId.takeLast(8)}",
@@ -876,8 +879,28 @@ private fun purchaseDialogDetails(
                 OrderActions(
                     canCancel = canCancel,
                     canTrack = canTrack,
+                    canChat = canChat,
                     onCancel = { showCancel = true },
                     onTrack = { showTrack = true },
+                    onChat = {
+                        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@OrderActions
+                        val sellerId = order.sellerId
+                        val transactionId = order.transactionId ?: order.orderId   // fallback
+
+                        if (sellerId.isNullOrEmpty()) {
+                            Toast.makeText(context, "Seller not found", Toast.LENGTH_SHORT).show()
+                            return@OrderActions
+                        }
+
+                        chatViewModel.createOrGetTransactionChatRoom(
+                            user1Id = currentUserId,
+                            user2Id = sellerId,
+                            notificationId = transactionId
+                        ) { chatRoomId ->
+                            navController.navigate("chat/$chatRoomId/false")
+                            onDismiss()               // close the dialog after opening chat
+                        }
+                    },
                     primaryColor = primaryColor
                 )
 
@@ -1003,42 +1026,72 @@ private fun donationDialogDetails(t: Transaction): DialogDetails = DialogDetails
 /* -------------------------------------------------------------------------
    RE-USABLE SMALL COMPOSABLES
    ------------------------------------------------------------------------- */
+
+@Composable
+fun ContactSellerButton(
+    enabled: Boolean,
+    primaryColor: Color,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(40.dp)
+            .background(
+                color = if (enabled) primaryColor.copy(alpha = 0.1f)
+                else Color.Gray.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(10.dp)
+            )
+    ) {
+        Icon(
+            imageVector = Icons.Default.Chat,
+            contentDescription = "Contact Seller",
+            tint = if (enabled) primaryColor else Color.Gray,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
 @Composable
 private fun OrderActions(
     canCancel: Boolean,
     canTrack: Boolean,
+    canChat: Boolean,
     onCancel: () -> Unit,
     onTrack: () -> Unit,
+    onChat: () -> Unit,
     primaryColor: Color
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
+        // ---------- CANCEL ----------
         if (canCancel) {
             OutlinedButton(
                 onClick = onCancel,
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF44336)),
-                border = BorderStroke(1.dp, Color(0xFFF44336)),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Cancel, "Cancel", modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Cancel", fontSize = 13.sp)
-            }
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                modifier = Modifier.weight(1f)
+            ) { Text("Cancel Order") }
         }
+
+        // ---------- TRACK ----------
         if (canTrack) {
             Button(
                 onClick = onTrack,
-                modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.LocalShipping, "Track", modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Track", fontSize = 13.sp)
-            }
+                modifier = Modifier.weight(1f)
+            ) { Text("Track") }
+        }
+
+        // ---------- CONTACT SELLER ----------
+        if (canChat) {
+            ContactSellerButton(
+                enabled = true,
+                primaryColor = primaryColor,
+                onClick = onChat
+            )
         }
     }
 }
@@ -1131,3 +1184,4 @@ private fun getOrderCountByStatus(orders: List<OrderItem>, status: OrderStatus) 
    ------------------------------------------------------------------------- */
 private fun formatDate(date: Date): String =
     SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()).format(date)
+

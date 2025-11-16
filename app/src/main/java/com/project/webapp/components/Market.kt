@@ -55,6 +55,7 @@ import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.datas.Product
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -416,16 +417,55 @@ fun AddProductDialog(
     var quantity by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        imageUri = it
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        imageUri = uri
     }
 
-    val categories = listOf("vegetable", "fruits", "rootcrops", "grains", "spices")
+    val categories = listOf("Vegetable", "Fruits", "Root Crops", "Grains", "Spices")
     val unitOptions = listOf("kg", "grams")
     var selectedUnit by remember { mutableStateOf(unitOptions[0]) }
     var expandedCategory by remember { mutableStateOf(false) }
     var expandedUnit by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
+
+    // Remove commas and limit decimals to 2
+    fun normalizeDecimalInput(raw: String): String {
+        var cleaned = raw.replace(",", "") // remove commas
+            .filter { it.isDigit() || it == '.' }
+
+        val parts = cleaned.split('.')
+
+        if (parts.size > 2) return cleaned.dropLast(1)
+
+        cleaned = if (parts.size == 2) {
+            parts[0] + "." + parts[1].take(2)
+        } else cleaned
+
+        return cleaned
+    }
+
+    // Add comma separators (1,234.50)
+    fun formatWithCommas(value: String): String {
+        if (value.isBlank()) return ""
+
+        return try {
+            val numeric = value.toDouble()
+            if (value.contains(".")) {
+                "%,.2f".format(numeric)
+            } else {
+                "%,d".format(numeric.toInt())
+            }
+        } catch (e: Exception) {
+            value
+        }
+    }
+
+    // Convert user input → clean numeric string for storage
+    fun toPureNumberString(formatted: String): String {
+        return formatted.replace(",", "")
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -436,11 +476,11 @@ fun AddProductDialog(
             modifier = Modifier
                 .padding(20.dp)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()) // ⬅️ make it scrollable
-        )  {
+                .verticalScroll(rememberScrollState())
+        ) {
 
-            Text(
-                "Add New Product",
+        Text(
+                text = "Add New Product",
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = textPrimaryColor
@@ -450,15 +490,17 @@ fun AddProductDialog(
 
             // Category Dropdown
             Text(
-                "Category",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                text = "Category",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Medium
+                ),
                 color = textPrimaryColor,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
 
             ExposedDropdownMenuBox(
                 expanded = expandedCategory,
-                onExpandedChange = { expandedCategory = !expandedCategory }
+                onExpandedChange = { expandedCategory = it }
             ) {
                 OutlinedTextField(
                     value = selectedCategory,
@@ -474,22 +516,24 @@ fun AddProductDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .menuAnchor()
-                        .onGloballyPositioned { coordinates -> textFieldSize = coordinates.size.toSize() },
+                        .onGloballyPositioned { coordinates ->
+                            textFieldSize = coordinates.size.toSize()
+                        },
                     trailingIcon = {
-                        IconButton(onClick = { expandedCategory = !expandedCategory }) {
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = "Dropdown",
-                                tint = primaryColor
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Dropdown",
+                            tint = primaryColor
+                        )
                     }
                 )
 
                 DropdownMenu(
                     expanded = expandedCategory,
                     onDismissRequest = { expandedCategory = false },
-                    modifier = Modifier.width(with(LocalDensity.current) { textFieldSize.width.toDp() })
+                    modifier = Modifier.width(
+                        with(LocalDensity.current) { textFieldSize.width.toDp() }
+                    )
                 ) {
                     categories.forEach { category ->
                         DropdownMenuItem(
@@ -507,8 +551,10 @@ fun AddProductDialog(
 
             // Product Name
             Text(
-                "Product Name",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                text = "Product Name",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Medium
+                ),
                 color = textPrimaryColor,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
@@ -529,8 +575,10 @@ fun AddProductDialog(
 
             // Description Input
             Text(
-                "Description",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                text = "Description",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Medium
+                ),
                 color = textPrimaryColor,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
@@ -553,19 +601,31 @@ fun AddProductDialog(
 
             // Price Input
             Text(
-                "Price",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                text = "Price",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Medium
+                ),
                 color = textPrimaryColor,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
+
             OutlinedTextField(
                 value = price,
-                onValueChange = { price = it.filter { char -> char.isDigit() || char == '.' } },
-                placeholder = { Text("Enter price here...") },
-                leadingIcon = {
-                    Text("₱", fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 12.dp))
+                onValueChange = { newValue ->
+                    val normalized = normalizeDecimalInput(newValue)
+                    price = formatWithCommas(normalized)
                 },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                placeholder = { Text("0.00") },
+                leadingIcon = {
+                    Text(
+                        text = "₱",
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number
+                ),
                 colors = TextFieldDefaults.outlinedTextFieldColors(
                     focusedBorderColor = primaryColor,
                     unfocusedBorderColor = dividerColor,
@@ -577,10 +637,12 @@ fun AddProductDialog(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Quantity and Unit Row with labels
+            // Quantity and Unit Row
             Text(
-                "Quantity & Unit",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                text = "Quantity & Unit",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Medium
+                ),
                 color = textPrimaryColor,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
@@ -588,15 +650,28 @@ fun AddProductDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp), // Adds bottom spacing for visibility
+                    .padding(bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Quantity Input
                 OutlinedTextField(
                     value = quantity,
-                    onValueChange = { quantity = it.filter { char -> char.isDigit() || char == '.' } },
+                    onValueChange = { newValue ->
+                        var cleaned = newValue.filter { it.isDigit() || it == '.' }
+
+                        val parts = cleaned.split('.')
+                        if (parts.size > 2) return@OutlinedTextField
+
+                        cleaned = if (parts.size == 2) {
+                            parts[0] + "." + parts[1].take(2)
+                        } else cleaned
+
+                        quantity = cleaned
+                    },
                     placeholder = { Text("Amount") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal
+                    ),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
                         focusedBorderColor = primaryColor,
                         unfocusedBorderColor = dividerColor,
@@ -605,15 +680,14 @@ fun AddProductDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(0.65f)
-                        .height(56.dp) // Match height with dropdown
+                        .height(56.dp)
                 )
 
                 // Unit Dropdown
                 ExposedDropdownMenuBox(
                     expanded = expandedUnit,
                     onExpandedChange = { expandedUnit = it },
-                    modifier = Modifier
-                        .weight(0.35f)
+                    modifier = Modifier.weight(0.35f)
                 ) {
                     OutlinedTextField(
                         value = selectedUnit,
@@ -629,15 +703,13 @@ fun AddProductDialog(
                         modifier = Modifier
                             .menuAnchor()
                             .fillMaxWidth()
-                            .height(56.dp), // Match height with quantity input
+                            .height(56.dp),
                         trailingIcon = {
-                            IconButton(onClick = { expandedUnit = !expandedUnit }) {
-                                Icon(
-                                    Icons.Default.ArrowDropDown,
-                                    contentDescription = "Dropdown",
-                                    tint = primaryColor
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Dropdown",
+                                tint = primaryColor
+                            )
                         }
                     )
 
@@ -658,7 +730,6 @@ fun AddProductDialog(
                 }
             }
 
-
             Spacer(modifier = Modifier.height(20.dp))
 
             // Image Section
@@ -668,8 +739,12 @@ fun AddProductDialog(
                     .height(180.dp)
                     .clickable { imagePickerLauncher.launch("image/*") },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = lightGreen),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                colors = CardDefaults.cardColors(
+                    containerColor = lightGreen
+                ),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = 2.dp
+                )
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -679,7 +754,8 @@ fun AddProductDialog(
                         AsyncImage(
                             model = imageUri,
                             contentDescription = "Product Image",
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
                         )
                     } else {
                         Column(
@@ -693,7 +769,7 @@ fun AddProductDialog(
                                 modifier = Modifier.size(36.dp)
                             )
                             Text(
-                                "Tap to upload product image",
+                                text = "Tap to upload product image",
                                 color = primaryColor,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(top = 8.dp)
@@ -705,7 +781,7 @@ fun AddProductDialog(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ✅ Form Buttons Row (Cancel / Add)
+            // Form Buttons Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -714,38 +790,48 @@ fun AddProductDialog(
             ) {
                 OutlinedButton(
                     onClick = onDismiss,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimaryColor),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = textPrimaryColor
+                    ),
                     border = BorderStroke(1.dp, dividerColor),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        "Cancel",
+                        text = "Cancel",
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
 
                 Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = primaryColor
+                    ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        val priceDouble = price.toDoubleOrNull() ?: 0.0
-                        val finalQuantity = quantity.toDoubleOrNull() ?: 1.0
-                        onAddProduct(
-                            selectedCategory,
-                            name,
-                            description,
-                            finalQuantity,
-                            selectedUnit,
-                            priceDouble,
-                            imageUri
-                        )
+                        if (selectedCategory.isNotBlank() &&
+                            name.isNotBlank() &&
+                            price.isNotBlank()) {
+
+                            val priceDouble = price.toDoubleOrNull() ?: 0.0
+                            val finalQuantity = quantity.toDoubleOrNull() ?: 1.0
+
+                            onAddProduct(
+                                selectedCategory,
+                                name,
+                                description,
+                                finalQuantity,
+                                selectedUnit,
+                                priceDouble,
+                                imageUri
+                            )
+                        }
                     }
                 ) {
                     Text(
-                        "Add Product",
+                        text = "Add Product",
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(vertical = 4.dp)
                     )

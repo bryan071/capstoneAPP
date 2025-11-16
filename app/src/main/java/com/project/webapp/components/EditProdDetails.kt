@@ -75,6 +75,43 @@ fun EditProductScreen(
         }
     }
 
+    // Remove commas and limit decimals to 2
+    fun normalizeDecimalInput(raw: String): String {
+        var cleaned = raw.replace(",", "") // remove commas
+            .filter { it.isDigit() || it == '.' }
+
+        val parts = cleaned.split('.')
+
+        if (parts.size > 2) return cleaned.dropLast(1)
+
+        cleaned = if (parts.size == 2) {
+            parts[0] + "." + parts[1].take(2)
+        } else cleaned
+
+        return cleaned
+    }
+
+    // Add comma separators (1,234.50)
+    fun formatWithCommas(value: String): String {
+        if (value.isBlank()) return ""
+
+        return try {
+            val numeric = value.toDouble()
+            if (value.contains(".")) {
+                "%,.2f".format(numeric)
+            } else {
+                "%,d".format(numeric.toInt())
+            }
+        } catch (e: Exception) {
+            value
+        }
+    }
+
+    // Convert user input → clean numeric string for storage
+    fun toPureNumberString(formatted: String): String {
+        return formatted.replace(",", "")
+    }
+
     LaunchedEffect(productId) {
         if (!productId.isNullOrEmpty()) {
             firestore.collection("products").document(productId)
@@ -219,7 +256,10 @@ fun EditProductScreen(
                     ) {
                         OutlinedTextField(
                             value = price,
-                            onValueChange = { price = it },
+                            onValueChange = { newValue ->
+                                val normalized = normalizeDecimalInput(newValue)
+                                price = formatWithCommas(normalized)
+                            },
                             label = { Text("Price") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
@@ -230,6 +270,7 @@ fun EditProductScreen(
                             ),
                             leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) }
                         )
+
 
                         // Category Dropdown
                         ExposedDropdownMenuBox(

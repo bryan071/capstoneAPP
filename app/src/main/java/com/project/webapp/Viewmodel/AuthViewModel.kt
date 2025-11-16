@@ -46,11 +46,33 @@ class AuthViewModel : ViewModel() {
             .get()
             .addOnSuccessListener { document ->
                 val userType = document.getString("userType") ?: "unknown"
-                Log.d("AuthViewModel", "Fetched userType: $userType") // Debug log
-                _authState.value = AuthState.Authenticated(userId, userType)
+                val status = document.getString("status") ?: "Pending"
+
+                Log.d("AuthViewModel", "Fetched userType: $userType, status: $status")
+
+                // Check if account is approved
+                when (status) {
+                    "Verified" -> {
+                        _authState.value = AuthState.Authenticated(userId, userType)
+                    }
+                    "Pending" -> {
+                        // Account is not yet approved
+                        _authState.value = AuthState.Error("Your account is pending admin approval. Please wait for approval before logging in.")
+                        // Logout the user
+                        auth.signOut()
+                    }
+                    "Disabled" -> {
+                        _authState.value = AuthState.Error("Your account has been disabled. Please contact support.")
+                        auth.signOut()
+                    }
+                    else -> {
+                        _authState.value = AuthState.Error("Unknown account status. Please contact support.")
+                        auth.signOut()
+                    }
+                }
             }
             .addOnFailureListener {
-                Log.e("AuthViewModel", "Failed to fetch user type: ${it.message}") // Debug log
+                Log.e("AuthViewModel", "Failed to fetch user type: ${it.message}")
                 _authState.value = AuthState.Error("Failed to fetch user type.")
             }
     }
@@ -69,10 +91,22 @@ class AuthViewModel : ViewModel() {
                 result.user?.uid?.let { uid ->
                     // Check user status before proceeding
                     checkUserStatus(uid) { status ->
-                        if (status == "Disabled") {
-                            _authState.value = AuthState.Error("Your account has been disabled. Please contact support.")
-                        } else {
-                            fetchUserType(uid)
+                        when (status) {
+                            "Disabled" -> {
+                                _authState.value = AuthState.Error("Your account has been disabled. Please contact support.")
+                                auth.signOut()
+                            }
+                            "Pending" -> {
+                                _authState.value = AuthState.Error("Your account is pending admin approval. Please wait for approval.")
+                                auth.signOut()
+                            }
+                            "Verified" -> {
+                                fetchUserType(uid)
+                            }
+                            else -> {
+                                _authState.value = AuthState.Error("Unknown account status. Please contact support.")
+                                auth.signOut()
+                            }
                         }
                     }
                 } ?: run { _authState.value = AuthState.Error("User ID is null.") }
@@ -89,8 +123,8 @@ class AuthViewModel : ViewModel() {
             val status = document.getString("status")
             callback(status)
         } catch (e: Exception) {
-            // If we can't fetch status, assume user is active and proceed
-            callback("Active")
+            // If we can't fetch status, show error
+            callback(null)
         }
     }
 
@@ -115,6 +149,8 @@ class AuthViewModel : ViewModel() {
             _authState.postValue(AuthState.Error("Please upload a certificate or ID"))
             return
         }
+
+        _authState.value = AuthState.Loading
 
         auth.createUserWithEmailAndPassword(email, password)
             .addOnCompleteListener { task ->
@@ -141,10 +177,10 @@ class AuthViewModel : ViewModel() {
                                 "dateJoined" to Timestamp.now()
                             )
 
-
                             firestore.collection("users").document(userId).set(userMap)
                                 .addOnSuccessListener {
-                                    _authState.postValue(AuthState.Authenticated(userId, userType))
+                                    // Change from Authenticated to RegistrationSuccess
+                                    _authState.postValue(AuthState.RegistrationSuccess)
                                 }
                                 .addOnFailureListener {
                                     _authState.postValue(AuthState.Error("Firestore error: ${it.message}"))
@@ -175,9 +211,11 @@ class AuthViewModel : ViewModel() {
         }
     }
 }
+
 sealed class AuthState {
     data class Authenticated(val userId: String, val userType: String) : AuthState()
     object UnAuthenticated : AuthState()
     object Loading : AuthState()
+    object RegistrationSuccess : AuthState()
     data class Error(val message: String) : AuthState()
 }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
@@ -260,7 +262,7 @@ fun FarmerEditProfileScreen(navController: NavController) {
                             primaryColor = primaryColor
                         )
 
-                        ProfileTextField(
+                        PhoneNumberTextField(
                             label = "Contact Number",
                             value = contactNumber,
                             onValueChange = { contactNumber = it },
@@ -486,5 +488,45 @@ fun ProfileTextField(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
+    )
+}
+
+@Composable
+fun PhoneNumberTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    primaryColor: Color
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { input ->
+            // Ensure input starts with +63 and only contains digits after the prefix
+            if (input.startsWith("+63")) {
+                val digitsOnly = input.substring(3).filter { it.isDigit() }
+                if (digitsOnly.length <= 10) {
+                    onValueChange("+63$digitsOnly")
+                }
+            } else if (input.isEmpty()) {
+                onValueChange("+63")
+            }
+        },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = Color.White,
+            unfocusedContainerColor = Color.White,
+            disabledContainerColor = Color.White.copy(alpha = 0.9f),
+            focusedIndicatorColor = primaryColor,
+            unfocusedIndicatorColor = Color.Gray,
+            focusedLabelColor = primaryColor,
+            cursorColor = primaryColor
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        placeholder = { Text("+639123456789") }
     )
 }
