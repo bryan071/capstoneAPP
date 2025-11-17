@@ -69,6 +69,7 @@ import com.project.webapp.components.TopBar
 import com.project.webapp.datas.Post
 import com.project.webapp.datas.Product
 import com.project.webapp.components.SearchBar
+import com.project.webapp.components.SeasonalProductsSection
 import com.project.webapp.datas.Announcement
 import com.project.webapp.datas.UserData
 import kotlinx.coroutines.MainScope
@@ -95,6 +96,7 @@ fun FarmerDashboard(
     var loading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
     val firestore = FirebaseFirestore.getInstance()
+    val storage = FirebaseStorage.getInstance()
 
     // Animated loading scale
     val loadingScale by animateFloatAsState(
@@ -177,6 +179,7 @@ fun FarmerDashboard(
                         firestore = firestore) }
                     item { HeroBanner() }
                     item { FeaturedProductsSection(authViewModel, navController) }
+                    item { SeasonalProductsSection(navController, firestore, storage) }
                     item { DiscountsBanner() }
                     item { WeatherSection(context) }
                     item { CommunityFeed() }

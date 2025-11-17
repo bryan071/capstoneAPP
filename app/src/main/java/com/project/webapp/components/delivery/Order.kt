@@ -24,12 +24,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.google.common.io.Files.append
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -98,126 +102,88 @@ fun OrdersScreen(
     val firestore = FirebaseFirestore.getInstance()
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
 
-    var orderItems by remember { mutableStateOf<List<OrderItem>>(emptyList()) }
+    var purchases by remember { mutableStateOf<List<OrderItem.Purchase>>(emptyList()) }
+    var notifications by remember { mutableStateOf<Map<String, Map<String, Any>>>(emptyMap()) }
+    var donations by remember { mutableStateOf<List<OrderItem.Donation>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedItem by remember { mutableStateOf<OrderItem?>(null) }
     var selectedStatus by remember { mutableStateOf(OrderStatus.ALL) }
 
-    /* --------------------------------------------------------------
-       REAL-TIME SYNC:
-       1. orders (buyer side)
-       2. notifications (purchase_confirmed) → latest status
-       3. donations
-       -------------------------------------------------------------- */
+    // -------------------- REAL-TIME LISTENERS --------------------
     LaunchedEffect(currentUserId) {
         if (currentUserId == null) {
             isLoading = false
             return@LaunchedEffect
         }
 
-        // ---- 1. orders -------------------------------------------------
+        // Orders
         firestore.collection("orders")
             .whereEqualTo("buyerId", currentUserId)
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snap, err ->
-                if (err != null) {
-                    Log.e("Orders", "orders error", err)
-                    return@addSnapshotListener
-                }
-
-                val purchases = snap?.documents?.mapNotNull { doc ->
-                    try {
-                        val status = doc.getString("status") ?: "To Pay"
-
-                        // CRITICAL FIX: Skip orders with "PAYMENT_RECEIVED" status
-                        // These are old incomplete orders that should not be shown
-                        if (status.equals("PAYMENT_RECEIVED", ignoreCase = true)) {
-                            Log.d("Orders", "⚠️ Skipping old PAYMENT_RECEIVED order: ${doc.id}")
-                            return@mapNotNull null
-                        }
-
-                        doc.toObject(Order::class.java)?.copy(
-                            orderId = doc.id,
-                            status = status
-                        )?.let { OrderItem.Purchase(it) }
-                    } catch (e: Exception) {
-                        Log.e("Orders", "parse order ${doc.id}", e)
-                        null
-                    }
+                if (err != null) return@addSnapshotListener
+                purchases = snap?.documents?.mapNotNull { doc ->
+                    val status = doc.getString("status") ?: "To Pay"
+                    if (status.equals("PAYMENT_RECEIVED", ignoreCase = true)) return@mapNotNull null
+                    doc.toObject(Order::class.java)?.copy(orderId = doc.id, status = status)?.let { OrderItem.Purchase(it) }
                 } ?: emptyList()
+            }
 
-                // ---- 2. notifications (buyer) ---------------------------------
-                firestore.collection("notifications")
-                    .whereEqualTo("userId", currentUserId)
-                    .whereEqualTo("type", "purchase_confirmed")
-                    .addSnapshotListener { nSnap, nErr ->
-                        if (nErr != null) {
-                            Log.e("Orders", "notif error", nErr)
-                            return@addSnapshotListener
-                        }
+        // Notifications
+        firestore.collection("notifications")
+            .whereEqualTo("userId", currentUserId)
+            .whereEqualTo("type", "purchase_confirmed")
+            .addSnapshotListener { snap, _ ->
+                notifications = snap?.documents?.associateBy({ it.getString("orderId") ?: "" }, { it.data ?: emptyMap<String, Any>() }) ?: emptyMap()
+            }
 
-                        val notifMap = nSnap?.documents?.associateBy { it.getString("orderId") ?: "" } ?: emptyMap()
-
-                        // Merge latest status from notification
-                        val merged = purchases.map { purchase ->
-                            val notif = notifMap[purchase.order.orderId]
-                            val latestStatus = notif?.getString("orderStatus") ?: purchase.order.status
-                            val latestPayment = notif?.getString("paymentStatus") ?: "Payment Pending"
-
-                            purchase.copy(
-                                order = purchase.order.copy(
-                                    status = latestStatus,
-                                    paymentStatus = latestPayment
-                                )
-                            )
-                        }
-
-                        // ---- 3. donations -----------------------------------------
-                        firestore.collection("transactions")
-                            .whereEqualTo("buyerId", currentUserId)
-                            .whereEqualTo("transactionType", "donation")
-                            .addSnapshotListener { tSnap, tErr ->
-                                isLoading = false
-                                if (tErr != null) {
-                                    Log.e("Orders", "donations error", tErr)
-                                    return@addSnapshotListener
-                                }
-
-                                val donations = tSnap?.documents?.mapNotNull { doc ->
-                                    val d = doc.data ?: return@mapNotNull null
-                                    Transaction(
-                                        id = doc.id,
-                                        buyerId = d["buyerId"] as? String ?: "",
-                                        item = d["item"] as? String ?: "",
-                                        quantity = (d["quantity"] as? Long)?.toInt() ?: 0,
-                                        totalAmount = (d["totalAmount"] as? Double) ?: 0.0,
-                                        organization = d["organization"] as? String,
-                                        transactionType = d["transactionType"] as? String ?: "",
-                                        status = d["status"] as? String ?: "",
-                                        timestamp = doc.getTimestamp("timestamp") ?: Timestamp.now(),
-                                        paymentMethod = d["paymentMethod"] as? String ?: "",
-                                        referenceId = d["referenceId"] as? String
-                                    )
-                                }?.map { OrderItem.Donation(it) } ?: emptyList()
-
-                                // Final list (PAYMENT_RECEIVED orders are excluded)
-                                orderItems = (merged + donations).sortedByDescending {
-                                    when (it) {
-                                        is OrderItem.Purchase -> it.order.timestamp
-                                        is OrderItem.Donation -> it.transaction.timestamp
-                                    }
-                                }
-
-                                Log.d("OrdersScreen", "✓ Synced ${orderItems.size} orders (PAYMENT_RECEIVED excluded)")
-                            }
-                    }
+        // Donations
+        firestore.collection("transactions")
+            .whereEqualTo("buyerId", currentUserId)
+            .whereEqualTo("transactionType", "donation")
+            .addSnapshotListener { snap, _ ->
+                donations = snap?.documents?.mapNotNull { doc ->
+                    val d = doc.data ?: return@mapNotNull null
+                    Transaction(
+                        id = doc.id,
+                        buyerId = d["buyerId"] as? String ?: "",
+                        item = d["item"] as? String ?: "",
+                        quantity = (d["quantity"] as? Long)?.toInt() ?: 0,
+                        totalAmount = (d["totalAmount"] as? Double) ?: 0.0,
+                        organization = d["organization"] as? String,
+                        transactionType = d["transactionType"] as? String ?: "",
+                        status = d["status"] as? String ?: "",
+                        timestamp = doc.getTimestamp("timestamp") ?: Timestamp.now(),
+                        paymentMethod = d["paymentMethod"] as? String ?: "",
+                        referenceId = d["referenceId"] as? String
+                    )
+                }?.map { OrderItem.Donation(it) } ?: emptyList()
             }
     }
 
+    // -------------------- MERGE LIST (optimized) --------------------
+    val orderItems by remember(purchases, notifications, donations) {
+        derivedStateOf {
+            val mergedPurchases = purchases.map { purchase ->
+                val notif = notifications[purchase.order.orderId]
+                val latestStatus = notif?.get("orderStatus") as? String ?: purchase.order.status
+                val latestPayment = notif?.get("paymentStatus") as? String ?: purchase.order.paymentStatus ?: "Payment Pending"
 
-    // -----------------------------------------------------------------
-    // UI
-    // -----------------------------------------------------------------
+                purchase.copy(order = purchase.order.copy(status = latestStatus, paymentStatus = latestPayment))
+            }
+
+            (mergedPurchases + donations).sortedByDescending {
+                when (it) {
+                    is OrderItem.Purchase -> it.order.timestamp
+                    is OrderItem.Donation -> it.transaction.timestamp
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(orderItems) { isLoading = false }
+
+    // -------------------- UI --------------------
     val content: @Composable (PaddingValues) -> Unit = { pv ->
         OrdersContent(
             paddingValues = pv,
@@ -236,14 +202,7 @@ fun OrdersScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = {
-                        Text(
-                            "My Orders",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    },
+                    title = { Text("My Orders", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White) },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
@@ -255,13 +214,8 @@ fun OrdersScreen(
             containerColor = Color(0xFFF5F5F5),
             content = { content(it) }
         )
-    } else {
-        content(PaddingValues())
-    }
+    } else content(PaddingValues())
 
-    // -----------------------------------------------------------------
-    // Dialog
-    // -----------------------------------------------------------------
     selectedItem?.let {
         OrderDetailsDialog(
             item = it,
@@ -269,7 +223,7 @@ fun OrdersScreen(
             primaryColor = primaryColor,
             navController = navController,
             chatViewModel = chatViewModel,
-            onRefresh = { /* Trigger reload of orders */ }
+            onRefresh = { }
         )
     }
 }
@@ -600,7 +554,7 @@ private fun OrderItemCard(
                             color = Color.Gray
                         )
                         if (orderItem is OrderItem.Purchase) {
-                            Text("#${orderItem.order.orderId.takeLast(8)}", fontSize = 11.sp, color = Color.Gray)
+                            Text("Order Number:${orderItem.order.orderId}", fontSize = 11.sp, color = Color.Gray)
                         }
                     }
                 }
@@ -752,7 +706,13 @@ fun OrderDetailsDialog(
             navController = navController,
             chatViewModel = chatViewModel
         )
-        is OrderItem.Donation -> donationDialogDetails(item.transaction)
+        is OrderItem.Donation -> donationDialogDetails(
+            t = item.transaction,
+            navController = navController,
+            chatViewModel = chatViewModel,
+            primaryColor = primaryColor,
+            onDismiss = onDismiss
+        )
     }
 
     AlertDialog(
@@ -873,7 +833,7 @@ private fun purchaseDialogDetails(
     val canChat = false
 
     return DialogDetails(
-        title = "Order #${order.orderId.takeLast(8)}",
+        title = "Order Number:\n${order.orderId}",
         status = liveStatus,
         timestamp = order.timestamp.toDate().toString(),
         detailsContent = {
@@ -996,12 +956,52 @@ private fun purchaseDialogDetails(
    DONATION DIALOG (unchanged)
    ------------------------------------------------------------------------- */
 @Composable
-private fun donationDialogDetails(t: Transaction): DialogDetails = DialogDetails(
+private fun donationDialogDetails(
+    t: Transaction,
+    navController: NavController,
+    chatViewModel: com.project.webapp.Viewmodel.ChatViewModel,
+    primaryColor: Color,
+    onDismiss: () -> Unit
+): DialogDetails = DialogDetails(
     title = "Donation",
     status = t.status,
     timestamp = t.timestamp.toDate().toString(),
     detailsContent = {
         Column(Modifier.fillMaxWidth()) {
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Button(
+                    onClick = {
+                        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@Button
+                        val orgName = t.organization ?: "Organization"
+
+                        chatViewModel.createOrGetDonationOrgChatRoom(
+                            organizationName = orgName,
+                            donorId = currentUserId,
+                            productId = null
+                        ) { chatRoomId ->
+                            navController.navigate("chat/$chatRoomId/false")
+                            onDismiss()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = "ChatOrg", modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = "Contact Organization",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
             SectionHeader("Donation Details")
             InfoCard {
                 InfoRow("Item", t.item)

@@ -4,8 +4,10 @@ import CartViewModel
 import Order
 import android.os.Handler
 import android.os.Looper
+import android.text.format.DateUtils
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -17,6 +19,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -106,10 +112,15 @@ import com.airbnb.lottie.compose.rememberLottieComposition
 import com.google.firebase.Timestamp
 import com.project.webapp.datas.Product
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.google.firebase.firestore.SetOptions
 import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.components.delivery.OrderStatusTimeline
-@OptIn(ExperimentalMaterial3Api::class)
+import com.project.webapp.components.profiles.AnimatedVisibility
+import androidx.compose.foundation.lazy.items
+
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
 fun FarmerNotificationScreen(
     modifier: Modifier = Modifier,
@@ -126,7 +137,8 @@ fun FarmerNotificationScreen(
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF7FAF9)
 
-    LaunchedEffect(Unit) {
+    // Real-time Firestore listener
+    LaunchedEffect(currentUserId) {
         if (currentUserId != null) {
             firestore.collection("notifications")
                 .whereEqualTo("userId", currentUserId)
@@ -137,13 +149,11 @@ fun FarmerNotificationScreen(
                         Log.e("Firestore", "Error fetching notifications", error)
                         return@addSnapshotListener
                     }
-                    if (snapshot != null) {
+                    snapshot?.let {
                         notifications.clear()
-                        notifications.addAll(
-                            snapshot.documents.mapNotNull { doc ->
-                                doc.data?.plus("id" to doc.id)
-                            }
-                        )
+                        notifications.addAll(it.documents.mapNotNull { doc ->
+                            doc.data?.plus("id" to doc.id)
+                        })
                     }
                 }
         } else {
@@ -154,15 +164,11 @@ fun FarmerNotificationScreen(
     val context = LocalContext.current
     var userType by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        val userId = FirebaseAuth.getInstance().currentUser?.uid
-        userId?.let {
-            FirebaseFirestore.getInstance().collection("users")
-                .document(it)
+    LaunchedEffect(currentUserId) {
+        currentUserId?.let {
+            firestore.collection("users").document(it)
                 .get()
-                .addOnSuccessListener { document ->
-                    userType = document.getString("userType")
-                }
+                .addOnSuccessListener { doc -> userType = doc.getString("userType") }
         }
     }
 
@@ -174,83 +180,31 @@ fun FarmerNotificationScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(vertical = 8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = "Notifications",
-                            tint = primaryColor,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Notifications",
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.DarkGray
-                        )
+                        Icon(Icons.Default.Notifications, contentDescription = "Notifications",
+                            tint = primaryColor, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Notifications", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
                     }
                 },
-                colors = TopAppBarDefaults.smallTopAppBarColors(
-                    containerColor = Color.White,
-                    titleContentColor = Color.DarkGray,
-                ),
-                modifier = Modifier.shadow(elevation = 4.dp)
+                colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = Color.White),
+                modifier = Modifier.shadow(4.dp)
             )
         },
         containerColor = backgroundColor
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-        ) {
-            if (isLoading) {
-                LoadingAnimation(primaryColor = primaryColor)
-            } else if (notifications.isEmpty()) {
-                EmptyNotificationScreen()
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(notifications.size) { index ->
-                        val notification = notifications[index]
-                        NotificationItem(
-                            notification = notification,
-                            firestore = firestore,
-                            primaryColor = primaryColor,
-                            onClick = { selectedNotification = notification },
-                            onDelete = { id ->
-                                notifications.removeAll { it["id"] == id }
-                            },
-                            onChatClick = { notification ->
-                                val notificationType = notification["type"] as? String
-                                val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
-
-                                val otherUserId = when (notificationType) {
-                                    "product_sold", "product_donated" -> notification["buyerId"] as? String
-                                    "purchase_confirmed", "donation_made" -> notification["sellerId"] as? String
-                                    else -> null
-                                }
-
-                                val transactionId = notification["transactionId"] as? String ?: ""
-
-                                if (otherUserId != null && transactionId.isNotEmpty()) {
-                                    chatViewModel.createOrGetTransactionChatRoom(
-                                        user1Id = currentUserId,
-                                        user2Id = otherUserId,
-                                        notificationId = transactionId
-                                    ) { chatRoomId ->
-                                        navController.navigate("chat/$chatRoomId/false")
-                                    }
-                                }
-                            },
-                            chatViewModel = chatViewModel
-                        )
-                    }
-                }
+        Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+            when {
+                isLoading -> LoadingAnimation(primaryColor)
+                notifications.isEmpty() -> EmptyNotificationScreen()
+                else -> NotificationList(
+                    notifications = notifications,
+                    firestore = firestore,
+                    primaryColor = primaryColor,
+                    chatViewModel = chatViewModel,
+                    navController = navController,
+                    onSelect = { selectedNotification = it },
+                    onDelete = { id -> notifications.removeAll { n -> n["id"] == id } }
+                )
             }
         }
     }
@@ -261,10 +215,122 @@ fun FarmerNotificationScreen(
             onDismiss = { selectedNotification = null },
             primaryColor = primaryColor,
             currentUserId = currentUserId ?: "",
-            chatViewModel = chatViewModel,     // ADD
-            navController = navController      // ADD
+            chatViewModel = chatViewModel,
+            navController = navController
         )
     }
+}
+
+// ---------------------------- Helper Composables ----------------------------
+
+@Composable
+fun NotificationList(
+    notifications: SnapshotStateList<Map<String, Any>>,
+    firestore: FirebaseFirestore,
+    primaryColor: Color,
+    chatViewModel: ChatViewModel,
+    navController: NavController,
+    onSelect: (Map<String, Any>) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        items(
+            items = notifications,
+            key = { it["id"].toString() } // Unique key for each notification
+        ) { notification ->
+
+            // Extract timestamp from notification
+            val timestamp = notification["timestamp"] as? com.google.firebase.Timestamp
+            val relativeTime = rememberRelativeTime(timestamp)
+
+            AnimatedVisibility(
+                visible = true,
+                enter = expandVertically(animationSpec = spring()) + fadeIn(),
+                exit = shrinkVertically(animationSpec = spring()) + fadeOut()
+            ) {
+                NotificationItem(
+                    notification = notification,
+                    firestore = firestore,
+                    primaryColor = primaryColor,
+                    onClick = { onSelect(notification) },
+                    onDelete = { id -> onDelete(id) },
+                    onChatClick = { notif ->
+                        val type = notif["type"] as? String ?: return@NotificationItem
+                        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@NotificationItem
+
+                        when (type) {
+                            "donation_made", "product_donated" -> {
+                                val orgName = notif["organizationName"] as? String ?: return@NotificationItem
+                                val donorId = if (type == "donation_made") currentUserId else notif["buyerId"] as? String
+                                    ?: return@NotificationItem
+
+                                // THIS IS THE KEY: setChatRoomId() ONLY after chat room is ready
+                                chatViewModel.createOrGetDonationOrgChatRoom(
+                                    organizationName = orgName,
+                                    donorId = donorId,
+                                    productId = notif["productId"] as? String
+                                ) { chatRoomId ->
+                                    // Now the document 100% exists
+                                    chatViewModel.setChatRoomId(chatRoomId)  // This will now work
+                                    navController.navigate("chat/$chatRoomId/false")
+                                }
+                            }
+
+                            else -> {
+                                // Regular purchase/sale chat (already working)
+                                val otherUserId = when (type) {
+                                    "product_sold" -> notif["buyerId"] as? String
+                                    "purchase_confirmed" -> notif["sellerId"] as? String
+                                    else -> null
+                                } ?: return@NotificationItem
+
+                                val transactionId = notif["transactionId"] as? String ?: return@NotificationItem
+
+                                chatViewModel.createOrGetTransactionChatRoom(
+                                    user1Id = currentUserId,
+                                    user2Id = otherUserId,
+                                    notificationId = transactionId
+                                ) { chatRoomId ->
+                                    chatViewModel.setChatRoomId(chatRoomId)
+                                    navController.navigate("chat/$chatRoomId/false")
+                                }
+                            }
+                        }
+                    },
+                    chatViewModel = chatViewModel,
+                    relativeTime = relativeTime
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------- Real-time Timestamp ----------------------------
+@Composable
+fun rememberRelativeTime(timestamp: Timestamp?): String {
+    var timeText by remember { mutableStateOf("Just now") }
+
+    LaunchedEffect(timestamp) {
+        if (timestamp != null) {
+            while (true) {
+                val date = timestamp.toDate()
+                timeText = DateUtils.getRelativeTimeSpanString(
+                    date.time,
+                    System.currentTimeMillis(),
+                    DateUtils.MINUTE_IN_MILLIS
+                ).toString()
+                kotlinx.coroutines.delay(60_000L)
+            }
+        }
+    }
+
+    return timeText
 }
 
 @Composable
@@ -332,7 +398,8 @@ fun NotificationItem(
     onDelete: (String) -> Unit,
     onChatClick: (Map<String, Any>) -> Unit,
     primaryColor: Color,
-    chatViewModel: ChatViewModel
+    chatViewModel: ChatViewModel,
+    relativeTime: String // NEW PARAMETER
 ) {
     val notificationType = notification["type"] as? String ?: "product_added"
     val imageUrl = notification["imageUrl"] as? String ?: ""
@@ -364,6 +431,7 @@ fun NotificationItem(
         }
     }
 
+    // Fetch other party's name
     LaunchedEffect(buyerId, sellerId, notificationType) {
         val otherPartyId = when (notificationType) {
             "product_sold", "product_donated" -> buyerId
@@ -424,6 +492,7 @@ fun NotificationItem(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(16.dp)
         ) {
+            // Image or Icon
             if (imageUrl.isNotEmpty()) {
                 Box(
                     modifier = Modifier
@@ -492,6 +561,7 @@ fun NotificationItem(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
+                // Price and quantity
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -522,76 +592,46 @@ fun NotificationItem(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                if (orderStatus != null && notificationType in listOf("product_sold", "purchase_confirmed")) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .background(
-                                color = getOrderStatusColor(orderStatus).copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = when (orderStatus) {
-                                "To Pay" -> Icons.Default.CreditCard
-                                "To Ship" -> Icons.Default.LocalShipping
-                                "To Receive" -> Icons.Default.CheckCircle
-                                "Completed" -> Icons.Default.Check
-                                else -> Icons.Default.Schedule
-                            },
-                            contentDescription = "Status Icon",
-                            tint = getOrderStatusColor(orderStatus),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = orderStatus,
-                            fontSize = 13.sp,
-                            color = getOrderStatusColor(orderStatus),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = notificationIcon,
-                            contentDescription = "Status",
-                            tint = Color.Gray,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = when (notificationType) {
-                                "product_sold" -> "Sold"
-                                "product_donated" -> "Donated"
-                                "purchase_confirmed" -> "Purchased"
-                                "donation_made" -> "Donated"
-                                else -> "Notification"
-                            },
-                            fontSize = 13.sp,
-                            color = notificationIconTint,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f)
-                        )
+                // Status or notification type
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = notificationIcon,
+                        contentDescription = "Status",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = when (notificationType) {
+                            "product_sold" -> "Sold"
+                            "product_donated" -> "Donated"
+                            "purchase_confirmed" -> "Purchased"
+                            "donation_made" -> "Donated"
+                            else -> "Notification"
+                        },
+                        fontSize = 13.sp,
+                        color = notificationIconTint,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                        Icon(
-                            imageVector = Icons.Default.Schedule,
-                            contentDescription = "Time",
-                            tint = Color.Gray,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Just now",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = "Time",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    // USE LIVE RELATIVE TIME HERE
+                    Text(
+                        text = relativeTime,
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
                 }
             }
 

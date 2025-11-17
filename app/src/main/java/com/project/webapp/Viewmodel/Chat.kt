@@ -119,12 +119,15 @@ class ChatViewModel : ViewModel() {
         currentChatRoomId = chatRoomId
         isCurrentChatAdmin = isAdminChat
 
-        // Determine which collection to use
-        val collectionName = if (isAdminChat) "adminChats" else "chats"
+        // Determine correct collection based on chatRoomId prefix
+        val collectionName = when {
+            isAdminChat -> "adminChats"
+            chatRoomId.startsWith("donation_org_") -> "donationOrgChats"   // ← THIS WAS MISSING
+            else -> "chats"
+        }
 
-        Log.d("ChatViewModel", "Setting up listener for $collectionName/$chatRoomId")
+        Log.d("ChatViewModel", "Listening to messages in: $collectionName/$chatRoomId")
 
-        // Listen to messages in the chat room
         messagesListener = firestore.collection(collectionName)
             .document(chatRoomId)
             .collection("messages")
@@ -135,10 +138,9 @@ class ChatViewModel : ViewModel() {
                     return@addSnapshotListener
                 }
 
-                val messagesList = mutableListOf<ChatMessage>()
-                snapshot?.documents?.forEach { doc ->
+                val messagesList = snapshot?.documents?.mapNotNull { doc ->
                     try {
-                        val message = ChatMessage(
+                        ChatMessage(
                             id = doc.id,
                             message = doc.getString("message") ?: "",
                             senderId = doc.getString("senderId") ?: "",
@@ -146,13 +148,12 @@ class ChatViewModel : ViewModel() {
                             timestamp = doc.getTimestamp("timestamp") ?: Timestamp.now(),
                             chatRoomId = chatRoomId
                         )
-                        messagesList.add(message)
                     } catch (e: Exception) {
-                        Log.e("ChatViewModel", "Error parsing message", e)
+                        null
                     }
-                }
+                } ?: emptyList()
+
                 _messages.value = messagesList
-                Log.d("ChatViewModel", "Loaded ${messagesList.size} messages from $collectionName")
             }
     }
 
@@ -411,4 +412,138 @@ class ChatViewModel : ViewModel() {
                 Log.e("ChatViewModel", "Error sending transaction message", e)
             }
     }
+
+    // Create or get a donation chat room with organization admin
+    fun createOrGetDonationOrgChatRoom(
+        organizationName: String,
+        donorId: String,
+        productId: String? = null,
+        onChatRoomReady: (String) -> Unit
+    ) {
+        // Normalize organization name for ID (remove spaces, special chars)
+        val cleanOrgName = organizationName.replace(Regex("[^a-zA-Z0-9]"), "_")
+        val chatRoomId = "donation_org_${cleanOrgName}_$donorId"
+
+        val db = firestore.collection("donationOrgChats").document(chatRoomId)
+
+        db.get().addOnSuccessListener { document ->
+            if (document.exists()) {
+                Log.d("DONATION_CHAT", "Chat room ready: $chatRoomId")
+                onChatRoomReady(chatRoomId)
+            } else {
+                // Fetch donor name
+                firestore.collection("users").document(donorId).get()
+                    .addOnSuccessListener { userDoc ->
+                        val firstName = userDoc.getString("firstname") ?: ""
+                        val lastName = userDoc.getString("lastname") ?: ""
+                        val donorName = "$firstName $lastName".trim().ifEmpty { "Donor" }
+
+                        val chatData = hashMapOf(
+                            "id" to chatRoomId,
+                            "type" to "donation_org",
+                            "organizationName" to organizationName,
+                            "donorId" to donorId,
+                            "donorName" to donorName,
+                            "productId" to productId,
+                            "participants" to listOf(donorId, "ORG_ADMIN_$cleanOrgName"),
+                            "createdAt" to Timestamp.now(),
+                            "lastMessage" to "Donation chat started",
+                            "lastMessageTime" to Timestamp.now(),
+                            "unreadCount" to mapOf(
+                                donorId to 0,
+                                "ORG_ADMIN" to 0
+                            )
+                        )
+
+                        db.set(chatData).addOnSuccessListener {
+                            onChatRoomReady(chatRoomId)
+                        }
+                    }
+                    .addOnFailureListener {
+                        // Fallback if user not found
+                        val chatData = hashMapOf(
+                            "id" to chatRoomId,
+                            "type" to "donation_org",
+                            "organizationName" to organizationName,
+                            "donorId" to donorId,
+                            "donorName" to "Donor",
+                            "participants" to listOf(donorId, "ORG_ADMIN_$cleanOrgName"),
+                            "createdAt" to Timestamp.now(),
+                            "lastMessage" to "Donation chat started",
+                            "lastMessageTime" to Timestamp.now(),
+                            "unreadCount" to mapOf(donorId to 0, "ORG_ADMIN" to 0)
+                        )
+                        db.set(chatData).addOnSuccessListener { onChatRoomReady(chatRoomId) }
+                    }
+            }
+        }
+    }
+
+    // Send message in donation org chat
+    fun sendDonationOrgMessage(messageText: String, senderIsOrgAdmin: Boolean = false) {
+        val currentUserId = auth.currentUser?.uid ?: return
+        val chatRoomId = currentChatRoomId ?: return
+
+        // Determine sender name
+        val senderName = if (senderIsOrgAdmin) {
+            "Organization Admin"  // Or your org name: "FeedTheHungry Admin"
+        } else {
+            // Fetch from users collection (donor)
+            var name = "Donor"
+            viewModelScope.launch {
+                firestore.collection("users").document(currentUserId).get()
+                    .addOnSuccessListener { doc ->
+                        val first = doc.getString("firstname") ?: ""
+                        val last = doc.getString("lastname") ?: ""
+                        name = "$first $last".trim().ifEmpty { "Donor" }
+                    }
+            }
+            // We'll use fallback for now, then update message after fetch if needed
+            // Better: fetch once when chat opens
+            "Donor"
+        }
+
+        val message = hashMapOf(
+            "message" to messageText,
+            "senderId" to if (senderIsOrgAdmin) "ORG_ADMIN" else currentUserId,
+            "senderName" to if (senderIsOrgAdmin) "Organization Admin" else getCurrentUserName(),
+            "timestamp" to Timestamp.now()
+        )
+
+        firestore.collection("donationOrgChats")
+            .document(chatRoomId)
+            .collection("messages")
+            .add(message)
+            .addOnSuccessListener {
+                firestore.collection("donationOrgChats").document(chatRoomId)
+                    .update(
+                        "lastMessage", messageText,
+                        "lastMessageTime", Timestamp.now(),
+                        "lastSenderId", if (senderIsOrgAdmin) "ORG_ADMIN" else currentUserId,
+                        "unreadCount.ORG_ADMIN", FieldValue.increment(1),
+                        "unreadCount.$currentUserId", 0
+                    )
+            }
+    }
+
+    private fun getCurrentUserName(): String {
+        val user = auth.currentUser
+        return user?.displayName?.takeIf { it.isNotEmpty() } ?: "Donor"
+    }
+
+    // Or better: cache name when chat starts
+    private var cachedDonorName: String = "Donor"
+
+    fun cacheDonorName() {
+        val uid = auth.currentUser?.uid ?: return
+        viewModelScope.launch {
+            firestore.collection("users").document(uid).get()
+                .addOnSuccessListener { doc ->
+                    val first = doc.getString("firstname") ?: ""
+                    val last = doc.getString("lastname") ?: ""
+                    cachedDonorName = "$first $last".trim().ifEmpty { "Donor" }
+                }
+        }
+    }
 }
+
