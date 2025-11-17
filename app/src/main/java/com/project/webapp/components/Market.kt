@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
 import androidx.compose.material.Icon
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,9 +71,13 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.project.webapp.dashboards.ProductCard
 import com.project.webapp.dashboards.fetchProducts
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 // Define a consistent color scheme
@@ -379,8 +384,8 @@ fun FarmerMarketScreen(
     if (showDialog) {
         AddProductDialog(
             onDismiss = { showDialog = false },
-            onAddProduct = { category, name, description, quantity, unit, price, imageUri ->
-                if (permissionState.status.isGranted) {
+            onAddProduct = { category, name, description, quantity, unit, price, imageUri, harvestDate ->
+            if (permissionState.status.isGranted) {
                     uploadProduct(
                         name = name,
                         description = description,
@@ -389,12 +394,14 @@ fun FarmerMarketScreen(
                         quantity = quantity,
                         unit = unit,
                         imageUri = imageUri,
+                        harvestDate = harvestDate, // NEW
                         firestore = firestore,
                         storage = storage,
                         authViewModel = authViewModel,
                         fusedLocationClient = fusedLocationClient,
                         context = context
                     )
+
                 } else {
                     permissionState.launchPermissionRequest()
                 }
@@ -408,7 +415,7 @@ fun FarmerMarketScreen(
 @Composable
 fun AddProductDialog(
     onDismiss: () -> Unit,
-    onAddProduct: (String, String, String, Double, String, Double, Uri?) -> Unit
+    onAddProduct: (String, String, String, Double, String, Double, Uri?, Timestamp) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -429,6 +436,26 @@ fun AddProductDialog(
     var expandedCategory by remember { mutableStateOf(false) }
     var expandedUnit by remember { mutableStateOf(false) }
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
+    var harvestDate by remember { mutableStateOf<Timestamp?>(null) }
+    val context = LocalContext.current
+
+// Fixed DatePickerDialog setup:
+    val datePickerDialog = remember {
+        val calendar = Calendar.getInstance()
+
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                calendar.set(year, month, dayOfMonth)
+                harvestDate = Timestamp(calendar.time)
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
+        )
+    }
+
+
 
     // Remove commas and limit decimals to 2
     fun normalizeDecimalInput(raw: String): String {
@@ -595,6 +622,48 @@ fun AddProductDialog(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 5
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Harvest Date",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                color = textPrimaryColor,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
+            OutlinedTextField(
+                value = harvestDate?.toDate()?.let { date ->
+                    SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(date)
+                } ?: "",
+                onValueChange = {},
+                readOnly = true,
+                placeholder = { Text("Select harvest date") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        enabled = true,
+                        onClick = { datePickerDialog.show() }
+                    ),
+                enabled = false, // Prevents keyboard from showing
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                    disabledBorderColor = dividerColor,
+                    disabledPlaceholderColor = textSecondaryColor,
+                    focusedBorderColor = primaryColor,
+                    unfocusedBorderColor = dividerColor
+                ),
+                shape = RoundedCornerShape(12.dp),
+                trailingIcon = {
+                    IconButton(onClick = { datePickerDialog.show() }) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = "Select date",
+                            tint = primaryColor
+                        )
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -813,7 +882,9 @@ fun AddProductDialog(
                     onClick = {
                         if (selectedCategory.isNotBlank() &&
                             name.isNotBlank() &&
-                            price.isNotBlank()) {
+                            price.isNotBlank() &&
+                            harvestDate != null
+                        ) { // ✅ Add this validation
 
                             val priceDouble = price.toDoubleOrNull() ?: 0.0
                             val finalQuantity = quantity.toDoubleOrNull() ?: 1.0
@@ -825,8 +896,16 @@ fun AddProductDialog(
                                 finalQuantity,
                                 selectedUnit,
                                 priceDouble,
-                                imageUri
+                                imageUri,
+                                harvestDate!!
                             )
+                        } else {
+                            // Show error message if harvest date is not selected
+                            Toast.makeText(
+                                context,
+                                "Please select a harvest date",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 ) {
@@ -847,10 +926,11 @@ fun uploadProduct(
     name: String,
     description: String,
     category: String,
-    quantity: Double,  // ✅ Ensuring it's passed as a Double
-    unit: String,  // ✅ Ensuring unit is separate
+    quantity: Double,
+    unit: String,
     price: Double,
     imageUri: Uri?,
+    harvestDate: Timestamp,
     firestore: FirebaseFirestore,
     storage: FirebaseStorage,
     authViewModel: AuthViewModel,
@@ -890,7 +970,7 @@ fun uploadProduct(
             imageRef.putFile(imageUri)
                 .addOnSuccessListener {
                     imageRef.downloadUrl.addOnSuccessListener { uri ->
-                        saveProductToFirestore(firestore, productRef.id, userId, category, uri.toString(), name, description, price, quantity, unit, cityName, context)
+                        saveProductToFirestore(firestore, productRef.id, userId, category, uri.toString(), name, description, price, quantity, unit, cityName, harvestDate, context)
                     }.addOnFailureListener { e ->
                         Log.e("Firebase", "Failed to get download URL", e)
                         Toast.makeText(context, "Image upload failed. Please try again.", Toast.LENGTH_SHORT).show()
@@ -901,7 +981,7 @@ fun uploadProduct(
                     Toast.makeText(context, "Failed to upload image. Check your internet connection.", Toast.LENGTH_SHORT).show()
                 }
         } else {
-            saveProductToFirestore(firestore, productRef.id, userId, category, "", name, description, price, quantity, unit, cityName, context)
+            saveProductToFirestore(firestore, productRef.id, userId, category, "", name, description, price, quantity, unit, cityName, harvestDate, context)
         }
     }.addOnFailureListener {
         Log.e("Location", "Failed to get location", it)
@@ -921,6 +1001,7 @@ fun saveProductToFirestore(
     quantity: Double,
     unit: String,
     cityName: String,
+    harvestDate: Timestamp,
     context: Context
 ) {
     val product = Product(
@@ -931,10 +1012,12 @@ fun saveProductToFirestore(
         name = name,
         description = description,
         price = price,
-        quantity = quantity,  // ✅ Ensure separate numeric quantity
-        quantityUnit = unit,  // ✅ Ensure unit is passed correctly
-        cityName = cityName
+        quantity = quantity,
+        quantityUnit = unit,
+        cityName = cityName,
+        harvestDate = harvestDate
     )
+
 
     firestore.collection("products").document(productId).set(product)
         .addOnSuccessListener {

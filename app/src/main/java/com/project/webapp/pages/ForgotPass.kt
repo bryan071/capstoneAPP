@@ -163,7 +163,9 @@ fun ForgotPass(
             Image(
                 painter = painterResource(id = R.drawable.logo),
                 contentDescription = "Logo",
-                modifier = Modifier.size(80.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .size(80.dp)
             )
             Text(
                 text = "Supporting farmers, reducing waste!",

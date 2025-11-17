@@ -110,7 +110,9 @@ fun Register(
             Image(
                 painter = painterResource(id = R.drawable.logo),
                 contentDescription = "App logo",
-                modifier = Modifier.size(80.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .size(80.dp)
             )
 
             Text(

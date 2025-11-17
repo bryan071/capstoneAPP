@@ -25,9 +25,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -100,7 +104,12 @@ fun Login(
 
         Spacer(modifier = Modifier.padding(vertical = 25.dp))
 
-        Text(text = "Login", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = "Login",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF0DA54B)
+        )
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -135,11 +144,32 @@ fun Login(
         }
 
         TextButton(onClick = { navController.navigate(Route.FORGOT_PASSWORD) }) {
-            Text(text = "Forgot Password?", color = Color.Black)
+            Text(
+                text = "Forgot Password?",
+                fontSize = 15.sp,
+                color = Color.Black
+            )
         }
 
         TextButton(onClick = { navController.navigate(Route.REGISTER) }) {
-            Text(text = "Don't have an account? Register here.", fontSize = 15.sp, color = Color.Black)
+            Text(
+                buildAnnotatedString {
+                    append("Don't have an account? ")
+
+                    withStyle(
+                        style = SpanStyle(
+                            color = Color(0xFF0DA54B),
+                            textDecoration = TextDecoration.Underline
+                        )
+                    ) {
+                        append("Register here")
+                    }
+
+                    append(".")
+                },
+                fontSize = 15.sp,
+                color = Color.Black
+            )
         }
     }
 }

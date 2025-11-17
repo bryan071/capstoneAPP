@@ -33,6 +33,8 @@ import com.project.webapp.R
 import com.project.webapp.Viewmodel.AuthState
 import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.datas.Product
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -239,6 +241,16 @@ fun ProductDetailsScreen(
                             color = cardColor
                         )
 
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        InfoCard(
+                            title = "Harvest Date",
+                            value = product?.harvestDate?.toDate()?.let { date ->
+                                SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(date)
+                            } ?: "N/A",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = cardColor
+                        )
                         Spacer(modifier = Modifier.height(24.dp))
 
                         // Description Section

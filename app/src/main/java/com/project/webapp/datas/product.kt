@@ -13,6 +13,7 @@ data class Product(
     val quantityUnit: String = "unit",
     val price: Double = 0.0,
     val cityName: String = "",
+    val harvestDate: Timestamp? = null,
     val timestamp: Timestamp = Timestamp.now()
 )
 

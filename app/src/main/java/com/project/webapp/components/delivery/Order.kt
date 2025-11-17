@@ -50,7 +50,7 @@ enum class OrderStatus(val displayName: String, val icon: ImageVector) {
     ALL("All", Icons.Default.ShoppingBag),
     COMPLETED("Completed", Icons.Default.CheckCircle),
     CANCELLED("Cancelled", Icons.Default.Cancel),
-    RETURN_REFUND("Return/Refund", Icons.Default.Refresh)
+
 }
 
 private fun getOrderStatusColor(status: String): Color = when (status.uppercase()) {
@@ -356,7 +356,6 @@ private fun getEmptyStateMessage(status: OrderStatus) = when (status) {
     OrderStatus.ALL -> "Start shopping or donating to see your orders here!"
     OrderStatus.COMPLETED -> "You haven't completed any orders yet."
     OrderStatus.CANCELLED -> "You don't have any cancelled orders."
-    OrderStatus.RETURN_REFUND -> "No returns or refunds have been processed."
 }
 /* -------------------------------------------------------------------------
    TABS
@@ -1175,7 +1174,6 @@ private fun statusOf(item: OrderItem) = when (item) {
 private fun matchesStatus(itemStatus: String, filter: OrderStatus): Boolean = when (filter) {
     OrderStatus.COMPLETED -> itemStatus.uppercase() in listOf("COMPLETED", "COMPLETE", "DELIVERED")
     OrderStatus.CANCELLED -> itemStatus.uppercase() in listOf("CANCELLED", "CANCELED")
-    OrderStatus.RETURN_REFUND -> itemStatus.uppercase() in listOf("RETURNED", "REFUNDED", "RETURN", "REFUND")
     OrderStatus.ALL -> true
 }
 
