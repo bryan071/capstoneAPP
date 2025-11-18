@@ -118,6 +118,14 @@ import com.project.webapp.Viewmodel.ChatViewModel
 import com.project.webapp.components.delivery.OrderStatusTimeline
 import com.project.webapp.components.profiles.AnimatedVisibility
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.firebase.firestore.FieldValue
+import com.project.webapp.utils.RealtimeClock
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
@@ -136,24 +144,55 @@ fun FarmerNotificationScreen(
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF7FAF9)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var listenerTrigger by remember { mutableStateOf(0) }
+
+// Add this
+    LaunchedEffect(Unit) {
+        lifecycleOwner.lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) {
+                listenerTrigger++  // This restarts the listener!
+                Log.d("NOTIF_SYNC", "🔥 Listener restarted on resume")
+            }
+        })
+    }
 
     // Real-time Firestore listener
-    LaunchedEffect(currentUserId) {
+    LaunchedEffect(currentUserId, listenerTrigger) {
         if (currentUserId != null) {
+            Log.d("NOTIF_SYNC", "🔴 STARTING LISTENER for: $currentUserId")
+
             firestore.collection("notifications")
                 .whereEqualTo("userId", currentUserId)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .addSnapshotListener { snapshot, error ->
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, error ->
                     isLoading = false
+
                     if (error != null) {
-                        Log.e("Firestore", "Error fetching notifications", error)
+                        Log.e("NOTIF_SYNC", "❌ LISTENER ERROR: ${error.message}", error)
                         return@addSnapshotListener
                     }
+
                     snapshot?.let {
+                        val source = if (it.metadata.isFromCache) "🟠 CACHE" else "🟢 SERVER"
+                        Log.d("NOTIF_SYNC", "$source - ${it.documents.size} notifications")
+
+                        // Log changes
+                        it.documentChanges.forEach { change ->
+                            val type = when (change.type) {
+                                com.google.firebase.firestore.DocumentChange.Type.ADDED -> "➕"
+                                com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> "✏️"
+                                com.google.firebase.firestore.DocumentChange.Type.REMOVED -> "➖"
+                            }
+                            Log.d("NOTIF_SYNC", "$type ${change.document.getString("name")}")
+                        }
+
                         notifications.clear()
                         notifications.addAll(it.documents.mapNotNull { doc ->
                             doc.data?.plus("id" to doc.id)
                         })
+
+                        Log.d("NOTIF_SYNC", "✅ UI updated: ${notifications.size} total")
                     }
                 }
         } else {
@@ -172,6 +211,19 @@ fun FarmerNotificationScreen(
         }
     }
 
+
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                Log.d("NOTIF_SYNC", "Screen resumed — forcing listener restart")
+                // This forces recomposition and restarts the listener
+                // (LaunchedEffect key changes slightly via this dummy state)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     Scaffold(
         topBar = {
             SmallTopAppBar(
@@ -246,8 +298,8 @@ fun NotificationList(
         ) { notification ->
 
             // Extract timestamp from notification
-            val timestamp = notification["timestamp"] as? com.google.firebase.Timestamp
-            val relativeTime = rememberRelativeTime(timestamp)
+            val timestamp = notification["timestamp"] as? Timestamp
+            val relativeTime = relativeTimeString(timestamp)
 
             AnimatedVisibility(
                 visible = true,
@@ -313,24 +365,21 @@ fun NotificationList(
 
 // ---------------------------- Real-time Timestamp ----------------------------
 @Composable
-fun rememberRelativeTime(timestamp: Timestamp?): String {
-    var timeText by remember { mutableStateOf("Just now") }
+fun relativeTimeString(timestamp: Timestamp?): String {
+    val now by RealtimeClock.currentTimeMillis()
 
-    LaunchedEffect(timestamp) {
-        if (timestamp != null) {
-            while (true) {
-                val date = timestamp.toDate()
-                timeText = DateUtils.getRelativeTimeSpanString(
-                    date.time,
-                    System.currentTimeMillis(),
-                    DateUtils.MINUTE_IN_MILLIS
-                ).toString()
-                kotlinx.coroutines.delay(60_000L)
-            }
+    return remember(timestamp, now) {
+        if (timestamp == null) {
+            "Just now"
+        } else {
+            DateUtils.getRelativeTimeSpanString(
+                timestamp.toDate().time,
+                now,
+                DateUtils.MINUTE_IN_MILLIS,
+                DateUtils.FORMAT_ABBREV_RELATIVE
+            ).toString()
         }
     }
-
-    return timeText
 }
 
 @Composable
@@ -835,38 +884,71 @@ fun NotificationDetailsDialog(
             "orderStatus" to "To Ship"
         )
 
-        firestore.collection("notifications").document(notificationId!!)
-            .update(updates)
+        // Step 1: Update the main order document FIRST
+        firestore.collection("orders").document(orderId!!)
+            .update(mapOf(
+                "status" to "To Ship",
+                "paymentStatus" to "Payment Received"
+            ))
             .addOnSuccessListener {
-                paymentStatus = "Payment Received"
-                orderStatus = "To Ship"
+                Log.d("NotificationSync", "✓ Order updated to To Ship")
 
-                firestore.collection("orders").document(orderId!!)
-                    .update("status", "To Ship")
-                    .addOnSuccessListener {
-                        Log.d("NotificationSync", "✓ Order status updated to To Ship")
+                // Step 2: Update ALL seller notifications
+                firestore.collection("notifications")
+                    .whereEqualTo("orderId", orderId)
+                    .get()
+                    .addOnSuccessListener { sellerDocs ->
+                        val batch = firestore.batch()
+                        sellerDocs.forEach { doc ->
+                            batch.update(doc.reference, updates)
+                        }
 
-                        updateBuyerStatus(firestore, orderId!!, "To Ship", "Payment Received")
-
-                        Toast.makeText(context, "Payment confirmed! Ready to ship.", Toast.LENGTH_SHORT).show()
+                        batch.commit().addOnSuccessListener {
+                            Log.d("NotificationSync", "✓ All seller notifications updated")
+                        }
                     }
-                    .addOnFailureListener { e ->
-                        Log.e("NotificationSync", "✗ Failed to update order", e)
+
+                // Step 3: Update ALL buyer notifications
+                firestore.collection("notifications")
+                    .whereEqualTo("orderId", orderId)
+                    .get()
+                    .addOnSuccessListener { buyerDocs ->
+                        val batch = firestore.batch()
+                        buyerDocs.forEach { doc ->
+                            batch.update(doc.reference, updates)
+                        }
+
+                        batch.commit().addOnSuccessListener {
+                            Log.d("NotificationSync", "✓ All buyer notifications updated")
+
+                            // Step 4: Log activity
+                            logFarmerActivity(
+                                firestore = firestore,
+                                userId = currentUserId,
+                                description = "You confirmed payment for $name",
+                                productName = name
+                            )
+
+                            // Step 5: Update transaction if exists
+                            if (!transactionId.isNullOrEmpty()) {
+                                firestore.collection("transactions").document(transactionId!!)
+                                    .update(mapOf(
+                                        "Payment_received" to true,
+                                        "status" to "To Ship"
+                                    ))
+                            }
+
+                            paymentStatus = "Payment Received"
+                            orderStatus = "To Ship"
+                            isUpdatingPayment = false
+
+                            Toast.makeText(context, "Payment confirmed! Ready to ship.", Toast.LENGTH_SHORT).show()
+                        }
                     }
-
-                if (!transactionId.isNullOrEmpty()) {
-                    firestore.collection("transactions").document(transactionId!!)
-                        .update(mapOf(
-                            "Payment_received" to true,
-                            "status" to "To Ship"
-                        ))
-                }
-
-                isUpdatingPayment = false
             }
             .addOnFailureListener { e ->
                 isUpdatingPayment = false
-                Log.e("NotificationSync", "✗ Failed to confirm payment", e)
+                Log.e("NotificationSync", "✗ Failed to update order", e)
                 Toast.makeText(context, "Failed to confirm payment", Toast.LENGTH_SHORT).show()
             }
     }
@@ -878,34 +960,64 @@ fun NotificationDetailsDialog(
         }
         isUpdatingShipping = true
 
-        firestore.collection("notifications").document(notificationId!!)
-            .update("orderStatus", "To Deliver")
+        // Step 1: Update the main order document FIRST
+        firestore.collection("orders").document(orderId!!)
+            .update("status", "To Deliver")
             .addOnSuccessListener {
-                orderStatus = "To Deliver"
+                Log.d("NotificationSync", "✓ Order updated to To Deliver")
 
-                firestore.collection("orders").document(orderId!!)
-                    .update("status", "To Deliver")
-                    .addOnSuccessListener {
-                        Log.d("NotificationSync", "✓ Order status updated to To Deliver")
+                // Step 2: Update ALL seller notifications
+                firestore.collection("notifications")
+                    .whereEqualTo("orderId", orderId)
+                    .get()
+                    .addOnSuccessListener { sellerDocs ->
+                        val batch = firestore.batch()
+                        sellerDocs.forEach { doc ->
+                            batch.update(doc.reference, "orderStatus", "To Deliver")
+                        }
 
-                        updateBuyerStatus(firestore, orderId!!, "To Deliver", null)
-
-                        Toast.makeText(context, "Item marked as shipped!", Toast.LENGTH_SHORT).show()
+                        batch.commit().addOnSuccessListener {
+                            Log.d("NotificationSync", "✓ All seller notifications updated")
+                        }
                     }
-                    .addOnFailureListener { e ->
-                        Log.e("NotificationSync", "✗ Failed to update order", e)
+
+                // Step 3: Update ALL buyer notifications
+                firestore.collection("notifications")
+                    .whereEqualTo("orderId", orderId)
+                    .get()
+                    .addOnSuccessListener { buyerDocs ->
+                        val batch = firestore.batch()
+                        buyerDocs.forEach { doc ->
+                            batch.update(doc.reference, "orderStatus", "To Deliver")
+                        }
+
+                        batch.commit().addOnSuccessListener {
+                            Log.d("NotificationSync", "✓ All buyer notifications updated")
+
+                            // Step 4: Log activity
+                            logFarmerActivity(
+                                firestore = firestore,
+                                userId = currentUserId,
+                                description = "You shipped $name to the buyer",
+                                productName = name
+                            )
+
+                            // Step 5: Update transaction if exists
+                            if (!transactionId.isNullOrEmpty()) {
+                                firestore.collection("transactions").document(transactionId!!)
+                                    .update("status", "To Deliver")
+                            }
+
+                            orderStatus = "To Deliver"
+                            isUpdatingShipping = false
+
+                            Toast.makeText(context, "Item marked as shipped!", Toast.LENGTH_SHORT).show()
+                        }
                     }
-
-                if (!transactionId.isNullOrEmpty()) {
-                    firestore.collection("transactions").document(transactionId!!)
-                        .update("status", "To Deliver")
-                }
-
-                isUpdatingShipping = false
             }
             .addOnFailureListener { e ->
                 isUpdatingShipping = false
-                Log.e("NotificationSync", "✗ Failed to update shipping", e)
+                Log.e("NotificationSync", "✗ Failed to update order", e)
                 Toast.makeText(context, "Failed to update shipping", Toast.LENGTH_SHORT).show()
             }
     }
@@ -917,35 +1029,65 @@ fun NotificationDetailsDialog(
         }
         isUpdatingShipping = true
 
-        firestore.collection("notifications").document(notificationId!!)
-            .update("orderStatus", "Completed")
+        // Step 1: Update the main order document FIRST
+        firestore.collection("orders").document(orderId!!)
+            .update("status", "Completed")
             .addOnSuccessListener {
-                orderStatus = "Completed"
+                Log.d("NotificationSync", "✓ Order completed")
 
-                firestore.collection("orders").document(orderId!!)
-                    .update("status", "Completed")
-                    .addOnSuccessListener {
-                        Log.d("NotificationSync", "✓ Order completed")
+                // Step 2: Update ALL buyer notifications
+                firestore.collection("notifications")
+                    .whereEqualTo("orderId", orderId)
+                    .get()
+                    .addOnSuccessListener { buyerDocs ->
+                        val batch = firestore.batch()
+                        buyerDocs.forEach { doc ->
+                            batch.update(doc.reference, "orderStatus", "Completed")
+                        }
 
-                        updateSellerStatus(firestore, orderId!!, "Completed")
-
-                        Toast.makeText(context, "Order completed successfully!", Toast.LENGTH_SHORT).show()
+                        batch.commit().addOnSuccessListener {
+                            Log.d("NotificationSync", "✓ All buyer notifications updated")
+                        }
                     }
-                    .addOnFailureListener { e ->
-                        Log.e("NotificationSync", "✗ Failed to update order", e)
+
+                // Step 3: Update ALL seller notifications
+                firestore.collection("notifications")
+                    .whereEqualTo("orderId", orderId)
+                    .get()
+                    .addOnSuccessListener { sellerDocs ->
+                        val batch = firestore.batch()
+                        sellerDocs.forEach { doc ->
+                            batch.update(doc.reference, "orderStatus", "Completed")
+                        }
+
+                        batch.commit().addOnSuccessListener {
+                            Log.d("NotificationSync", "✓ All seller notifications updated")
+
+                            // Step 4: Log activity for seller
+                            logFarmerActivity(
+                                firestore = firestore,
+                                userId = sellerId ?: return@addOnSuccessListener,
+                                description = "Your sale of $name was completed and delivered",
+                                productName = name
+                            )
+
+                            // Step 5: Update transaction if exists
+                            if (!transactionId.isNullOrEmpty()) {
+                                firestore.collection("transactions").document(transactionId!!)
+                                    .update("status", "Completed")
+                            }
+
+                            orderStatus = "Completed"
+                            isUpdatingShipping = false
+
+                            Toast.makeText(context, "Order completed successfully!", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        }
                     }
-
-                if (!transactionId.isNullOrEmpty()) {
-                    firestore.collection("transactions").document(transactionId!!)
-                        .update("status", "Completed")
-                }
-
-                isUpdatingShipping = false
-                onDismiss()
             }
             .addOnFailureListener { e ->
                 isUpdatingShipping = false
-                Log.e("NotificationSync", "✗ Failed to confirm delivery", e)
+                Log.e("NotificationSync", "✗ Failed to complete order", e)
                 Toast.makeText(context, "Failed to confirm delivery", Toast.LENGTH_SHORT).show()
             }
     }
@@ -1302,39 +1444,64 @@ private fun updateBuyerStatus(
 ) {
     Log.d("NotificationSync", "Updating buyer notifications for orderId: $orderId to status: $newStatus")
 
+    // First update the order document
+    val orderUpdates = mutableMapOf<String, Any>("status" to newStatus)
+    if (paymentStatus != null) {
+        orderUpdates["paymentStatus"] = paymentStatus
+    }
+
+    firestore.collection("orders").document(orderId)
+        .update(orderUpdates)
+        .addOnSuccessListener {
+            Log.d("NotificationSync", "✓ Order document updated")
+        }
+
+    // Then update ALL buyer notifications for this order
     firestore.collection("notifications")
         .whereEqualTo("orderId", orderId)
-        .whereEqualTo("type", "purchase_confirmed")
         .get()
         .addOnSuccessListener { docs ->
             if (docs.isEmpty) {
                 Log.w("NotificationSync", "⚠ No buyer notifications found for orderId: $orderId")
+                return@addOnSuccessListener
+            }
+
+            val batch = firestore.batch()
+            val updates = mutableMapOf<String, Any>("orderStatus" to newStatus)
+            if (paymentStatus != null) {
+                updates["paymentStatus"] = paymentStatus
             }
 
             docs.forEach { doc ->
-                val updates = mutableMapOf<String, Any>("orderStatus" to newStatus)
-                if (paymentStatus != null) {
-                    updates["paymentStatus"] = paymentStatus
-                }
-
-                firestore.collection("notifications").document(doc.id)
-                    .update(updates)
-                    .addOnSuccessListener {
-                        Log.d("NotificationSync", "✓ Buyer notification updated: ${doc.id} -> $newStatus")
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e("NotificationSync", "✗ Failed to update buyer notification: ${doc.id}", e)
-                    }
+                batch.update(doc.reference, updates)
             }
-        }
-        .addOnFailureListener { e ->
-            Log.e("NotificationSync", "✗ Failed to query buyer notifications for orderId: $orderId", e)
+
+            batch.commit()
+                .addOnSuccessListener {
+                    Log.d("NotificationSync", "✓ All buyer notifications updated (${docs.size()} docs)")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("NotificationSync", "✗ Batch update failed", e)
+                }
         }
 }
 
-private fun updateSellerStatus(firestore: FirebaseFirestore, orderId: String, newStatus: String) {
+
+private fun updateSellerStatus(
+    firestore: FirebaseFirestore,
+    orderId: String,
+    newStatus: String
+) {
     Log.d("NotificationSync", "Updating seller notifications for orderId: $orderId to status: $newStatus")
 
+    // First update the order document
+    firestore.collection("orders").document(orderId)
+        .update("status", newStatus)
+        .addOnSuccessListener {
+            Log.d("NotificationSync", "✓ Order document updated")
+        }
+
+    // Then update ALL seller notifications for this order
     firestore.collection("notifications")
         .whereEqualTo("orderId", orderId)
         .whereEqualTo("type", "product_sold")
@@ -1342,21 +1509,21 @@ private fun updateSellerStatus(firestore: FirebaseFirestore, orderId: String, ne
         .addOnSuccessListener { docs ->
             if (docs.isEmpty) {
                 Log.w("NotificationSync", "⚠ No seller notifications found for orderId: $orderId")
+                return@addOnSuccessListener
             }
 
+            val batch = firestore.batch()
             docs.forEach { doc ->
-                firestore.collection("notifications").document(doc.id)
-                    .update("orderStatus", newStatus)
-                    .addOnSuccessListener {
-                        Log.d("NotificationSync", "✓ Seller notification updated: ${doc.id} -> $newStatus")
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e("NotificationSync", "✗ Failed to update seller notification: ${doc.id}", e)
-                    }
+                batch.update(doc.reference, "orderStatus", newStatus)
             }
-        }
-        .addOnFailureListener { e ->
-            Log.e("NotificationSync", "✗ Failed to query seller notifications for orderId: $orderId", e)
+
+            batch.commit()
+                .addOnSuccessListener {
+                    Log.d("NotificationSync", "✓ All seller notifications updated (${docs.size()} docs)")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("NotificationSync", "✗ Batch update failed", e)
+                }
         }
 }
 
@@ -1512,7 +1679,7 @@ fun createSaleNotification(
         "transactionId" to (transactionId ?: ""),
         "status" to "To Pay",
         "paymentStatus" to "Payment Pending",
-        "timestamp" to Timestamp.now()
+        "timestamp" to FieldValue.serverTimestamp(),
     )
 
     firestore.collection("orders").document(finalOrderId)
@@ -1558,7 +1725,7 @@ fun createSaleNotification(
         "imageUrl" to product.imageUrl,
         "category" to product.category,
         "location" to product.cityName,
-        "timestamp" to Timestamp.now(),
+        "timestamp" to FieldValue.serverTimestamp(),
         "userId" to product.ownerId,
         "buyerId" to buyerId,
         "message" to "Your product was sold!",
@@ -1572,6 +1739,12 @@ fun createSaleNotification(
     transactionId?.let { sellerNotification["transactionId"] = it }
 
     firestore.collection("notifications").add(sellerNotification)
+        .addOnSuccessListener { docRef ->
+            Log.d("NOTIF_CREATE", "✅ Farmer notification created: ${docRef.id} for userId: ${product.ownerId}")
+        }
+        .addOnFailureListener { e ->
+            Log.e("NOTIF_CREATE", "❌ Failed to create farmer notification", e)
+        }
 
     val buyerNotification = hashMapOf(
         "type" to "purchase_confirmed",
@@ -1583,7 +1756,7 @@ fun createSaleNotification(
         "imageUrl" to product.imageUrl,
         "category" to product.category,
         "location" to product.cityName,
-        "timestamp" to Timestamp.now(),
+        "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
         "userId" to buyerId,
         "sellerId" to product.ownerId,
         "message" to "Purchase successful!",
@@ -1691,4 +1864,28 @@ private fun getDefaultMessage(notificationType: String): String {
         "purchase_confirmed" -> "Purchase successful! Your order has been placed."
         else -> "New product added!"
     }
+}
+
+private fun logFarmerActivity(
+    firestore: FirebaseFirestore,
+    userId: String,
+    description: String,
+    productName: String? = null
+) {
+    val activity = hashMapOf(
+        "userId" to userId,
+        "userType" to "Farmer",  // Critical for filtering
+        "description" to description,
+        "productName" to (productName ?: "a product"),
+        "timestamp" to Timestamp.now()
+    )
+
+    firestore.collection("activities")
+        .add(activity)
+        .addOnSuccessListener {
+            Log.d("ActivityLog", "Farmer activity logged: $description")
+        }
+        .addOnFailureListener { e ->
+            Log.e("ActivityLog", "Failed to log farmer activity", e)
+        }
 }

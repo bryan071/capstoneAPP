@@ -113,6 +113,9 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx:23.3.1")
     implementation("com.google.firebase:firebase-auth")
 
+    // For OpenStreetMap
+    implementation ("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation ("org.json:json:20231013")
 
 
     implementation("com.google.android.gms:play-services-auth:20.7.0")

@@ -4,13 +4,13 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -34,17 +35,17 @@ import com.project.webapp.Viewmodel.AuthViewModel
 import com.project.webapp.popup.Privacy
 import com.project.webapp.popup.Terms
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Register(
     modifier: Modifier = Modifier,
     navController: NavController,
     authViewModel: AuthViewModel = viewModel()
 ) {
-    // State variables
+    // Form states
     var firstname by remember { mutableStateOf("") }
     var lastname by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
-    var address by remember { mutableStateOf("") }
     var phoneNumber by remember { mutableStateOf("+63") }
     var password by remember { mutableStateOf("") }
     var confirmpass by remember { mutableStateOf("") }
@@ -53,7 +54,17 @@ fun Register(
     var userType by remember { mutableStateOf("") }
     var certificateUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Colors
+    // Address states
+    var selectedProvince by remember { mutableStateOf("") }
+    var selectedMunicipality by remember { mutableStateOf("") }
+    var selectedBarangay by remember { mutableStateOf("") }
+    var streetDetails by remember { mutableStateOf("") }
+
+    // Final address (for saving)
+    val fullAddress = listOf(streetDetails, selectedBarangay, selectedMunicipality, selectedProvince)
+        .filter { it.isNotBlank() }
+        .joinToString(", ")
+
     val primaryColor = Color(0xFF0DA54B)
     val backgroundColor = Color(0xFFF5F5F5)
     val cardColor = Color.White
@@ -63,292 +74,146 @@ fun Register(
 
     val certificatePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        certificateUri = uri
-    }
+    ) { uri: Uri? -> certificateUri = uri }
 
-    // Updated authentication state handling
     LaunchedEffect(authState) {
         when (val state = authState) {
             is AuthState.RegistrationSuccess -> {
-                // Show success message
-                Toast.makeText(
-                    context,
-                    "Registration successful! Please wait for admin approval before logging in.",
-                    Toast.LENGTH_LONG
-                ).show()
-
-                // Logout the user immediately after registration
+                Toast.makeText(context, "Registration successful! Please wait for admin approval.", Toast.LENGTH_LONG).show()
                 authViewModel.logout()
-
-                // Navigate to login page
-                navController.navigate(Route.LOGIN) {
-                    popUpTo(Route.REGISTER) { inclusive = true }
-                }
+                navController.navigate(Route.LOGIN) { popUpTo(Route.REGISTER) { inclusive = true } }
             }
-            is AuthState.Error -> {
-                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
-            }
+            is AuthState.Error -> Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
             else -> Unit
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundColor)
-            .padding(16.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(backgroundColor).padding(16.dp)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Logo and Tagline
-            Image(
-                painter = painterResource(id = R.drawable.logo),
-                contentDescription = "App logo",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .size(80.dp)
-            )
+            Image(painter = painterResource(R.drawable.logo), contentDescription = "Logo", modifier = Modifier.size(80.dp))
+            Text("Supporting farmers, reducing waste!", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = primaryColor)
+            Spacer(Modifier.height(20.dp))
 
-            Text(
-                text = "Supporting farmers, reducing waste!",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                color = primaryColor
-            )
+            Card(modifier = Modifier.fillMaxWidth().padding(8.dp), elevation = CardDefaults.cardElevation(4.dp), colors = CardDefaults.cardColors(cardColor), shape = RoundedCornerShape(16.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Register", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp).width(100.dp).height(2.dp), color = primaryColor)
 
-            Spacer(modifier = Modifier.height(20.dp))
+                    // Name fields
+                    OutlinedTextField(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), value = firstname, onValueChange = { firstname = it }, label = { Text("First Name") }, shape = RoundedCornerShape(8.dp), singleLine = true)
+                    OutlinedTextField(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), value = lastname, onValueChange = { lastname = it }, label = { Text("Last Name") }, shape = RoundedCornerShape(8.dp), singleLine = true)
+                    OutlinedTextField(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), value = email, onValueChange = { email = it }, label = { Text("Email Address") }, shape = RoundedCornerShape(8.dp), singleLine = true)
 
-            // Registration Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                elevation = CardDefaults.cardElevation(4.dp),
-                colors = CardDefaults.cardColors(containerColor = cardColor),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Register",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = primaryColor
+                    // === PHILIPPINE ADDRESS PICKER ===
+                    Text("Complete Address", fontWeight = FontWeight.Medium, fontSize = 16.sp, color = primaryColor, modifier = Modifier.align(Alignment.Start).padding(top = 12.dp, bottom = 8.dp))
+
+                    DropdownSelector(
+                        label = "Province",
+                        options = philippineProvinces,
+                        selected = selectedProvince,
+                        onSelected = {
+                            selectedProvince = it
+                            selectedMunicipality = ""
+                            selectedBarangay = ""
+                        }
                     )
 
-                    HorizontalDivider(
-                        modifier = Modifier
-                            .padding(vertical = 12.dp)
-                            .width(100.dp)
-                            .height(2.dp),
-                        color = primaryColor
+                    DropdownSelector(
+                        label = "City / Municipality",
+                        options = if (selectedProvince.isEmpty()) emptyList() else municipalities[selectedProvince] ?: emptyList(),
+                        selected = selectedMunicipality,
+                        onSelected = {
+                            selectedMunicipality = it
+                            selectedBarangay = ""
+                        }
                     )
 
-                    // Form Fields
+                    DropdownSelector(
+                        label = "Barangay",
+                        options = if (selectedMunicipality.isEmpty()) emptyList() else barangays["$selectedProvince|$selectedMunicipality"] ?: emptyList(),
+                        selected = selectedBarangay,
+                        onSelected = { selectedBarangay = it }
+                    )
+
                     OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        value = firstname,
-                        onValueChange = { firstname = it },
-                        label = { Text("First Name") },
+                        value = streetDetails,
+                        onValueChange = { streetDetails = it },
+                        label = { Text("Street, Purok, Sitio, House # (Optional)") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         shape = RoundedCornerShape(8.dp),
                         singleLine = true
                     )
 
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        value = lastname,
-                        onValueChange = { lastname = it },
-                        label = { Text("Last Name") },
-                        shape = RoundedCornerShape(8.dp),
-                        singleLine = true
-                    )
+                    // Show preview
+                    if (fullAddress.isNotEmpty()) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Address: $fullAddress", color = primaryColor, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
 
+                    // Phone, password, etc.
                     OutlinedTextField(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 6.dp),
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Email Address") },
-                        shape = RoundedCornerShape(8.dp),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        value = address,
-                        onValueChange = { address = it },
-                        label = { Text("Address") },
-                        shape = RoundedCornerShape(8.dp)
-                    )
-
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        value = phoneNumber,
+                        value = phoneNumber.removePrefix("+63"),
                         onValueChange = { input ->
-                            if (input.startsWith("+63")) {
-                                val digitsOnly = input.substring(3).filter { it.isDigit() }
-                                if (digitsOnly.length <= 10) {
-                                    phoneNumber = "+63$digitsOnly"
-                                }
-                            } else {
-                                phoneNumber = "+63"
+                            // Keep only digits
+                            var digits = input.filter { it.isDigit() }
+
+                            // Convert pasted numbers like 09123456789 or +639123456789
+                            digits = when {
+                                digits.startsWith("63") -> digits.drop(2)   // 63XXXXXXXXXX
+                                digits.startsWith("0") -> digits.drop(1)    // 09XXXXXXXXX
+                                else -> digits
                             }
+
+                            // Limit to 10 digits
+                            digits = digits.take(10)
+
+                            // Build final stored value
+                            phoneNumber = "+63$digits"
                         },
-                        label = { Text("Contact Number (e.g., +639123456789)") },
+                        label = { Text("Contact Number") },
+                        prefix = { Text("+63") },
                         shape = RoundedCornerShape(8.dp),
-                        singleLine = true
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
                     )
 
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        shape = RoundedCornerShape(8.dp),
-                        singleLine = true
-                    )
+                    OutlinedTextField(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), value = password, onValueChange = { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(8.dp), singleLine = true)
+                    OutlinedTextField(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), value = confirmpass, onValueChange = { confirmpass = it }, label = { Text("Confirm Password") }, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(8.dp), singleLine = true)
 
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        value = confirmpass,
-                        onValueChange = { confirmpass = it },
-                        label = { Text("Confirm Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        shape = RoundedCornerShape(8.dp),
-                        singleLine = true
-                    )
+                    Spacer(Modifier.height(12.dp))
+                    UserTypeSelector(selectedType = userType, onTypeSelected = { userType = it }, primaryColor = primaryColor)
+                    Spacer(Modifier.height(12.dp))
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // User Type Selection
-                    UserTypeSelector(
-                        selectedType = userType,
-                        onTypeSelected = { userType = it },
-                        primaryColor = primaryColor
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Certificate Upload
-                    Text(
-                        text = "Upload Certificate or ID",
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp,
-                        color = primaryColor,
-                        modifier = Modifier.align(Alignment.Start)
-                    )
-
-                    Button(
-                        onClick = { certificatePickerLauncher.launch("image/*") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD9D9D9)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = if (certificateUri != null) "Change File" else "Choose File",
-                            color = Color.Black
-                        )
+                    Text("Upload Certificate or ID", fontWeight = FontWeight.Medium, fontSize = 16.sp, color = primaryColor, modifier = Modifier.align(Alignment.Start))
+                    Button(onClick = { certificatePickerLauncher.launch("image/*") }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD9D9D9)), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(if (certificateUri != null) "Change File" else "Choose File", color = Color.Black)
                     }
+                    certificateUri?.let { Text("Selected: ${it.lastPathSegment}", fontSize = 14.sp, color = primaryColor) }
 
-                    certificateUri?.let {
-                        Text(
-                            text = "File selected: ${it.lastPathSegment}",
-                            fontSize = 14.sp,
-                            color = primaryColor,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Please accept the terms and conditions and data privacy policy to proceed.", fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 8.dp))
+                    TermsAndCondition(isChecked = termsChecked, onCheckedChange = { termsChecked = it }, primaryColor = primaryColor)
+                    DataPrivacy(isChecked = privacyChecked, onCheckedChange = { privacyChecked = it }, primaryColor = primaryColor)
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Terms and Privacy
-                    Text(
-                        text = "Please accept the terms and conditions and data privacy policy to proceed.",
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-
-                    TermsAndCondition(
-                        isChecked = termsChecked,
-                        onCheckedChange = { termsChecked = it },
-                        primaryColor = primaryColor
-                    )
-
-                    DataPrivacy(
-                        isChecked = privacyChecked,
-                        onCheckedChange = { privacyChecked = it },
-                        primaryColor = primaryColor
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Register Button
+                    Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = {
                             when {
-                                !termsChecked || !privacyChecked -> {
-                                    Toast.makeText(
-                                        context,
-                                        "You must accept the terms and privacy policy",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                                userType.isEmpty() -> {
-                                    Toast.makeText(
-                                        context,
-                                        "Please select a user type",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                                firstname.isBlank() || lastname.isBlank() ||
-                                        email.isBlank() || address.isBlank() -> {
-                                    Toast.makeText(
-                                        context,
-                                        "Please fill in all fields",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                                password != confirmpass -> {
-                                    Toast.makeText(
-                                        context,
-                                        "Passwords do not match",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                                password.length < 6 -> {
-                                    Toast.makeText(
-                                        context,
-                                        "Password must be at least 6 characters",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
+                                !termsChecked || !privacyChecked -> Toast.makeText(context, "Accept terms and privacy", Toast.LENGTH_SHORT).show()
+                                userType.isEmpty() -> Toast.makeText(context, "Select user type", Toast.LENGTH_SHORT).show()
+                                firstname.isBlank() || lastname.isBlank() || email.isBlank() || fullAddress.isBlank() -> Toast.makeText(context, "Complete all fields", Toast.LENGTH_SHORT).show()
+                                password != confirmpass -> Toast.makeText(context, "Passwords don't match", Toast.LENGTH_SHORT).show()
+                                password.length < 6 -> Toast.makeText(context, "Password too short", Toast.LENGTH_SHORT).show()
                                 else -> {
                                     val formattedPhone = formatPhoneNumber(phoneNumber)
                                     authViewModel.signup(
@@ -356,7 +221,7 @@ fun Register(
                                         password = password,
                                         firstname = firstname,
                                         lastname = lastname,
-                                        address = address,
+                                        address = fullAddress,  // ← This is your complete PH address
                                         phoneNumber = formattedPhone,
                                         userType = userType,
                                         confirmpass = confirmpass,
@@ -367,54 +232,97 @@ fun Register(
                             }
                         },
                         enabled = authState != AuthState.Loading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                         shape = RoundedCornerShape(25.dp)
                     ) {
-                        if (authState == AuthState.Loading) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text(
-                                text = "Register",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        if (authState == AuthState.Loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        else Text("Register", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    if (authState is AuthState.Error) {
-                        Text(
-                            text = (authState as AuthState.Error).message,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(top = 8.dp),
-                            textAlign = TextAlign.Center,
-                            fontSize = 14.sp
-                        )
-                    }
+                    if (authState is AuthState.Error) Text((authState as AuthState.Error).message, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
 
-                    TextButton(
-                        onClick = { navController.navigate(Route.LOGIN) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "Already have an account? Login",
-                            color = primaryColor,
-                            fontWeight = FontWeight.Medium
-                        )
+                    TextButton(onClick = { navController.navigate(Route.LOGIN) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Already have an account? Login", color = primaryColor, fontWeight = FontWeight.Medium)
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
+
+// Reusable Dropdown
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DropdownSelector(
+    label: String,
+    options: List<String>,
+    selected: String,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }, modifier = Modifier.padding(vertical = 4.dp)) {
+        OutlinedTextField(
+            value = selected.ifEmpty { "Select $label" },
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            modifier = Modifier.menuAnchor().fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(option) }, onClick = {
+                    onSelected(option)
+                    expanded = false
+                })
+            }
+        }
+    }
+}
+
+// Philippine Data — ONLY Valenzuela City + Bulacan Province
+val philippineProvinces = listOf(
+    "Bulacan",           // Province
+    "Metro Manila"    // Highly Urbanized City (treated as separate "province" in dropdown)
+)
+
+// Municipalities / Cities under Bulacan + Valenzuela as standalone
+val municipalities = mapOf(
+    "Bulacan" to listOf(
+        "Baliuag", "Malolos City", "Meycauayan City", "San Jose del Monte City",
+        "Bocaue", "Marilao", "Santa Maria", "Norzagaray", "Obando", "Pandi",
+        "Plaridel", "Pulilan", "Guiguinto", "Bulacan", "Bustos", "Calumpit",
+        "Hagonoy", "Paombong", "Angat", "Doña Remedios Trinidad", "San Ildefonso",
+        "San Miguel", "San Rafael"
+    ),
+    "Metro Manila" to listOf("Valenzuela City") // It's a single city, no sub-muni
+)
+
+// Real Barangays (sample from popular areas — you can expand later)
+val barangays = mapOf(
+    // === VALENZUELA CITY (33 official barangays - showing most used) ===
+    "Metro Manila|Valenzuela City" to listOf(
+        "Malinta", "Karuhatan", "Gen. T. de Leon", "Dalandanan", "Maysan",
+        "Paso de Blas", "Mapulang Lupa", "Bagbaguin", "Arkong Bato",
+        "Punturin", "Canumay West", "Canumay East", "Coloong", "Lingunan",
+        "Parada", "Mabolo", "Poblacion", "Tagalag", "Rincon", "Palasan",
+        "Wawang Pulo", "Bignay", "Viente Reales", "Marulas", "Ugong"
+    ),
+
+    // === BULACAN MUNICIPALITIES (sample barangays) ===
+    "Bulacan|Baliuag" to listOf("Poblacion", "Sabang", "Tiaong", "Pagala", "Bagong Nayon", "Tangos", "Hinukay", "Matangtubig"),
+    "Bulacan|Malolos City" to listOf("Sumapang Matanda", "Santo Niño", "Catmon", "San Agustin", "Barihan", "Pulong Buhangin", "Mojon"),
+    "Bulacan|Meycauayan City" to listOf("Calvario", "Perez", "Camalig", "Hulo", "Malhacan", "Poblacion", "Bangkal"),
+    "Bulacan|San Jose del Monte City" to listOf("Muzon", "Graceville", "Tungkong Mangga", "Kaypian", "San Pedro", "Citrus"),
+    "Bulacan|Bocaue" to listOf("Batia", "Bundukan", "Tambobong", "Taal", "Biñang 1st", "Lolomboy"),
+    "Bulacan|Marilao" to listOf("Loma de Gato", "Saog", "Lambakin", "Ibayo", "Poblacion I", "Tabing Ilog"),
+    "Bulacan|Santa Maria" to listOf("Cay Pombo", "Pulong Buhangin", "Guyong", "Mag-asawang Sapa", "Catmon"),
+    "Bulacan|Plaridel" to listOf("Bangkal", "Tabang", "Sipat", "Bulihan", "Parulan", "Agnaya"),
+    "Bulacan|Guiguinto" to listOf("Poblacion", "Santa Rita", "Tuktukan", "Ilang-Ilang", "Daungan")
+    // Add more as needed — this covers the most common areas
+)
 
 @Composable
 fun UserTypeSelector(

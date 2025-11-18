@@ -1,5 +1,6 @@
 package com.project.webapp.components.payment
 
+import CartViewModel
 import android.graphics.Bitmap
 import android.util.Log
 import android.widget.Toast
@@ -70,6 +71,7 @@ import com.project.webapp.components.generateQRCode
 import com.project.webapp.datas.CartItem
 import com.project.webapp.datas.GCashApiConfig
 import com.project.webapp.datas.GCashPaymentRequest
+import com.project.webapp.datas.Product
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -144,7 +146,7 @@ fun GcashScreen(
         displayItems: List<CartItem>
     ) {
         if (displayItems.isEmpty()) {
-            Log.e("GCashDebug", "Cannot process payment with empty items!")
+            Log.e("GCashDebug", "❌ Cannot process payment with empty items!")
             paymentStatus = "Error: No items to process"
             isLoading = false
             errorMessage = "Unable to process payment: No items found."
@@ -157,26 +159,25 @@ fun GcashScreen(
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val userAddress = cartViewModel.currentUser.value?.address ?: "No address provided"
         val userType = if (displayItems.any { it.isDirectBuy }) "direct_buying" else "cart_checkout"
+
+        Log.d("GCashDebug", "🔴🔴🔴 Starting payment processing")
+        Log.d("GCashDebug", "Items: ${displayItems.size}, Total: $totalPrice")
+
         val paymentData = hashMapOf(
             "transactionId" to transactionId,
             "referenceId" to referenceId,
             "status" to "Pending",
             "amount" to totalPrice,
             "seller" to ownerId,
-            "timestamp" to Timestamp.now(),
+            "timestamp" to com.google.firebase.Timestamp.now(),
             "paymentMethod" to "GCash"
         )
-
-        Log.d("GCashDebug", "Processing payment with ${displayItems.size} items")
-        displayItems.forEach { item ->
-            Log.d("GCashDebug", "Item: ${item.name}, ID: ${item.productId}, Quantity: ${item.quantity}, Price: ${item.price}")
-        }
 
         firestore.collection("payments")
             .document(transactionId)
             .set(paymentData)
             .addOnSuccessListener {
-                Log.d("GCashScreen", "Payment record created successfully")
+                Log.d("GCashScreen", "✅ Payment record created")
                 paymentStatus = "Payment successful!"
 
                 val transactionData = hashMapOf(
@@ -187,7 +188,7 @@ fun GcashScreen(
                     "paymentMethod" to "Gcash",
                     "status" to "Pending",
                     "transactionType" to "sale",
-                    "timestamp" to Timestamp.now(),
+                    "timestamp" to com.google.firebase.Timestamp.now(),
                     "items" to displayItems.map { item ->
                         mapOf(
                             "productId" to item.productId,
@@ -205,80 +206,124 @@ fun GcashScreen(
                     .document(transactionId)
                     .set(transactionData)
                     .addOnSuccessListener {
-                        Log.d("Transaction", "Transaction record added successfully.")
+                        Log.d("Transaction", "✅ Transaction saved")
+
+                        // ✅ CRITICAL: Create ALL notifications before proceeding
+                        val notificationTasks = mutableListOf<com.google.android.gms.tasks.Task<*>>()
+
                         displayItems.forEach { cartItem ->
-                            cartViewModel.getProductById(cartItem.productId) { product ->
-                                product?.let { prod ->
-                                    createSaleNotification(
-                                        firestore = firestore,
-                                        product = prod,
-                                        buyerId = userId,
-                                        paymentMethod = "GCash",
-                                        deliveryAddress = userAddress,
-                                        transactionId = transactionId
+                            Log.d("GCashDebug", "🔍 Fetching product: ${cartItem.productId}")
 
-                                    )
+                            val task = firestore.collection("products")
+                                .document(cartItem.productId)
+                                .get()
+                                .continueWithTask { productTask ->
+                                    if (productTask.isSuccessful && productTask.result != null) {
+                                        val productDoc = productTask.result
+                                        val product = productDoc.toObject(com.project.webapp.datas.Product::class.java)
+
+                                        if (product != null) {
+                                            product.prodId = productDoc.id
+
+                                            Log.d("GCashDebug", "🔴 Creating notification for: ${product.name}")
+                                            Log.d("GCashDebug", "   Buyer: $userId, Seller: ${product.ownerId}")
+
+                                            // Create notification NOW
+                                            com.project.webapp.components.createSaleNotification(
+                                                firestore = firestore,
+                                                product = product,
+                                                buyerId = userId,
+                                                paymentMethod = "GCash",
+                                                deliveryAddress = userAddress,
+                                                transactionId = transactionId,
+                                                quantity = cartItem.quantity
+                                            )
+
+                                            Log.d("GCashDebug", "✅ Notification created for: ${product.name}")
+                                            com.google.android.gms.tasks.Tasks.forResult(null)
+                                        } else {
+                                            Log.e("GCashDebug", "❌ Product is null for: ${cartItem.productId}")
+                                            com.google.android.gms.tasks.Tasks.forResult(null)
+                                        }
+                                    } else {
+                                        Log.e("GCashDebug", "❌ Failed to fetch product: ${cartItem.productId}")
+                                        com.google.android.gms.tasks.Tasks.forResult(null)
+                                    }
                                 }
-                            }
+
+                            notificationTasks.add(task)
                         }
+
+                        // ✅ Wait for ALL notifications to complete
+                        com.google.android.gms.tasks.Tasks.whenAllComplete(notificationTasks)
+                            .addOnCompleteListener { allComplete ->
+                                Log.d("GCashDebug", "✅✅✅ ALL ${displayItems.size} notifications created!")
+
+                                val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", java.util.Locale.getDefault())
+                                paymentTimestamp = dateFormat.format(java.util.Date())
+
+                                firestore.collection("users").document(userId).get()
+                                    .addOnSuccessListener { userDocument ->
+                                        val orderItems = displayItems.toList()
+
+                                        com.project.webapp.Viewmodel.createOrderRecord(
+                                            userId,
+                                            orderItems,
+                                            "GCash",
+                                            totalPrice.toFloat(),
+                                            userAddress
+                                        )
+
+                                        cartViewModel.completePurchase(userType, "GCash", referenceId)
+
+                                        val activity = hashMapOf(
+                                            "userId" to userId,
+                                            "userType" to "Business",
+                                            "description" to "Placed an order worth ₱${totalPrice.toInt()} via GCash.",
+                                            "timestamp" to com.google.firebase.Timestamp.now()
+                                        )
+
+                                        firestore.collection("activities").add(activity)
+
+                                        val itemsJson = com.google.gson.Gson().toJson(orderItems)
+                                        val encodedItems = java.net.URLEncoder.encode(itemsJson, "UTF-8")
+
+                                        navController.navigate(
+                                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId&items=$encodedItems"
+                                        )
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Log.e("GCashScreen", "Error fetching user data", e)
+                                        // Still proceed even if user fetch fails
+                                        val orderItems = displayItems.toList()
+                                        com.project.webapp.Viewmodel.createOrderRecord(
+                                            userId,
+                                            orderItems,
+                                            "GCash",
+                                            totalPrice.toFloat(),
+                                            "No address provided"
+                                        )
+                                        cartViewModel.completePurchase(userType, "GCash", referenceId)
+
+                                        val itemsJson = com.google.gson.Gson().toJson(orderItems)
+                                        val encodedItems = java.net.URLEncoder.encode(itemsJson, "UTF-8")
+                                        navController.navigate(
+                                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId&items=$encodedItems"
+                                        )
+                                    }
+                            }
                     }
                     .addOnFailureListener { e ->
-                        Log.e("Transaction", "Failed to save transaction record: ${e.message}")
-                    }
-
-                val dateFormat = SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault())
-                paymentTimestamp = dateFormat.format(Date())
-
-                firestore.collection("users").document(userId).get()
-                    .addOnSuccessListener { userDocument ->
-                        val userAddress = userDocument.getString("address") ?: "No address provided"
-                        val orderItems = displayItems.toList()
-
-                        Log.d("GCashDebug", "Creating order with ${orderItems.size} items")
-
-                        createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), userAddress)
-                        cartViewModel.completePurchase(userType, "GCash", referenceId)
-
-                        val activity = hashMapOf(
-                            "userId" to userId,
-                            "description" to "Placed an order worth ₱${totalPrice.toInt()} via Gcash.",
-                            "timestamp" to Timestamp.now()
-                        )
-
-                        firestore.collection("activities")
-                            .add(activity)
-                            .addOnSuccessListener {
-                                Log.d("RecentActivity", "Activity logged successfully.")
-                            }
-                            .addOnFailureListener { e ->
-                                Log.e("RecentActivity", "Failed to log activity: ${e.message}")
-                            }
-
-                        // Pass orderItems as a JSON string
-                        val itemsJson = Gson().toJson(orderItems)
-                        val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
-                        navController.navigate(
-                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId&items=$encodedItems"
-                        )
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e("GCashScreen", "Error fetching user data", e)
-                        val orderItems = displayItems.toList()
-                        createOrderRecord(userId, orderItems, "GCash", totalPrice.toFloat(), "No address provided")
-                        cartViewModel.completePurchase(userType, "GCash", referenceId)
-
-                        // Pass orderItems as a JSON string
-                        val itemsJson = Gson().toJson(orderItems)
-                        val encodedItems = URLEncoder.encode(itemsJson, "UTF-8")
-                        navController.navigate(
-                            "checkoutScreen/$userType/${totalPrice.toFloat()}?paymentMethod=GCash&referenceId=$referenceId&items=$encodedItems"
-                        )
+                        Log.e("Transaction", "❌ Transaction save failed", e)
+                        paymentStatus = "Error saving transaction"
+                        errorMessage = "Transaction error: ${e.message}"
+                        showErrorDialog = true
                     }
             }
             .addOnFailureListener { e ->
-                Log.e("GCashScreen", "Error saving payment: ${e.message}")
+                Log.e("GCashScreen", "❌ Payment save failed", e)
                 paymentStatus = "Error saving payment record"
-                errorMessage = "Payment processing error: ${e.message}"
+                errorMessage = "Payment error: ${e.message}"
                 showErrorDialog = true
             }
     }

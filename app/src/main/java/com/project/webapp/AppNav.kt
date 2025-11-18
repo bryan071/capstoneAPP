@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.runtime.getValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -302,16 +303,19 @@ fun AppNav(modifier: Modifier = Modifier, authViewModel: AuthViewModel, cartView
                 )
             }
 
-            composable("recent_activity_screen") {
-                val state = authViewModel.authState.observeAsState().value
+            composable("recent_activity_screen") { navBackStackEntry ->
+                val state by authViewModel.authState.observeAsState()
 
-                if (state is AuthState.Authenticated) {
-                    RecentActivityScreen(
-                        userType = state.userType,
-                        userId = state.userId
-                    )
-                } else {
-                    Text("User not authenticated")
+                when (state) {
+                    is AuthState.Authenticated -> {
+                        RecentActivityScreen(
+                            userType = (state as AuthState.Authenticated).userType,
+                            userId = (state as AuthState.Authenticated).userId
+                        )
+                    }
+                    else -> {
+                        Text("User not authenticated")
+                    }
                 }
             }
         }

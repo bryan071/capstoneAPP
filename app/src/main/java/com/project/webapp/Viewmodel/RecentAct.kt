@@ -1,56 +1,55 @@
-package com.project.webapp.Viewmodel
-
 import android.util.Log
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
-import com.project.webapp.datas.UserActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
+import com.project.webapp.datas.UserActivity
+import kotlinx.coroutines.flow.asStateFlow
 
 class ActivityViewModel : ViewModel() {
     private val db = FirebaseFirestore.getInstance()
+    private var listener: ListenerRegistration? = null
+
     private val _activities = MutableStateFlow<List<UserActivity>>(emptyList())
-    val activities: StateFlow<List<UserActivity>> = _activities
-    private var listenerRegistration: ListenerRegistration? = null
+    val activities: StateFlow<List<UserActivity>> = _activities.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     fun fetchActivities(userType: String, userId: String) {
-        listenerRegistration?.remove()
-        _activities.value = emptyList() // Clear previous data
+        Log.d("ActivityViewModel", "Fetching activities → userId: $userId, userType: $userType")
 
-        val collection = "activities" // Change to the correct collection name
-        Log.d("ActivityViewModel", "Querying with userId: $userId, collection: $collection")
+        listener?.remove()
+        _errorMessage.value = null
 
-        listenerRegistration = db.collection(collection)
+        listener = db.collection("activities")
             .whereEqualTo("userId", userId)
+            .whereEqualTo("userType", userType)
             .orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e("ActivityViewModel", "Error fetching activities", error)
-                    _activities.value = emptyList()
-                    return@addSnapshotListener
+            .addSnapshotListener { snapshot, exception ->
+                when {
+                    exception != null -> {
+                        Log.e("ActivityViewModel", "Firestore error", exception)
+                        _errorMessage.value = "Failed to load activities. Check your connection."
+                        _activities.value = emptyList()
+                    }
+                    snapshot == null || snapshot.isEmpty -> {
+                        Log.d("ActivityViewModel", "No activities found")
+                        _activities.value = emptyList()
+                    }
+                    else -> {
+                        Log.d("ActivityViewModel", "Fetched ${snapshot.size()} activities")
+                        val list = snapshot.toObjects(UserActivity::class.java)
+                        _activities.value = list
+                    }
                 }
-
-                snapshot?.documents?.forEach {
-                    Log.d("ActivityViewModel", "Document data: ${it.data}")
-                }
-
-                Log.d("ActivityViewModel", "Snapshot size: ${snapshot?.documents?.size}")
-
-                val fetchedActivities = snapshot?.documents?.mapNotNull {
-                    it.toObject(UserActivity::class.java)
-                } ?: emptyList()
-
-                _activities.value = fetchedActivities
-                Log.d("ActivityViewModel", "Fetched ${fetchedActivities.size} activities")
             }
     }
 
     override fun onCleared() {
+        listener?.remove()
         super.onCleared()
-        listenerRegistration?.remove()
     }
 }

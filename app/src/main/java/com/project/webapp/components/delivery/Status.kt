@@ -573,14 +573,14 @@ fun TrackingInfoDialog(
                             TrackingInfoRow(
                                 icon = Icons.Default.Schedule,
                                 label = "Estimated Delivery",
-                                value = trackingInfo?.get("estimatedDelivery") as? String ?: "3-5 business days",
+                                value = trackingInfo?.get("estimatedDelivery") as? String ?: "1-3 business days",
                                 primaryColor = primaryColor
                             )
                         }
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Tip: You can track your package using the tracking number on the courier's website",
+                        "Tip: Please note that some deliveries may be delayed during bad weather.",
                         fontSize = 13.sp,
                         color = Color.Gray,
                         lineHeight = 18.sp

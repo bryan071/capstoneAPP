@@ -1023,6 +1023,13 @@ fun saveProductToFirestore(
         .addOnSuccessListener {
             Log.d("Firebase", "Product added successfully!")
             addNotification(firestore, product, userId, cityName)
+
+            logFarmerActivity(
+                firestore = firestore,
+                userId = userId,
+                description = "You added a new product: ${product.name}"
+            )
+
             Toast.makeText(context, "Product added successfully!", Toast.LENGTH_SHORT).show()
         }
         .addOnFailureListener { e ->
@@ -1120,5 +1127,26 @@ fun PriceFilterSection(
     }
 }
 
+private fun logFarmerActivity(
+    firestore: FirebaseFirestore,
+    userId: String,
+    description: String
+) {
+    val activity = hashMapOf(
+        "userId" to userId,
+        "userType" to "Farmer",           // ← THIS IS CRITICAL
+        "description" to description,
+        "timestamp" to Timestamp.now()
+    )
+
+    firestore.collection("activities")
+        .add(activity)
+        .addOnSuccessListener {
+            Log.d("RecentActivity", "Farmer activity logged: $description")
+        }
+        .addOnFailureListener { e ->
+            Log.e("RecentActivity", "Failed to log farmer activity", e)
+        }
+}
 
 

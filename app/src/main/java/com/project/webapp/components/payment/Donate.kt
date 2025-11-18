@@ -1,5 +1,6 @@
 package com.project.webapp.components.payment
 
+import CartViewModel
 import android.graphics.Bitmap
 import android.util.Log
 import android.widget.Toast
@@ -385,7 +386,8 @@ fun DonationScreen(
                                 cartViewModel.completePurchase(userType, "GCash")
                                 val activity = hashMapOf(
                                     "userId" to userId,
-                                    "description" to "Donate an order worth ₱${totalPrice.toInt()} via Gcash.",
+                                    "userType" to "Business",  // Add this if not already there
+                                    "description" to "Donated ₱${totalPrice.toInt()} to ${organization.name} via GCash.",
                                     "timestamp" to Timestamp.now()
                                 )
 

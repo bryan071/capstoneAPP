@@ -18,6 +18,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val authViewModel : AuthViewModel by viewModels()
+        // Configure Firestore BEFORE any queries
+        val firestore = FirebaseFirestore.getInstance()
+        val settings = FirebaseFirestoreSettings.Builder()
+            .setPersistenceEnabled(true)
+            .build()
+        firestore.firestoreSettings = settings
+
 
         setContent {
             Scaffold (modifier = Modifier.fillMaxSize()){

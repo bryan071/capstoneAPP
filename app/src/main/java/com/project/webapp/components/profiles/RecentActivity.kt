@@ -1,5 +1,6 @@
 package com.project.webapp.components.profiles
 
+import ActivityViewModel
 import android.util.Log
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
@@ -64,7 +66,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.project.webapp.Viewmodel.ActivityViewModel
 import com.project.webapp.datas.UserActivity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -74,73 +75,61 @@ import java.util.Locale
 @Composable
 fun RecentActivityScreen(userType: String, userId: String) {
     val viewModel: ActivityViewModel = viewModel()
-    val activities = viewModel.activities.collectAsState().value
-    var isLoading by remember { mutableStateOf(true) }
-    val primaryColor = Color(0xFF0DA54B) // Consistent with FarmerNotificationScreen
-    val backgroundColor = Color(0xFFF7FAF9) // Consistent background
+    val activities by viewModel.activities.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
-    // Trigger fetch once
-    LaunchedEffect(userId) {
+    val primaryColor = Color(0xFF0DA54B)
+    val backgroundColor = Color(0xFFF7FAF9)
+
+    // Fetch activities whenever userId or userType changes
+    LaunchedEffect(userId, userType) {
+        Log.d("RecentActivityScreen", "Fetching activities for userId=$userId, type=$userType")
         viewModel.fetchActivities(userType, userId)
-        Log.d("RecentActivityScreen", "userId passed = $userId")
-        Log.d("ActivityViewModel", "Listening for activities with userId = $userId")
-        // Simulate loading for better UX
-        isLoading = false
     }
 
     Scaffold(
         topBar = {
             SmallTopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.History,
-                            contentDescription = "Recent Activity",
+                            contentDescription = null,
                             tint = primaryColor,
                             modifier = Modifier.size(32.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(Modifier.width(12.dp))
                         Text(
-                            text = "Recent Activity",
+                            "Recent Activity",
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.DarkGray
                         )
                     }
                 },
-                colors = TopAppBarDefaults.smallTopAppBarColors(
-                    containerColor = Color.White,
-                    titleContentColor = Color.DarkGray
-                ),
-                modifier = Modifier.shadow(elevation = 4.dp)
+                colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = Color.White),
+                modifier = Modifier.shadow(4.dp)
             )
         },
         containerColor = backgroundColor
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-        ) {
+        Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             when {
-                isLoading -> {
-                    LoadingAnimation(primaryColor = primaryColor)
+                errorMessage != null -> {
+                    ErrorState(message = errorMessage!!, onRetry = {
+                        viewModel.fetchActivities(userType, userId)
+                    })
                 }
                 activities.isEmpty() -> {
-                    EmptyActivityScreen()
+                    EmptyActivityScreen(onRefresh = { viewModel.fetchActivities(userType, userId) })
                 }
                 else -> {
                     LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp)
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(activities) { activity ->
+                        items(activities, key = { it.timestamp }) { activity ->
                             ActivityItem(activity = activity, primaryColor = primaryColor)
                         }
                     }
@@ -152,60 +141,37 @@ fun RecentActivityScreen(userType: String, userId: String) {
 
 @Composable
 fun ActivityItem(activity: UserActivity, primaryColor: Color) {
-    val timestamp = activity.timestamp.toDate()
-    val formattedDate = SimpleDateFormat("MMM dd", Locale.getDefault()).format(timestamp)
-    val formattedTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(timestamp)
-    var isPressed by remember { mutableStateOf(false) }
+    val date = SimpleDateFormat("MMM dd", Locale.getDefault()).format(activity.timestamp.toDate())
+    val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(activity.timestamp.toDate())
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
             .clickable(
-                onClick = { /* Add click functionality if needed */ },
                 indication = rememberRipple(),
                 interactionSource = remember { MutableInteractionSource() }
-            )
-            .graphicsLayer {
-                scaleX = if (isPressed) 0.98f else 1f
-                scaleY = if (isPressed) 0.98f else 1f
-            }
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
-                )
-            ),
+            ) { },
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp,
-            pressedElevation = 4.dp
-        ),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Icon placeholder for activity
             Box(
                 modifier = Modifier
                     .size(50.dp)
-                    .background(primaryColor.copy(alpha = 0.1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                    .background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = "Activity Icon",
-                    tint = primaryColor,
-                    modifier = Modifier.size(30.dp)
-                )
+                Icon(Icons.Default.History, contentDescription = null, tint = primaryColor, modifier = Modifier.size(30.dp))
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(Modifier.width(16.dp))
 
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = activity.description,
                     fontWeight = FontWeight.Bold,
@@ -214,24 +180,11 @@ fun ActivityItem(activity: UserActivity, primaryColor: Color) {
                     overflow = TextOverflow.Ellipsis,
                     color = Color.DarkGray
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = "Time",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "$formattedDate at $formattedTime",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("$date at $time", fontSize = 12.sp, color = Color.Gray)
                 }
             }
         }
@@ -239,137 +192,57 @@ fun ActivityItem(activity: UserActivity, primaryColor: Color) {
 }
 
 @Composable
-fun LoadingAnimation(primaryColor: Color) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+fun EmptyActivityScreen(onRefresh: () -> Unit) {
+    var rotating by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(if (rotating) 360f else 0f, tween(800, easing = LinearEasing))
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
+        Icon(Icons.Default.History, contentDescription = null, tint = Color(0xFF0DA54B), modifier = Modifier.size(100.dp))
+        Spacer(Modifier.height(24.dp))
+        Text("No activities yet", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.DarkGray)
+        Spacer(Modifier.height(12.dp))
+        Text("Your recent activities will appear here.", fontSize = 16.sp, color = Color.Gray, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(32.dp))
+
+        Button(
+            onClick = {
+                rotating = true
+                onRefresh()
+                // Reset animation
+                rotating = false
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0DA54B)),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            val infiniteTransition = rememberInfiniteTransition(label = "loading_transition")
-            val angle by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "rotation_animation"
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.graphicsLayer(rotationZ = rotation),
+                tint = Color.White
             )
-            val scale by infiniteTransition.animateFloat(
-                initialValue = 0.8f,
-                targetValue = 1.2f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(800, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "scale_animation"
-            )
-
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .graphicsLayer {
-                        rotationZ = angle
-                        scaleX = scale
-                        scaleY = scale
-                    }
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.fillMaxSize(),
-                    color = primaryColor,
-                    strokeWidth = 6.dp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Loading activities...",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = primaryColor
-            )
+            Spacer(Modifier.width(8.dp))
+            Text("Refresh", fontWeight = FontWeight.Medium)
         }
     }
 }
 
 @Composable
-fun EmptyActivityScreen() {
+fun ErrorState(message: String, onRetry: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(
-            imageVector = Icons.Default.History,
-            contentDescription = "No Activities",
-            tint = Color(0xFF0DA54B),
-            modifier = Modifier.size(100.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "No activities yet",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.DarkGray
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Your recent activities will appear here.",
-            fontSize = 16.sp,
-            color = Color.Gray,
-            textAlign = TextAlign.Center,
-            lineHeight = 24.sp
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        var isRefreshing by remember { mutableStateOf(false) }
-        val rotation by animateFloatAsState(
-            targetValue = if (isRefreshing) 360f else 0f,
-            animationSpec = tween(
-                durationMillis = 1000,
-                easing = LinearEasing
-            ),
-            label = "refresh_rotation"
-        )
-
-        Button(
-            onClick = {
-                isRefreshing = true
-                // Trigger a refresh of activities
-                // Since fetch is already handled by LaunchedEffect, this is mostly for UX
-                isRefreshing = false
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF0DA54B)
-            ),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = "Refresh",
-                modifier = Modifier
-                    .size(20.dp)
-                    .graphicsLayer {
-                        rotationZ = rotation
-                    },
-                tint = Color.White
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (isRefreshing) "Refreshing..." else "Refresh",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
+        Text("Error loading activities", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Color.Red)
+        Spacer(Modifier.height(8.dp))
+        Text(message, color = Color.Gray, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onRetry) {
+            Text("Retry")
         }
     }
 }
